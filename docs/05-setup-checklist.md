@@ -34,16 +34,24 @@ Three separate things, used at different times. Rationale for each choice is in
 | # | What | Type | Used for | Needed |
 | --- | --- | --- | --- | --- |
 | 1 | **Realtime Trip Update** (Sydney Trains) | API (protobuf) | Delay collection + the agent's live tools | **Now** |
-| 2 | **Timetables — For Realtime** (or *Timetables Complete GTFS*) | Static zip | `routes.txt` → the T1/T4 route lookup; later, human-readable stop and route names | **Now** |
+| 2 | **Timetables — For Realtime — v2 API** | Static zip | `routes.txt` → the T1/T4 route lookup; later, human-readable stop and route names | **Now** |
 | 3 | Opal **Fares Business Rules**, Opal **Terms of Use**, **Fares & Ticketing brochure** | 3 PDFs | The retrieval corpus | Weeks 4–7 |
 
 Also worth adding to the same API key while you are there, since it costs nothing
 and the agent needs it later: **Realtime Service Alerts** (Sydney Trains).
 
-**On the static bundle:** either works — the lookup script only reads `routes.txt`
-out of the zip. *For Realtime* is smaller and is scoped to operators that actually
-have live feeds, which is what the realtime joins will want later. *Complete GTFS*
-is the full network including regional and trackwork routes.
+**Take the v2 bundle, not the plain one.** TfNSW publishes the static timetable and
+the realtime feed in versioned pairs, and `route_id` values differ between versions.
+This project polls the **v2** trip-update feed, so it needs the v2 static bundle:
+
+- [Public Transport – Timetables – For Realtime – **v2 API**](https://opendata.transport.nsw.gov.au/dataset/public-transport-timetables-realtime-v2) ← use this one
+- [Timetables Complete GTFS](https://opendata.transport.nsw.gov.au/dataset/timetables-complete-gtfs) — the whole network including regional and trackwork. Larger, and a fallback only.
+
+Both need you to be logged in; the page shows "Login to download" rather than a
+direct link. The lookup script only reads `routes.txt` out of the zip, so the size
+difference does not matter beyond the download itself.
+
+`--probe` is what confirms you got the right one — see §4b.
 
 **Not using:** the Trip Planner API (it would outsource the trip logic the agent is
 supposed to reason through), the structured Opal Fares CSVs (tabular, not the prose
@@ -131,9 +139,10 @@ overnight; try again during service hours before changing anything.
 
 ## 5. Build the route lookup
 
-The realtime feed identifies trips by `route_id`; `T1` and `T4` only exist in the
-static bundle. Download **Timetables Complete GTFS** (or the "For Realtime" bundle)
-from the Open Data Hub, then:
+The realtime feed identifies trips by `route_id` — `ESI_1c`, `NTH_1a`, `RTTA_REV`
+and so on. `T1` and `T4` exist only in the static bundle, and one line maps to
+several `route_id`s (T4 spans the `ESI_*` group, T1 the `NTH_*` and `WST_*` ones),
+which the lookup handles. Download the v2 bundle from §2, then:
 
 ```bash
 ls ~/Downloads/*.zip
