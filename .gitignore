@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------------------
+# Academic / supervisor documents — kept locally, never in the public repo.
+# The repo is a portfolio artefact; assessment drafts and meeting notes are not.
+# ---------------------------------------------------------------------------
+*.docx
+*.dotx
+*.pptx
+*.potx
+*.doc
+*.ppt
+~$*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# ---------------------------------------------------------------------------
+# Data. Nothing under data/ is committed: TfNSW bundles are large and
+# redistributable only under their own licence, and the collected delay
+# database is a build artefact of the collection window, not source.
+# ---------------------------------------------------------------------------
+data/*
+!data/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+*.zip
+
+# Vector store (rebuilt from data/raw by scripts/build_index.py)
+.chroma/
+chroma/
+
+# Trained models (rebuilt by the training script; too large and too churny for git)
+models/*.joblib
+models/*.json
+!models/.gitkeep
+
+# Editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Logs
+*.log
+logs/
