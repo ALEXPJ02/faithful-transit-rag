@@ -72,11 +72,14 @@ def _env_csv(name: str, default: str) -> tuple[str, ...]:
 class TfnswConfig:
     """Transport for NSW Open Data Hub access.
 
-    ``trip_update_url`` defaults to the documented Sydney Trains realtime
-    path. The exact resource path sits behind login on the Open Data Hub,
-    so confirm it against your own Applications page before a long
-    collection run and override it via ``TFNSW_TRIP_UPDATE_URL`` if it
-    differs. See docs/05-setup-checklist.md.
+    ``trip_update_url`` is the v2 Sydney Trains feed, confirmed against the
+    product's own OpenAPI console (base ``api.transport.nsw.gov.au/v2/gtfs/
+    realtime``, path ``/sydneytrains``). Note the version is a path *prefix*,
+    not a suffix — ``/v1/gtfs/realtime/sydneytrains/v2`` is not a thing.
+
+    ``alerts_url`` is NOT confirmed the same way: the Service Alerts product
+    has its own console and may or may not share the v2 base. Check it the
+    same way before relying on it, and override via ``TFNSW_ALERTS_URL``.
     """
 
     api_key: str
@@ -95,7 +98,7 @@ class TfnswConfig:
             api_key=api_key,
             trip_update_url=_env(
                 "TFNSW_TRIP_UPDATE_URL",
-                "https://api.transport.nsw.gov.au/v1/gtfs/realtime/sydneytrains",
+                "https://api.transport.nsw.gov.au/v2/gtfs/realtime/sydneytrains",
             ),
             alerts_url=_env(
                 "TFNSW_ALERTS_URL",

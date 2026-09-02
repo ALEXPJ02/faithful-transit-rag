@@ -85,7 +85,7 @@ Phase 2 deployment happens **after** grading.
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
 | **Collection not running / silently failing** | Fatal to the prediction layer | Start immediately; `--status` after every scheduling change; check `poll_log` weekly |
-| Wrong realtime endpoint path | Collects nothing, looks fine | The client raises rather than storing garbage when the response isn't protobuf; verify with `--once` before any long run |
+| Static bundle and feed from different versions | Collects nothing, looks fine | `transit-poller --probe` names this case explicitly; run it before any long collection |
 | Laptop uptime | Gaps in the training window | Schedule it off the laptop — GitHub Actions cron or an always-on box ([`05-setup-checklist.md`](./05-setup-checklist.md) §5) |
 | Weeks 4–7 overrun into the harness | Loses the highest-value phase | Cut system scope, not harness scope. Trip Planner API is the escape hatch for GTFS joins |
 | Anthropic spend overrun | Budget | Console spend limit; Haiku for judging; cache eval-set embeddings |

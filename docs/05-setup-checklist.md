@@ -61,27 +61,30 @@ Put keys in `.env` only. It is gitignored; the repo is public.
 
 **Set a spend limit in the Anthropic Console now**, before the first eval run.
 
-## 4. Confirm the realtime endpoint ← *do not skip*
+## 4. The realtime endpoint
 
-The exact resource path sits behind login on the Open Data Hub, so `config.py` ships
-a documented default that may not match your account's. A wrong URL is the worst
-failure mode available here: it usually returns HTML with a `200`, which would look
-like a working collector storing nothing.
+Confirmed from the product's own OpenAPI console:
 
-The client guards against this — it raises when a response isn't a GTFS-Realtime
-protobuf rather than writing garbage — but confirm it explicitly:
-
-```bash
-transit-poller --once
+```
+https://api.transport.nsw.gov.au/v2/gtfs/realtime/sydneytrains
 ```
 
-A healthy result prints a poll with a non-zero entity count. If it fails, copy the
-exact URL from the API's resource page in your account and override it:
+The v2 product also serves `/metro` and `/lightrail/innerwest` off the same base.
+**The version is a path prefix, not a suffix** — `/v2/gtfs/realtime`, not
+`/v1/gtfs/realtime/.../v2`. This is the repo default, so there is nothing to set
+unless TfNSW changes it.
 
-```bash
-# in .env
-TFNSW_TRIP_UPDATE_URL=https://api.transport.nsw.gov.au/v1/gtfs/realtime/<actual-path>
-```
+Two things the console gives you for free, worth using before touching the
+terminal:
+
+- **Authorize** (top right) accepts your API key and lets you fire the request from
+  the browser. If it returns binary, the key works and the path is right.
+- Adding `?debug=true` returns the feed as readable text instead of protobuf —
+  useful for eyeballing what a trip update actually contains.
+
+**Service Alerts is a separate product with its own console.** Its base URL is not
+confirmed here; check it the same way and set `TFNSW_ALERTS_URL` if it differs from
+the default. Nothing depends on it until the agent's live tool layer is built.
 
 ## 4b. Probe the feed before trusting it
 
