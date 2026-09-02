@@ -32,27 +32,65 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
+      # The schedule goes live the moment this file reaches the default
+      # branch, which is well before the key exists. Skipping quietly beats
+      # 288 failure notifications a day while the repo is still being set up.
+      - name: Skip unless the API key is configured
+        id: guard
+        env:
+          TFNSW_API_KEY: ${{ secrets.TFNSW_API_KEY }}
+        run: |
+          if [ -z "$TFNSW_API_KEY" ]; then
+            echo "::notice::TFNSW_API_KEY is not set — nothing to collect yet. \
+          Add it under Settings → Secrets and variables → Actions."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check out code
+        if: steps.guard.outputs.ready == 'true'
         uses: actions/checkout@v4
 
-      - name: Check out the data branch
-        uses: actions/checkout@v4
-        with:
-          ref: collected-data
-          path: .data
+      # Deliberately not actions/checkout: the branch does not exist on the
+      # first run, and creating it here removes a manual setup step. Must run
+      # after the code checkout, which cleans the workspace.
+      - name: Check out (or create) the data branch
+        if: steps.guard.outputs.ready == 'true'
+        env:
+          REMOTE: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+        run: |
+          if git clone --branch collected-data --single-branch --depth 1 "$REMOTE" .data 2>/dev/null; then
+            echo "Using the existing collected-data branch."
+          else
+            echo "collected-data branch not found — creating it."
+            git clone --depth 1 "$REMOTE" .data
+            cd .data
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git switch --orphan collected-data
+            mkdir -p observations && touch observations/.gitkeep
+            git add observations/.gitkeep
+            git commit -q -m "Start collected-data branch"
+            git push -u origin collected-data
+          fi
 
       - name: Install uv
+        if: steps.guard.outputs.ready == 'true'
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
       - name: Set up Python
+        if: steps.guard.outputs.ready == 'true'
         run: uv python install
 
       - name: Install the collector only
+        if: steps.guard.outputs.ready == 'true'
         run: uv pip install --system -e ".[realtime]"
 
       - name: Poll
+        if: steps.guard.outputs.ready == 'true'
         env:
           TFNSW_API_KEY: ${{ secrets.TFNSW_API_KEY }}
           # Set as a repository variable if your account's resource path
@@ -64,6 +102,7 @@ jobs:
         run: transit-poller --once --sink csv
 
       - name: Commit the snapshot
+        if: steps.guard.outputs.ready == 'true'
         working-directory: .data
         run: |
           git config user.name "github-actions[bot]"

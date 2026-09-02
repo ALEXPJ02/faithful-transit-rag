@@ -88,7 +88,11 @@ gitignored precisely so it can be.
 
 ### One-time setup
 
-1. **Push to GitHub** and confirm the repo is public.
+1. **Push to GitHub** as a **public** repo (`faithful-transit-rag`):
+
+   ```bash
+   gh repo create faithful-transit-rag --public --source=. --remote=origin --push
+   ```
 
 2. **Commit the route lookup.** Unlike the rest of `data/`, `data/routes_lookup.csv`
    is tracked — the scheduled run needs it in the repo to scope itself to T1/T4.
@@ -96,32 +100,25 @@ gitignored precisely so it can be.
    is many times the volume.
 
    ```bash
-   git add data/routes_lookup.csv && git commit -m "Add T1/T4 route lookup"
+   git add data/routes_lookup.csv && git commit -m "Add T1/T4 route lookup" && git push
    ```
 
-3. **Create the data branch.** Snapshots go to a dedicated `collected-data` branch,
-   not `main`. At this cadence collection produces a few hundred commits a day, and
-   `main` is the branch anyone reading the repo actually looks at.
-
-   ```bash
-   git switch --orphan collected-data
-   mkdir -p observations && touch observations/.gitkeep
-   git add observations/.gitkeep
-   git commit -m "Start collected-data branch"
-   git push -u origin collected-data
-   git switch main
-   ```
-
-4. **Add the API key as a secret.** Repo → Settings → Secrets and variables →
+3. **Add the API key as a secret.** Repo → Settings → Secrets and variables →
    Actions → New repository secret: `TFNSW_API_KEY`.
+
+   Until this exists the workflow runs on schedule and **exits quietly** without
+   collecting. That is deliberate: the schedule activates the moment the workflow
+   file reaches the default branch, which is long before the key does, and 288
+   failure notifications a day is not a useful signal.
 
    If your account's endpoint path differs from the default, also add a repository
    **variable** (not a secret) named `TFNSW_TRIP_UPDATE_URL`.
 
-5. **Run it once by hand.** Actions tab → *Collect delay observations* → *Run
-   workflow*. Then check the `collected-data` branch for a new file under
-   `observations/<today>/`. If the run succeeds but writes nothing, the endpoint or
-   the route filter is wrong — not the schedule.
+4. **Run it once by hand.** Actions tab → *Collect delay observations* → *Run
+   workflow*. The `collected-data` branch is created automatically on that first
+   real run; check it for a new file under `observations/<today>/`. If the run
+   succeeds but writes nothing, the endpoint or the route filter is wrong — not
+   the schedule.
 
 ### Cadence
 
