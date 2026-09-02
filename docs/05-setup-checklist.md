@@ -40,18 +40,29 @@ Three separate things, used at different times. Rationale for each choice is in
 Also worth adding to the same API key while you are there, since it costs nothing
 and the agent needs it later: **Realtime Service Alerts** (Sydney Trains).
 
-**Take the v2 bundle, not the plain one.** TfNSW publishes the static timetable and
-the realtime feed in versioned pairs, and `route_id` values differ between versions.
-This project polls the **v2** trip-update feed, so it needs the v2 static bundle:
+**You do not have to download this by hand.** The bundle is served from the same
+API as the feeds, so one command fetches it with the key already in `.env`:
 
-- [Public Transport – Timetables – For Realtime – **v2 API**](https://opendata.transport.nsw.gov.au/dataset/public-transport-timetables-realtime-v2) ← use this one
-- [Timetables Complete GTFS](https://opendata.transport.nsw.gov.au/dataset/timetables-complete-gtfs) — the whole network including regional and trackwork. Larger, and a fallback only.
+```bash
+python -m transit_rag.prediction.collection.routes --fetch
+```
 
-Both need you to be logged in; the page shows "Login to download" rather than a
-direct link. The lookup script only reads `routes.txt` out of the zip, so the size
-difference does not matter beyond the download itself.
+It pulls `https://api.transport.nsw.gov.au/v1/gtfs/schedule/sydneytrains`, builds
+the lookup, and reports which `route_id`s resolved to each tracked line.
 
-`--probe` is what confirms you got the right one — see §4b.
+**It must be the "For Realtime" bundle, not Complete GTFS.** TfNSW says so plainly
+on the Complete GTFS dataset page: *"Identifiers do not match the GTFS-realtime
+APIs and data."* Built from that bundle the lookup resolves nothing, and the
+collector then records zero rows behind a healthy-looking poll log — the failure
+§4b exists to catch.
+
+Sydney Trains is on the **v1** schedule path. The `v2` "For Realtime" dataset
+covers Metro only, despite the trip-update feed you poll being v2; the version
+numbers of the two APIs are not in step. If `--fetch` returns 401 or 403, the key
+works for the feed but this is a separate API product — add **Public Transport –
+Timetables – For Realtime** to your application on the Open Data Hub and retry.
+The browser download from the [dataset page](https://opendata.transport.nsw.gov.au/dataset/public-transport-timetables-realtime)
+also works if you would rather.
 
 **Not using:** the Trip Planner API (it would outsource the trip logic the agent is
 supposed to reason through), the structured Opal Fares CSVs (tabular, not the prose
@@ -145,8 +156,13 @@ several `route_id`s (T4 spans the `ESI_*` group, T1 the `NTH_*` and `WST_*` ones
 which the lookup handles. Download the v2 bundle from §2, then:
 
 ```bash
-ls ~/Downloads/*.zip
-python -m transit_rag.prediction.collection.routes ~/Downloads/THE_FILE_YOU_SAW.zip
+python -m transit_rag.prediction.collection.routes --fetch
+```
+
+Or, from a bundle you downloaded yourself:
+
+```bash
+python -m transit_rag.prediction.collection.routes path/to/bundle.zip
 ```
 
 This writes `data/routes_lookup.csv`. **Open it and confirm `T1` and `T4` appear

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import zipfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from transit_rag.prediction.collection.routes import (
+    fetch_schedule_bundle,
     load_routes_lookup,
     read_routes_txt,
     write_routes_lookup,
@@ -66,3 +68,73 @@ def test_missing_lookup_returns_empty_mapping(tmp_path: Path) -> None:
 def test_missing_routes_txt_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         read_routes_txt(tmp_path)
+
+
+class TestFetchScheduleBundle:
+    """The bundle is a separate API product from the realtime feed, so a key
+    that polls fine can still be refused here — and the message has to say so
+    rather than looking like a broken URL."""
+
+    def test_a_403_names_the_missing_api_product(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TFNSW_API_KEY", "key")
+
+        class Refused:
+            status_code = 403
+
+            def raise_for_status(self) -> None:
+                raise AssertionError("should have been handled before this")
+
+        monkeypatch.setattr("requests.get", lambda *a, **k: Refused())
+
+        with pytest.raises(RuntimeError, match="Timetables - For Realtime"):
+            fetch_schedule_bundle(tmp_path / "gtfs.zip")
+
+    def test_a_successful_download_streams_to_disk(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TFNSW_API_KEY", "key")
+
+        class Ok:
+            status_code = 200
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_content(self, chunk_size: int) -> Any:
+                yield b"PK\x03\x04"
+                yield b"payload"
+
+        monkeypatch.setattr("requests.get", lambda *a, **k: Ok())
+        destination = tmp_path / "nested" / "gtfs.zip"
+
+        result = fetch_schedule_bundle(destination)
+
+        assert result == destination
+        assert destination.read_bytes() == b"PK\x03\x04payload"
+
+    def test_it_sends_the_apikey_header(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TFNSW_API_KEY", "secret-key")
+        captured: dict[str, Any] = {}
+
+        class Ok:
+            status_code = 200
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_content(self, chunk_size: int) -> Any:
+                yield b""
+
+        def fake_get(url: str, **kwargs: Any) -> Ok:
+            captured.update(url=url, headers=kwargs["headers"])
+            return Ok()
+
+        monkeypatch.setattr("requests.get", fake_get)
+        fetch_schedule_bundle(tmp_path / "gtfs.zip")
+
+        assert captured["headers"]["Authorization"] == "apikey secret-key"
+        assert captured["url"].endswith("/v1/gtfs/schedule/sydneytrains")

@@ -87,6 +87,8 @@ class TfnswConfig:
       path ``/sydneytrains``
     * service alerts — base ``api.transport.nsw.gov.au/v2/gtfs/alerts``,
       path ``/sydneytrains``
+    * static schedule — ``api.transport.nsw.gov.au/v1/gtfs/schedule/
+      sydneytrains``, the "For Realtime" bundle whose ids match the feeds
 
     The version is a path *prefix* in both cases, not a suffix; the two
     products differ only in the segment after it. The alerts product also
@@ -98,6 +100,7 @@ class TfnswConfig:
     api_key: str
     trip_update_url: str
     alerts_url: str
+    schedule_url: str
 
     @classmethod
     def from_env(cls) -> TfnswConfig:
@@ -116,6 +119,14 @@ class TfnswConfig:
             alerts_url=_env(
                 "TFNSW_ALERTS_URL",
                 "https://api.transport.nsw.gov.au/v2/gtfs/alerts/sydneytrains",
+            ),
+            # The static bundle whose identifiers match the realtime feeds.
+            # Deliberately NOT "Timetables Complete GTFS", which states plainly
+            # that its identifiers do not match the realtime APIs — using it
+            # would resolve nothing and collect zero rows.
+            schedule_url=_env(
+                "TFNSW_SCHEDULE_URL",
+                "https://api.transport.nsw.gov.au/v1/gtfs/schedule/sydneytrains",
             ),
         )
 

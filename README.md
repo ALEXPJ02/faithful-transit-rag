@@ -44,10 +44,11 @@ The prediction layer trains on data this project collects itself — TfNSW publi
 historical bus or train GTFS-Realtime archive, so **a day not collected is a day of
 training data gone permanently**. Getting this running comes before everything else.
 
-Build the route lookup once, from a static GTFS bundle:
+Build the route lookup once. `--fetch` downloads the "For Realtime" static bundle
+with the same API key the feeds use:
 
 ```bash
-python -m transit_rag.prediction.collection.routes path/to/gtfs.zip
+python -m transit_rag.prediction.collection.routes --fetch
 ```
 
 Then, in order — check the feed, collect, and check on it:
