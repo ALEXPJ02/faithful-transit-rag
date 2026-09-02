@@ -10,9 +10,11 @@ Python 3.11+ (3.12 recommended — see `.python-version`).
 ```bash
 git clone <repo> && cd <repo>
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,realtime]"     # add ,rag and ,prediction as those land
+pip install -e ".[dev,realtime]"
 cp .env.example .env
 ```
+
+Add `,rag` and `,prediction` to the extras as those parts land.
 
 Base dependencies are deliberately tiny (`requests`, `python-dotenv`); the RAG and
 model stacks sit behind extras so the collector installs almost nothing. `uv.lock`
@@ -134,7 +136,8 @@ static bundle. Download **Timetables Complete GTFS** (or the "For Realtime" bund
 from the Open Data Hub, then:
 
 ```bash
-python -m transit_rag.prediction.collection.routes path/to/gtfs.zip
+ls ~/Downloads/*.zip
+python -m transit_rag.prediction.collection.routes ~/Downloads/THE_FILE_YOU_SAW.zip
 ```
 
 This writes `data/routes_lookup.csv`. **Open it and confirm `T1` and `T4` appear

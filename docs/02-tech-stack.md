@@ -104,10 +104,13 @@ Base is `requests` + `python-dotenv` and nothing else. Everything with weight �
 the RAG stack, the model stack, the server, the harness — sits behind an extra:
 
 ```bash
-pip install -e ".[realtime]"                     # the collector's entire footprint
-pip install -e ".[dev,realtime]"                 # working on collection
-pip install -e ".[dev,realtime,rag,prediction]"  # once retrieval and the model exist
+pip install -e ".[realtime]"
+pip install -e ".[dev,realtime]"
+pip install -e ".[dev,realtime,rag,prediction]"
 ```
+
+The first is the scheduled collector's entire footprint; the second is what you
+want while working on collection; the third once retrieval and the model exist.
 
 This is not tidiness for its own sake. The scheduled collector rebuilds its
 environment on **every** run — a few hundred times a day — so anything in the base

@@ -24,9 +24,12 @@ baseline?
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,realtime]"     # add ,rag when building retrieval
-cp .env.example .env                 # then fill in the keys
+pip install -e ".[dev,realtime]"
+cp .env.example .env
 ```
+
+Add `,rag` to the extras once you are building retrieval, and `,prediction` for
+the model. Then open `.env` and fill in the keys.
 
 Dependencies are split so the collector installs almost nothing: base is
 `requests` + `python-dotenv`, and the RAG stack lives behind the `rag` extra.
@@ -41,11 +44,18 @@ The prediction layer trains on data this project collects itself — TfNSW publi
 historical bus or train GTFS-Realtime archive, so **a day not collected is a day of
 training data gone permanently**. Getting this running comes before everything else.
 
+Build the route lookup once, from a static GTFS bundle:
+
 ```bash
-python -m transit_rag.prediction.collection.routes path/to/gtfs.zip   # once
-transit-poller --probe     # what is the feed carrying, and does the filter match?
-transit-poller             # collect continuously
-transit-poller --status    # how much data so far, and are polls succeeding
+python -m transit_rag.prediction.collection.routes path/to/gtfs.zip
+```
+
+Then, in order — check the feed, collect, and check on it:
+
+```bash
+transit-poller --probe
+transit-poller
+transit-poller --status
 ```
 
 `--probe` before anything else: it fetches once, stores nothing, and separates the
@@ -65,13 +75,16 @@ somewhere that stays awake.
 ## Development
 
 ```bash
-ruff check .              # lint
-ruff format .             # format
-mypy                      # typecheck
-pytest                    # tests (no PYTHONPATH needed; see [tool.pytest] in pyproject)
+ruff check .
+ruff format .
+mypy
+pytest
 ```
 
-CI runs all four on every push and PR.
+Lint, format, typecheck, tests. `pytest` needs no `PYTHONPATH` — `pyproject.toml`
+sets it. CI runs all four on every push and PR.
+
+
 
 ## Layout
 
