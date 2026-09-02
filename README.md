@@ -48,6 +48,9 @@ transit-poller --status    # how much data so far, and are polls succeeding
 that runs for a week while every request fails; it prints the last ten poll outcomes
 so that shows up immediately.
 
+In production the collector runs as a scheduled GitHub Action rather than on a
+laptop, writing immutable per-poll snapshots to a dedicated `collected-data` branch.
+
 See [`docs/05-setup-checklist.md`](./docs/05-setup-checklist.md) §5 for running it
 somewhere that stays awake.
 

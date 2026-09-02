@@ -110,21 +110,54 @@ the same protobuf.
 
 ## 5. Data model — collection
 
-Two tables, both append-only.
+### What gets kept, and why so little
 
-**`raw_polls`** — one row per (poll instant, trip, stop). Primary key
-`(poll_time_utc, trip_id, stop_id)`, so a retried poll replaces rather than
-duplicates.
+The Trip Update feed republishes a prediction for **every** stop each active trip
+has not yet reached — twenty-odd rows per trip, nearly all of them a distant guess
+that will be revised many times before it matters. Stored naively at a 2-minute
+cadence across T1 and T4, that is on the order of **1M rows a day**: several GB over
+a collection window, slow to reconcile, and impossible to commit anywhere.
 
-**`poll_log`** — one row per poll attempt: entities seen, rows written, and status
-(`ok`, or `error: …`). This table exists because the dangerous failure is not a
-crash but a collector that runs happily for a week while every request 401s.
-`transit-poller --status` reads it.
+Only the **imminent** stops are close enough to the event to serve as an outcome
+proxy. The collector keeps the first `POLLER_MAX_UPCOMING_STOPS` (default 3) per
+trip per poll — three rather than one so a trip can pass two stops between polls
+without the middle one going unrecorded. That single constant takes the rate to
+roughly **25k rows a day**, and `stops_ahead` is stored alongside each row so a
+later analysis can weight or filter on how close to the event the prediction was
+made, rather than trusting all rows equally.
 
-**Why raw polls and not final delays:** GTFS-Realtime reports delay only for stops
-a trip has not yet reached. Once a vehicle passes a stop, that stop leaves the
-feed. So the last observation naming a given `(trip_id, stop_id)` is the closest
-available proxy for the observed outcome. Collapsing `raw_polls` into one row per
-completed stop event is an **offline** step run once the collection window closes —
-deliberately not in the hot path, so a bug in reconciliation never costs collected
-data.
+### Two sinks, because collection runs in two places
+
+| Sink | Used by | Shape |
+| --- | --- | --- |
+| `SqliteObservationStore` | A long-running process with its own state | **Upserts** one row per `(service_date, trip_id, stop_id)`, holding the latest value |
+| `CsvSnapshotStore` | A stateless scheduled run with only a repo to append to | One **immutable** CSV per poll, partitioned by date |
+
+Both satisfy the `ObservationSink` protocol, so the poller does not know which it
+was handed.
+
+**Why upsert rather than append:** GTFS-Realtime reports delay only for stops a trip
+has not yet reached. Once a vehicle passes a stop, that stop leaves the feed — so
+the *last* value seen for a stop event is the closest available proxy for what
+actually happened. Storing only that value makes the table the training shape
+directly, and makes reconciliation nearly free. The upsert is guarded on
+`last_seen_utc`, so a poll that arrives late after a retry cannot overwrite a newer
+prediction with an older one.
+
+**Why immutable files rather than one growing file:** a scheduled runner commits its
+output to git. A file that is only ever *added* is stored once; a file rewritten
+every few minutes stores a fresh copy of its entire contents in history each time.
+The upsert then happens during reconciliation, by taking the last snapshot that
+mentions each stop event — the same result, computed later.
+
+**`service_date` is part of the key.** Trip ids repeat daily, so without it each day
+would overwrite the last. It comes from the trip's GTFS `start_date`, falling back
+to the **Sydney-local** date of the poll — a UTC fallback would roll the date over
+mid-morning and split every peak across two service dates.
+
+### `poll_log`
+
+One row per poll attempt: entities seen, rows written, and status (`ok`, or
+`error: …`). This table exists because the dangerous failure is not a crash but a
+collector running happily for a week while every request 401s. `transit-poller
+--status` reads it and says so in as many words when every recent poll failed.

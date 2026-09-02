@@ -13,8 +13,9 @@
 | Data source selection | **Done** — see [`03-data-sources.md`](./03-data-sources.md) |
 | Tech stack | **Done** — see [`02-tech-stack.md`](./02-tech-stack.md) |
 | Repo + CI + module layout | **Done** — this scaffold |
+| Scheduled collection workflow | **Done** — `.github/workflows/collect.yml` |
 | System architecture diagram | **Done** — [`01-architecture.md`](./01-architecture.md) §1 |
-| **Delay collection running** | **NOT STARTED — critical path.** See §1 |
+| **Delay collection running** | **Collector built and tested; not yet collecting.** Blocked only on the API key and a first live poll — critical path, see §1 |
 | Corpus ingestion + retrieval | Not started |
 | Agent loop + MCP tools | Not started |
 | Prediction: reconciliation, features, training | Not started (blocked on collection) |

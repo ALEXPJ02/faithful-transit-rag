@@ -79,6 +79,14 @@ Consequences, in order:
    evaluation protocol (Elliker et al., 2026). The system states its uncertainty,
    and the harness scores whether it does.
 
+**Collection volume is a design constraint, not an afterthought.** The feed
+republishes a prediction for every stop each trip has not yet reached — stored
+naively that is ~1M rows/day across T1 and T4, which rules out every hosting option
+that isn't a machine with spare disk. Keeping only the imminent few stops per trip
+takes it to ~25k rows/day, which is small enough to run the collector as a scheduled
+GitHub Action with no hardware to own. Details in
+[`01-architecture.md`](./01-architecture.md) §5.
+
 **Model spec:** delay regression (minutes late at next stop), T1 and T4 only.
 Features: scheduled-vs-actual delta, hour, day-of-week, peak flag, delay at the
 previous stop of the same trip, active-alert flag. Baseline: naive persistence.

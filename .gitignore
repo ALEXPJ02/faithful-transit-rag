@@ -41,10 +41,17 @@ htmlcov/
 # ---------------------------------------------------------------------------
 data/*
 !data/.gitkeep
+# Committed: small, derived from public CC BY data, and the scheduled
+# collector needs it in the repo to scope itself to the tracked lines.
+!data/routes_lookup.csv
 *.db
 *.sqlite
 *.sqlite3
 *.zip
+
+# Working checkout of the data-collection branch, created by the scheduled
+# collector. Never part of main.
+.data/
 
 # Vector store (rebuilt from data/raw by scripts/build_index.py)
 .chroma/

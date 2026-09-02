@@ -1,0 +1,86 @@
+name: Collect delay observations
+
+# The prediction layer trains on data collected while the project runs — TfNSW
+# publishes no historical bus or train GTFS-Realtime archive — so a missed
+# window is training data that cannot be recovered. This runs the collector
+# somewhere that does not depend on a laptop being awake.
+#
+# Snapshots are committed to a dedicated `collected-data` branch, not to main:
+# at this cadence the collector produces a few hundred commits a day, and main
+# is the branch a reader actually looks at.
+
+on:
+  schedule:
+    # Every 5 minutes — GitHub's floor for scheduled workflows. The scheduler
+    # is best-effort and drifts under load, which is why the collector keeps
+    # the next few upcoming stops per trip rather than only the next one.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+# Never run two collectors at once: they would race on the push to the data
+# branch. Queue instead of cancelling — a skipped poll is a small gap.
+concurrency:
+  group: collect-delay-observations
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    name: Poll TfNSW and append a snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Check out the data branch
+        uses: actions/checkout@v4
+        with:
+          ref: collected-data
+          path: .data
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install the collector only
+        run: uv pip install --system -e ".[realtime]"
+
+      - name: Poll
+        env:
+          TFNSW_API_KEY: ${{ secrets.TFNSW_API_KEY }}
+          # Set as a repository variable if your account's resource path
+          # differs from the documented default (docs/05 §3).
+          TFNSW_TRIP_UPDATE_URL: ${{ vars.TFNSW_TRIP_UPDATE_URL }}
+          COLLECTION_SINK: csv
+          COLLECTION_SNAPSHOT_DIR: ${{ github.workspace }}/.data/observations
+          COLLECTION_ROUTES_LOOKUP: ${{ github.workspace }}/data/routes_lookup.csv
+        run: transit-poller --once --sink csv
+
+      - name: Commit the snapshot
+        working-directory: .data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add observations
+          if git diff --staged --quiet; then
+            echo "Nothing collected this run."
+            exit 0
+          fi
+          git commit -m "collect: $(date -u '+%Y-%m-%dT%H:%MZ')"
+          # A queued run can still land between our fetch and push. Rebase and
+          # retry rather than failing: snapshot files are immutable and
+          # uniquely named, so there is nothing to conflict on.
+          for attempt in 1 2 3; do
+            if git push; then exit 0; fi
+            echo "Push rejected (attempt $attempt) — rebasing onto the branch tip."
+            git pull --rebase --autostash origin collected-data
+          done
+          echo "::error::Could not push collected snapshots after 3 attempts."
+          exit 1

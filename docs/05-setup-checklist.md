@@ -74,22 +74,68 @@ against plausible `route_id`s** before a long run. Without the file the collecto
 still runs, but logs every line unfiltered — a bigger database, not a wrong one.
 That is deliberate: collecting too much is recoverable, collecting nothing is not.
 
-## 5. Keep it running
+## 5. Keep it running — GitHub Actions
 
 The collector's uptime is the project's critical path
-([`04-implementation-plan.md`](./04-implementation-plan.md) §1). Options, in
-increasing order of reliability:
+([`04-implementation-plan.md`](./04-implementation-plan.md) §1), and a laptop is not
+an uptime strategy. `.github/workflows/collect.yml` runs it on GitHub's
+infrastructure instead.
 
-**a. tmux on your laptop** — fine for a first day, not for a collection window.
-Collects only while the machine is awake, which for a laptop means "not overnight".
+**The repository must be public.** Actions minutes are unmetered on public repos; on
+a private one this schedule would exhaust the 2,000-minute monthly free tier in
+about a week. The repo is meant to be public anyway — the academic drafts are
+gitignored precisely so it can be.
 
-```bash
-tmux new -s poller
-transit-poller          # Ctrl-b d to detach
-```
+### One-time setup
 
-**b. An always-on box** (Raspberry Pi, old laptop, free-tier VM) — the reliable
-choice. Run it under systemd so it restarts after a reboot:
+1. **Push to GitHub** and confirm the repo is public.
+
+2. **Commit the route lookup.** Unlike the rest of `data/`, `data/routes_lookup.csv`
+   is tracked — the scheduled run needs it in the repo to scope itself to T1/T4.
+   Without it the collector logs every Sydney Trains line, which is not wrong but
+   is many times the volume.
+
+   ```bash
+   git add data/routes_lookup.csv && git commit -m "Add T1/T4 route lookup"
+   ```
+
+3. **Create the data branch.** Snapshots go to a dedicated `collected-data` branch,
+   not `main`. At this cadence collection produces a few hundred commits a day, and
+   `main` is the branch anyone reading the repo actually looks at.
+
+   ```bash
+   git switch --orphan collected-data
+   mkdir -p observations && touch observations/.gitkeep
+   git add observations/.gitkeep
+   git commit -m "Start collected-data branch"
+   git push -u origin collected-data
+   git switch main
+   ```
+
+4. **Add the API key as a secret.** Repo → Settings → Secrets and variables →
+   Actions → New repository secret: `TFNSW_API_KEY`.
+
+   If your account's endpoint path differs from the default, also add a repository
+   **variable** (not a secret) named `TFNSW_TRIP_UPDATE_URL`.
+
+5. **Run it once by hand.** Actions tab → *Collect delay observations* → *Run
+   workflow*. Then check the `collected-data` branch for a new file under
+   `observations/<today>/`. If the run succeeds but writes nothing, the endpoint or
+   the route filter is wrong — not the schedule.
+
+### Cadence
+
+Every 5 minutes, GitHub's floor for scheduled workflows. The scheduler is
+best-effort and drifts under load, sometimes by 10+ minutes. That is why the
+collector keeps the next **three** upcoming stops per trip rather than only the
+next one — a trip can pass two stops between polls, and the extra rows cover the
+gap.
+
+### Alternatives
+
+**An always-on box** (Raspberry Pi, old laptop, free-tier VM) gives finer
+granularity and no dependence on GitHub's scheduler. Use the SQLite sink and run it
+under systemd:
 
 ```ini
 # /etc/systemd/system/transit-poller.service
@@ -109,31 +155,28 @@ RestartSec=30
 WantedBy=multi-user.target
 ```
 
-**c. GitHub Actions cron** — no machine to own, at the cost of coarser granularity
-(GitHub's scheduler is best-effort and can drift by several minutes) and the
-awkwardness of committing the database back to the repo. Use `--once` per run.
-Reasonable as a *supplement* to (b) or when local uptime is genuinely unavailable.
+**tmux on your laptop** is fine for a first afternoon and nothing longer — it
+collects only while the machine is awake, which for a laptop means "not overnight".
 
-Whichever you choose, verify it after every change:
-
-```bash
-transit-poller --status
-```
-
-It prints the total collected and the last ten polls. Consecutive `error:` rows mean
-collection has silently stopped — the failure this command exists to catch.
+Running both is not wasteful: they write to different sinks, and overlapping
+coverage is insurance against one silently stopping.
 
 ## 6. Weekly check (5 minutes)
 
 ```bash
-transit-poller --status
+transit-poller --status              # local SQLite collector
+transit-poller --status --sink csv   # snapshots (run on the collected-data branch)
 ```
 
-- Is the total still climbing at roughly the expected rate?
-- Are recent polls `ok`?
-- Are rows non-zero during peak hours? (Zero at 3am is normal; zero at 8am is not.)
+It prints the total collected, the service dates covered, and the last ten polls.
 
-Log the running total against the Week 6 checkpoint in
+- Is the total still climbing at roughly the expected rate (~25k rows/day)?
+- Are recent polls `ok`? Consecutive `error:` rows mean collection has stopped.
+- Are rows non-zero during peak hours? Zero at 3am is normal; zero at 8am is not.
+
+For the Actions runner, the equivalent check is the workflow's run history — a red
+run, or no runs for a few hours, both mean the same thing. Log the running total
+against the Week 6 checkpoint in
 [`04-implementation-plan.md`](./04-implementation-plan.md) §2.
 
 ## 7. Not built yet

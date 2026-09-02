@@ -56,6 +56,13 @@ def _env_path(name: str, default: str) -> Path:
     return path if path.is_absolute() else PROJECT_ROOT / path
 
 
+def _env_choice(name: str, default: str, allowed: tuple[str, ...]) -> str:
+    value = _env(name, default).lower()
+    if value not in allowed:
+        raise ConfigError(f"{name} must be one of {', '.join(allowed)}, got {value!r}")
+    return value
+
+
 def _env_csv(name: str, default: str) -> tuple[str, ...]:
     raw = _env(name, default)
     return tuple(part.strip() for part in raw.split(",") if part.strip())
@@ -99,13 +106,25 @@ class TfnswConfig:
 
 @dataclass(frozen=True)
 class CollectionConfig:
-    """Settings for the unattended delay-observation collector."""
+    """Settings for the unattended delay-observation collector.
+
+    ``sink`` selects where observations go: ``sqlite`` for a long-running
+    process that keeps its own state, ``csv`` for a stateless scheduled run
+    that can only append files to a repository. See
+    ``transit_rag.prediction.collection.store``.
+    """
 
     db_path: Path = field(
         default_factory=lambda: _env_path("COLLECTION_DB_PATH", "data/delay_observations.db")
     )
+    snapshot_dir: Path = field(
+        default_factory=lambda: _env_path("COLLECTION_SNAPSHOT_DIR", "data/observations")
+    )
     routes_lookup_path: Path = field(
         default_factory=lambda: _env_path("COLLECTION_ROUTES_LOOKUP", "data/routes_lookup.csv")
+    )
+    sink: str = field(
+        default_factory=lambda: _env_choice("COLLECTION_SINK", "sqlite", ("sqlite", "csv"))
     )
     tracked_routes: tuple[str, ...] = field(
         default_factory=lambda: _env_csv("POLLER_ROUTES", "T1,T4")
@@ -113,6 +132,9 @@ class CollectionConfig:
     interval_seconds: int = field(default_factory=lambda: _env_int("POLLER_INTERVAL_SECONDS", 120))
     request_timeout_seconds: int = field(
         default_factory=lambda: _env_int("POLLER_REQUEST_TIMEOUT", 30)
+    )
+    max_upcoming_stops: int = field(
+        default_factory=lambda: _env_int("POLLER_MAX_UPCOMING_STOPS", 3)
     )
 
 
