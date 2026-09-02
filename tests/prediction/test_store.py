@@ -257,3 +257,49 @@ class TestCsvPartitioning:
             )
 
         assert [p.name for p in tmp_path.iterdir()] == ["2026-09-02"]
+
+
+class TestSequenceInstability:
+    """A known limitation, pinned by a test so it cannot drift unnoticed."""
+
+    def test_a_revised_stop_sequence_splits_one_event_into_two_rows(self, tmp_path: Path) -> None:
+        """If the feed revises a stop's sequence mid-trip, the key changes and
+        the upsert cannot merge. Reconciliation has to collapse on
+        (service_date, trip_id, stop_id) taking the latest last_seen_utc — a
+        pass the CSV sink needs anyway, since it never deduplicates."""
+        early = replace(
+            _observation(observed_at="2026-09-02T09:00:00+00:00", delay=60), stop_sequence=12
+        )
+        revised = replace(
+            _observation(observed_at="2026-09-02T09:02:00+00:00", delay=300), stop_sequence=13
+        )
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            store.record_observations([early])
+            store.record_observations([revised])
+
+            assert store.observation_count() == 2
+            latest = store._connection.execute(
+                "SELECT arrival_delay_s FROM stop_observations ORDER BY last_seen_utc DESC LIMIT 1"
+            ).fetchone()[0]
+            assert latest == 300
+
+    def test_both_sinks_use_the_same_absent_sequence_sentinel(self, tmp_path: Path) -> None:
+        """Otherwise reconciliation has to guess which convention it is
+        reading — -1 from SQLite, an empty field from CSV."""
+        observation = replace(_observation(), stop_sequence=None)
+
+        with SqliteObservationStore(tmp_path / "sql.db") as sql:
+            sql.record_observations([observation])
+            stored = sql._connection.execute(
+                "SELECT stop_sequence FROM stop_observations"
+            ).fetchone()[0]
+
+        with CsvSnapshotStore(tmp_path / "csv") as csv_store:
+            csv_store.record_observations([observation])
+        path = next((tmp_path / "csv").glob("*/2026*.csv"))
+        with path.open(newline="", encoding="utf-8") as handle:
+            written = next(iter(csv.DictReader(handle)))["stop_sequence"]
+
+        assert stored == -1
+        assert written == "-1"

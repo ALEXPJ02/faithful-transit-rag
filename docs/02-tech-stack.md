@@ -81,11 +81,13 @@ Consequences, in order:
 
 **Collection volume is a design constraint, not an afterthought.** The feed
 republishes a prediction for every stop each trip has not yet reached — stored
-naively that is ~1M rows/day across T1 and T4, which rules out every hosting option
-that isn't a machine with spare disk. Keeping only the imminent few stops per trip
-takes it to ~25k rows/day, which is small enough to run the collector as a scheduled
-GitHub Action with no hardware to own. Details in
-[`01-architecture.md`](./01-architecture.md) §5.
+naively that is on the order of 1M rows/day across T1 and T4, which rules out every
+hosting option that isn't a machine with spare disk. Keeping only the imminent few
+stops per trip takes the scheduled collector to roughly 60k rows/day (~5 MB), small
+enough to run as a GitHub Action with no hardware to own. The deduplicated count —
+distinct stop events, which is what actually bounds the training set — is closer to
+25k/day. The two are different measurements of the same collection and
+[`01-architecture.md`](./01-architecture.md) §5 has the table.
 
 **Model spec:** delay regression (minutes late at next stop), T1 and T4 only.
 Features: scheduled-vs-actual delta, hour, day-of-week, peak flag, delay at the
@@ -97,9 +99,6 @@ Serving: a `joblib` artefact loaded in-process inside the MCP tool handler; a
 separate model service would be infrastructure with no research payoff.
 
 ## 4. Dependency groups
-
-Base install is the retrieval + agent path. Everything else is an extra, so the
-collector can run in a minimal environment:
 
 Base is `requests` + `python-dotenv` and nothing else. Everything with weight —
 the RAG stack, the model stack, the server, the harness — sits behind an extra:

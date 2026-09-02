@@ -20,7 +20,11 @@ from transit_rag.prediction.collection.poller import (
     print_probe,
     print_status,
 )
-from transit_rag.prediction.collection.store import CsvSnapshotStore, SqliteObservationStore
+from transit_rag.prediction.collection.store import (
+    CsvSnapshotStore,
+    SchemaMismatchError,
+    SqliteObservationStore,
+)
 from transit_rag.realtime.client import FeedFetchError
 
 LOOKUP = {"APS_1a": "T1"}
@@ -71,12 +75,17 @@ def test_failed_poll_is_recorded_rather_than_raised(tmp_path: Path) -> None:
 
 def test_poll_with_no_tracked_trips_still_logs_the_poll(tmp_path: Path, make_feed: Any) -> None:
     """Zero rows is a real outcome at 3am. It has to be distinguishable from
-    a poll that never happened, or the volume checkpoint reads wrong."""
-    feed = make_feed([("trip-x", "OTHER_9z", [("stop-z", 1, 30, None)])])
+    a poll that never happened, or the volume checkpoint reads wrong.
+
+    The route here resolves — it is just not a tracked line. That is what an
+    off-peak poll looks like, and it is a different thing from a feed whose
+    ids do not resolve at all (see TestLookupMismatch)."""
+    feed = make_feed([("trip-t8", "APS_8a", [("stop-z", 1, 30, None)])])
+    lookup = {**LOOKUP, "APS_8a": "T8"}
     client = FakeClient(feed=feed)
 
     with SqliteObservationStore(tmp_path / "obs.db") as store:
-        poll_once(client, store, LOOKUP, TRACKED)  # type: ignore[arg-type]
+        poll_once(client, store, lookup, TRACKED)  # type: ignore[arg-type]
 
         entities_seen, rows_written, status = store.recent_poll_status()[0][1:]
         assert (entities_seen, rows_written, status) == (1, 0, "ok")
@@ -211,7 +220,7 @@ class TestProbe:
 class TestPollResilience:
     """A collector that has run for weeks must not die on one bad poll."""
 
-    def test_a_sink_failure_is_recorded_not_raised(self, tmp_path: Path, make_feed: Any) -> None:
+    def test_a_sink_failure_is_recorded_not_raised(self, make_feed: Any) -> None:
         class BrokenSink:
             def __init__(self) -> None:
                 self.failures: list[str] = []
@@ -256,3 +265,79 @@ class TestPollResilience:
         with SqliteObservationStore(tmp_path / "obs.db") as store:
             assert poll_once(client, store, LOOKUP, TRACKED) is False  # type: ignore[arg-type]
             assert store.recent_poll_status()[0][3].startswith("error: AttributeError")
+
+
+class TestLookupMismatch:
+    """A static bundle and a realtime feed from different versions.
+
+    The fetch succeeds, the parse succeeds, the filter matches nothing, and
+    the poll log says `ok`. Left undetected it collects zero rows for as long
+    as nobody looks — and it can appear mid-collection, when TfNSW republishes
+    the bundle and route_ids shift under a collector that has worked for weeks.
+    """
+
+    def test_a_feed_whose_ids_never_resolve_is_an_error(
+        self, tmp_path: Path, make_feed: Any
+    ) -> None:
+        feed = make_feed([("a", "104C", [("s", 1, 60, None)]), ("b", "220N", [("s", 1, 60, None)])])
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            ok = poll_once(FakeClient(feed=feed), store, LOOKUP, TRACKED)  # type: ignore[arg-type]
+
+            assert ok is False
+            status = store.recent_poll_status()[0][3]
+            assert "different versions" in status
+
+    def test_an_empty_feed_is_not_a_mismatch(self, tmp_path: Path, make_feed: Any) -> None:
+        """Overnight there are no trips at all. That must stay `ok`, or the
+        collector cries wolf every night and the signal stops meaning anything."""
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            ok = poll_once(FakeClient(feed=make_feed([])), store, LOOKUP, TRACKED)  # type: ignore[arg-type]
+
+            assert ok is True
+            assert store.recent_poll_status()[0][3] == "ok"
+
+    def test_a_partially_resolving_feed_is_not_a_mismatch(
+        self, tmp_path: Path, make_feed: Any
+    ) -> None:
+        """Other operators share the feed. One resolvable id proves the bundle
+        and the feed agree, whatever else is in there."""
+        feed = make_feed(
+            [("a", "APS_1a", [("s", 1, 60, None)]), ("b", "UNKNOWN", [("s", 1, 60, None)])]
+        )
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            assert poll_once(FakeClient(feed=feed), store, LOOKUP, TRACKED) is True  # type: ignore[arg-type]
+
+    def test_no_lookup_at_all_is_not_reported_as_a_mismatch(
+        self, tmp_path: Path, make_feed: Any
+    ) -> None:
+        """Unfiltered local collection is a supported mode; --require-routes
+        is what refuses it, and this check must not duplicate that."""
+        feed = make_feed([("a", "104C", [("s", 1, 60, None)])])
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            assert poll_once(FakeClient(feed=feed), store, {}, TRACKED) is True  # type: ignore[arg-type]
+
+
+class TestSchemaGuard:
+    def test_a_database_on_the_old_primary_key_is_refused_at_open(self, tmp_path: Path) -> None:
+        """CREATE TABLE IF NOT EXISTS keeps the old table silently, and then
+        every write raises against an ON CONFLICT target that matches no
+        constraint — a collector that records nothing but errors."""
+        db_path = tmp_path / "old.db"
+        legacy = sqlite3.connect(db_path)
+        legacy.execute(
+            "CREATE TABLE stop_observations ("
+            "service_date TEXT NOT NULL, trip_id TEXT NOT NULL, stop_id TEXT NOT NULL, "
+            "last_seen_utc TEXT NOT NULL, PRIMARY KEY (service_date, trip_id, stop_id))"
+        )
+        legacy.commit()
+        legacy.close()
+
+        with pytest.raises(SchemaMismatchError, match="older schema"):
+            SqliteObservationStore(db_path)
+
+    def test_a_fresh_database_opens_normally(self, tmp_path: Path) -> None:
+        with SqliteObservationStore(tmp_path / "new.db") as store:
+            assert store.observation_count() == 0

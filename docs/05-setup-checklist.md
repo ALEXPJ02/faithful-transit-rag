@@ -192,7 +192,10 @@ gitignored precisely so it can be.
 
 4. **Run it once by hand.** Actions tab → *Collect delay observations* → *Run
    workflow*. The `collected-data` branch is created automatically on that first
-   real run; check it for a new file under `observations/<today>/`. If the run
+   real run; check it for a new file under `observations/<service day>/` — note
+   that between midnight and 3am Sydney time that is still *yesterday's*
+   directory, because partitions follow the service day rather than the clock
+   ([`01-architecture.md`](./01-architecture.md) §5). If the run
    succeeds but writes nothing, the endpoint or the route filter is wrong — not
    the schedule.
 

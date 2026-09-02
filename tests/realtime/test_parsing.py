@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from google.transit.gtfs_realtime_pb2 import TripUpdate
+
 from conftest import NO_SEQUENCE, TIME_ONLY
 from transit_rag.realtime.parsing import (
     extract_delay_observations,
@@ -14,6 +16,10 @@ from transit_rag.realtime.parsing import (
 POLL_TIME = "2026-09-02T09:00:00+00:00"
 LOOKUP = {"APS_1a": "T1", "APS_4a": "T4", "APS_8a": "T8"}
 TRACKED = ("T1", "T4")
+# Looked up by name rather than attribute: the generated protobuf stubs do
+# not expose the enum members as attributes, so mypy rejects the dotted form.
+SKIPPED = TripUpdate.StopTimeUpdate.ScheduleRelationship.Value("SKIPPED")
+NO_DATA = TripUpdate.StopTimeUpdate.ScheduleRelationship.Value("NO_DATA")
 
 
 def test_extracts_one_observation_per_stop_with_a_delay(make_feed: Any) -> None:
@@ -254,3 +260,37 @@ class TestServiceDay:
         derived = extract_delay_observations(without_start, LOOKUP, TRACKED, after_midnight)[0]
 
         assert reported.service_date == derived.service_date
+
+
+class TestScheduleRelationship:
+    """A stop the train did not call at is not an observation of a delay."""
+
+    def test_skipped_stops_are_not_collected(self, make_feed: Any) -> None:
+        """SKIPPED means the train ran past. Its 'delay' predicts an event
+        that never happened, and lands in the training target beside real
+        ones with nothing to tell them apart afterwards."""
+        feed = make_feed([("t", "APS_1a", [("s", 1, 300, None)])])
+        feed.entity[0].trip_update.stop_time_update[0].schedule_relationship = SKIPPED
+
+        assert extract_delay_observations(feed, LOOKUP, TRACKED, POLL_TIME) == []
+
+    def test_no_data_stops_are_not_collected(self, make_feed: Any) -> None:
+        """NO_DATA states outright that no realtime data exists; a producer
+        emitting an empty StopTimeEvent under it would reintroduce the
+        fabricated zero one level up."""
+        feed = make_feed([("t", "APS_1a", [("s", 1, 0, None)])])
+        feed.entity[0].trip_update.stop_time_update[0].schedule_relationship = NO_DATA
+
+        assert extract_delay_observations(feed, LOOKUP, TRACKED, POLL_TIME) == []
+
+    def test_a_skipped_stop_does_not_consume_a_kept_slot(self, make_feed: Any) -> None:
+        feed = make_feed(
+            [("t", "APS_1a", [("a", 1, 300, None), ("b", 2, 60, None), ("c", 3, 90, None)])]
+        )
+        feed.entity[0].trip_update.stop_time_update[0].schedule_relationship = SKIPPED
+
+        observations = extract_delay_observations(
+            feed, LOOKUP, TRACKED, POLL_TIME, max_upcoming_stops=2
+        )
+
+        assert [o.stop_id for o in observations] == ["b", "c"]

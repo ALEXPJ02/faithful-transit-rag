@@ -25,8 +25,19 @@ SYDNEY = ZoneInfo("Australia/Sydney")
 # enough to the event to serve as an outcome proxy, and keeping three (rather
 # than one) means a trip can pass two stops between polls without the middle
 # one going unrecorded. This single constant is the difference between roughly
-# 1M rows a day and roughly 25k.
+# ~1M rows a day and roughly 60k (see docs/01-architecture.md §5).
 DEFAULT_MAX_UPCOMING_STOPS = 3
+
+# Only SCHEDULED calls are observations of a delay.
+#
+# SKIPPED means the train did not stop there at all, so its "delay" is a
+# prediction for an event that never happened — and it would land in the
+# training target beside real ones, indistinguishable afterwards. NO_DATA
+# explicitly means no realtime information is available; a producer emitting
+# an empty StopTimeEvent under it reintroduces the fabricated zero one level
+# up. Both are recoverable from the stored schedule_relationship if a later
+# analysis wants them, but neither belongs in the default collection.
+COLLECTED_SCHEDULE_RELATIONSHIPS = frozenset({"SCHEDULED"})
 
 # Transit service days do not end at midnight — a trip departing 23:50 belongs
 # to the day it started, and GTFS says so via the trip's own ``start_date``.
@@ -51,7 +62,7 @@ class StopDelayObservation:
     This is an *observation of a prediction*, not an outcome. GTFS-Realtime
     only reports delay for stops a trip has not yet reached; once a vehicle
     passes a stop, that stop leaves the feed. The last observation naming a
-    given ``(service_date, trip_id, stop_id)`` is therefore the closest
+    given ``(service_date, trip_id, stop_id, stop_sequence)`` is therefore the closest
     available proxy for what actually happened — and ``stops_ahead`` records
     how close to the event that final prediction was made, so a later analysis
     can weight or filter on it rather than trusting all rows equally.
@@ -111,8 +122,8 @@ def _service_date(trip: Any, fallback_utc: str) -> str:
     """The trip's GTFS start_date, or the Sydney-local date of the poll.
 
     ``start_date`` is optional in the spec and TfNSW does not always set it, so
-    the fallback has to exist — but it must be the *local* date, not the UTC
-    one, or every service date rolls over mid-morning.
+    a fallback has to exist. See :func:`service_day` for why that fallback uses
+    a 3am boundary rather than midnight.
     """
     raw = getattr(trip, "start_date", "") or ""
     if len(raw) == 8 and raw.isdigit():
@@ -161,6 +172,10 @@ def extract_delay_observations(
             if 0 < max_upcoming_stops <= kept:
                 break
 
+            relationship = _schedule_relationship_name(stop_time_update.schedule_relationship)
+            if relationship not in COLLECTED_SCHEDULE_RELATIONSHIPS:
+                continue
+
             arrival_delay = _delay_seconds(stop_time_update, "arrival")
             departure_delay = _delay_seconds(stop_time_update, "departure")
             if arrival_delay is None and departure_delay is None:
@@ -181,9 +196,7 @@ def extract_delay_observations(
                     stops_ahead=stops_ahead,
                     arrival_delay_s=arrival_delay,
                     departure_delay_s=departure_delay,
-                    schedule_relationship=_schedule_relationship_name(
-                        stop_time_update.schedule_relationship
-                    ),
+                    schedule_relationship=relationship,
                     observed_at_utc=poll_time_utc,
                 )
             )

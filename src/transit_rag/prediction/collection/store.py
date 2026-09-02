@@ -3,8 +3,13 @@
 Two sinks, because collection runs in two very different places:
 
 * :class:`SqliteObservationStore` — a long-lived process on a machine that
-  keeps its own state. Upserts, so the table is always "latest known value
-  per stop event" and is already the shape the training table needs.
+  keeps its own state. Upserts, so the table holds the latest known value per
+  stop event and is close to the shape the training table needs. Close, not
+  identical: the key includes ``stop_sequence``, so if the feed revises a
+  stop's sequence mid-trip that one event lands as two rows. Reconciliation
+  has to collapse on ``(service_date, trip_id, stop_id)`` taking the latest
+  ``last_seen_utc`` — which it must do for the CSV sink regardless, since
+  that one does not deduplicate at all.
 * :class:`CsvSnapshotStore` — a stateless scheduled run that has no database
   to read back, only a repository to append to. Writes one immutable file per
   poll; the upsert happens later, during reconciliation, by taking the last
@@ -38,6 +43,16 @@ COLUMNS = (
     "schedule_relationship",
     "observed_at_utc",
 )
+
+
+def key_stop_sequence(observation: StopDelayObservation) -> int:
+    """The sequence as both sinks record it.
+
+    ``-1`` stands in for absent so the two sinks agree: SQLite needs a
+    non-NULL key column, and a CSV that wrote an empty field instead would
+    make reconciliation guess which convention it was reading.
+    """
+    return observation.stop_sequence if observation.stop_sequence is not None else -1
 
 
 class ObservationSink(Protocol):
@@ -116,6 +131,13 @@ WHERE excluded.last_seen_utc > stop_observations.last_seen_utc
 """
 
 
+EXPECTED_PRIMARY_KEY = ("service_date", "trip_id", "stop_id", "stop_sequence")
+
+
+class SchemaMismatchError(RuntimeError):
+    """An existing database was built by an incompatible version of this code."""
+
+
 class SqliteObservationStore:
     """Upserting store for a long-running collector."""
 
@@ -125,8 +147,33 @@ class SqliteObservationStore:
         self._connection = sqlite3.connect(db_path)
         # WAL so the weekly `--status` check can read while collection writes.
         self._connection.execute("PRAGMA journal_mode=WAL")
+        self._assert_compatible_schema()
         self._connection.executescript(_SCHEMA)
         self._connection.commit()
+
+    def _assert_compatible_schema(self) -> None:
+        """Refuse a database whose primary key predates the current schema.
+
+        ``CREATE TABLE IF NOT EXISTS`` keeps an existing table silently, and
+        the upsert's ON CONFLICT target then matches no constraint — so every
+        single write raises, and a local collector records nothing but errors
+        until somebody reads the poll log. Fail at open, where the message can
+        say what to do about it.
+        """
+        columns = self._connection.execute("PRAGMA table_info(stop_observations)").fetchall()
+        if not columns:
+            return  # New database; the schema below will create it.
+
+        key = tuple(
+            column[1] for column in sorted((c for c in columns if c[5]), key=lambda c: c[5])
+        )
+        if key != EXPECTED_PRIMARY_KEY:
+            raise SchemaMismatchError(
+                f"{self.db_path} has primary key {key}, but this version expects "
+                f"{EXPECTED_PRIMARY_KEY}. It was written by an older schema and every "
+                f"write against it would fail. Move it aside and start a fresh "
+                f"collection, or migrate it before continuing."
+            )
 
     def record_observations(self, observations: Sequence[StopDelayObservation]) -> int:
         """Upsert observations. Returns rows actually **applied**.
@@ -144,8 +191,7 @@ class SqliteObservationStore:
                 o.service_date,
                 o.trip_id,
                 o.stop_id,
-                # -1 stands in for an absent sequence; see the schema comment.
-                o.stop_sequence if o.stop_sequence is not None else -1,
+                key_stop_sequence(o),
                 o.route_id,
                 o.route_short_name,
                 o.stops_ahead,
@@ -237,7 +283,9 @@ class CsvSnapshotStore:
             writer = csv.DictWriter(handle, fieldnames=list(COLUMNS))
             writer.writeheader()
             for observation in observations:
-                writer.writerow(observation.as_dict())
+                row = observation.as_dict()
+                row["stop_sequence"] = key_stop_sequence(observation)
+                writer.writerow(row)
         return len(observations)
 
     def record_poll(

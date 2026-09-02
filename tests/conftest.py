@@ -8,7 +8,7 @@ extra is not installed.
 
 from __future__ import annotations
 
-from typing import Any, TypeAlias
+from typing import Any
 
 import pytest
 
@@ -17,16 +17,13 @@ gtfs_realtime_pb2 = pytest.importorskip(
     reason="install the 'realtime' extra: pip install -e '.[realtime]'",
 )
 
-# (stop_id, stop_sequence, arrival_delay, departure_delay)
+# Stops are (stop_id, stop_sequence, arrival_delay, departure_delay).
 #
 # A delay of None means the StopTimeEvent is absent entirely. TIME_ONLY means
 # it is present carrying a predicted time but no delay — the shape the real
 # feed sends constantly, and the one a fixture that can only set .delay is
 # structurally incapable of producing.
 TIME_ONLY = object()
-Delay: TypeAlias = "int | object | None"
-Stop: TypeAlias = "tuple[str, int, Delay, Delay]"
-
 # stop_sequence sentinel: leave the field unset rather than assigning 0.
 NO_SEQUENCE = object()
 

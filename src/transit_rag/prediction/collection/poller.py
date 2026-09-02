@@ -24,6 +24,7 @@ import sys
 import threading
 from datetime import UTC, datetime
 from types import FrameType
+from typing import Any
 
 from transit_rag.config import CollectionConfig, ConfigError, TfnswConfig
 from transit_rag.prediction.collection.routes import load_routes_lookup
@@ -82,6 +83,20 @@ def poll_once(
             feed, route_lookup, tracked_routes, poll_time, max_upcoming_stops
         )
         written = sink.record_observations(observations)
+
+        mismatch = _lookup_mismatch(feed, route_lookup)
+        if mismatch is not None:
+            # Not an empty night: the feed is carrying trips and not one of
+            # their route_ids is known to the lookup. That is a static bundle
+            # and a realtime feed from different versions, and left alone it
+            # collects zero rows behind an "ok" poll log for as long as nobody
+            # looks. It can also appear mid-collection, when TfNSW republishes
+            # the bundle and route_ids shift under a collector that has been
+            # working for weeks.
+            log.error("%s", mismatch)
+            sink.record_poll(poll_time, len(feed.entity), written, f"error: {mismatch}")
+            return False
+
         sink.record_poll(poll_time, len(feed.entity), written, "ok")
     except FeedFetchError as exc:
         # Routine and expected — a 502 or a timeout. No traceback needed.
@@ -95,6 +110,26 @@ def poll_once(
 
     log.info("poll ok — %d entities seen, %d observations written", len(feed.entity), written)
     return True
+
+
+def _lookup_mismatch(feed: Any, route_lookup: dict[str, str]) -> str | None:
+    """Describe a feed whose route_ids are all unknown to the lookup, else None.
+
+    Deliberately narrow. Zero *tracked* trips is normal overnight and must not
+    raise anything; zero *resolvable* trips, while trips are being published,
+    can only mean the two data sources disagree.
+    """
+    if not route_lookup:
+        return None
+    summaries = summarise_routes(feed, route_lookup)
+    if not summaries or any(summary.matched for summary in summaries):
+        return None
+    return (
+        f"none of the {len(summaries)} route_ids in this feed resolve against the route "
+        f"lookup — the static bundle and the realtime feed are from different versions. "
+        f"Re-download the bundle that pairs with this feed and rebuild the lookup; "
+        f"run `transit-poller --probe` to confirm."
+    )
 
 
 def _try_record_failure(sink: ObservationSink, poll_time: str, status: str) -> None:

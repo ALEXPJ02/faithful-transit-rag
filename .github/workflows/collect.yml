@@ -105,7 +105,7 @@ jobs:
         # --require-routes: refuse to run unfiltered here. Locally an unfiltered
         # run is informative; unattended it is weeks of rows that cannot be
         # attributed to a line, behind a green tick.
-        run: uv run transit-poller --once --sink csv --require-routes
+        run: uv run --frozen --extra realtime transit-poller --once --sink csv --require-routes
 
       # always(): a failed poll still writes an `error:` row, and that row is
       # the entire early-warning system. Skipping the commit on failure would

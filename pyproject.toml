@@ -7,7 +7,7 @@ name = "transit-rag"
 version = "0.1.0"
 description = "An agentic RAG system for real-time Sydney public transport Q&A with automated faithfulness evaluation."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Piero Jauregui" }]
 keywords = ["rag", "agentic", "gtfs", "public-transport", "llm-evaluation"]
@@ -78,7 +78,7 @@ packages = ["src/transit_rag"]
 # ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
@@ -106,7 +106,7 @@ quote-style = "double"
 # Type checking
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 files = ["src", "tests"]
 strict = false
 warn_unused_ignores = true
