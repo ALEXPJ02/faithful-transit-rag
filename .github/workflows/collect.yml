@@ -94,7 +94,7 @@ jobs:
         env:
           TFNSW_API_KEY: ${{ secrets.TFNSW_API_KEY }}
           # Set as a repository variable if your account's resource path
-          # differs from the documented default (docs/05 §3).
+          # differs from the documented default (docs/05 §4).
           TFNSW_TRIP_UPDATE_URL: ${{ vars.TFNSW_TRIP_UPDATE_URL }}
           COLLECTION_SINK: csv
           COLLECTION_SNAPSHOT_DIR: ${{ github.workspace }}/.data/observations
