@@ -11,10 +11,14 @@ name: Collect delay observations
 
 on:
   schedule:
-    # Every 5 minutes — GitHub's floor for scheduled workflows. The scheduler
-    # is best-effort and drifts under load, which is why the collector keeps
+    # Offset from the top of the hour, not "*/5". GitHub warns that scheduled
+    # workflows are delayed during periods of high load, and the load spikes
+    # on the round-numbered minutes every other repository also asks for.
+    # :02, :07, :12 … is the same cadence in a quieter queue.
+    #
+    # The scheduler is best-effort regardless, which is why the collector keeps
     # the next few upcoming stops per trip rather than only the next one.
-    - cron: "*/5 * * * *"
+    - cron: "2-59/5 * * * *"
   workflow_dispatch:
 
 # Never run two collectors at once: they would race on the push to the data
