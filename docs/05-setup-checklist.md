@@ -63,16 +63,19 @@ Put keys in `.env` only. It is gitignored; the repo is public.
 
 ## 4. The realtime endpoint
 
-Confirmed from the product's own OpenAPI console:
+Both confirmed from the products' own OpenAPI consoles, and both are the repo
+defaults — there is nothing to set unless TfNSW changes them:
 
-```
-https://api.transport.nsw.gov.au/v2/gtfs/realtime/sydneytrains
-```
+| Feed | URL |
+| --- | --- |
+| Trip updates | `https://api.transport.nsw.gov.au/v2/gtfs/realtime/sydneytrains` |
+| Service alerts | `https://api.transport.nsw.gov.au/v2/gtfs/alerts/sydneytrains` |
 
-The v2 product also serves `/metro` and `/lightrail/innerwest` off the same base.
-**The version is a path prefix, not a suffix** — `/v2/gtfs/realtime`, not
-`/v1/gtfs/realtime/.../v2`. This is the repo default, so there is nothing to set
-unless TfNSW changes it.
+**The version is a path prefix, not a suffix** — `/v2/gtfs/realtime`, never
+`/v1/gtfs/realtime/.../v2`. The two products differ only in the segment after the
+prefix. Trip updates also serve `/metro` and `/lightrail/innerwest`; alerts
+additionally serve `/all` across every operator, plus `/buses`, `/ferries` and
+`/nswtrains`.
 
 Two things the console gives you for free, worth using before touching the
 terminal:
@@ -82,9 +85,9 @@ terminal:
 - Adding `?debug=true` returns the feed as readable text instead of protobuf —
   useful for eyeballing what a trip update actually contains.
 
-**Service Alerts is a separate product with its own console.** Its base URL is not
-confirmed here; check it the same way and set `TFNSW_ALERTS_URL` if it differs from
-the default. Nothing depends on it until the agent's live tool layer is built.
+Nothing reads the alerts feed yet — it feeds the prediction layer's active-alert
+flag and the agent's live tools, both still to be built. Adding it to the key now
+just saves a second trip to the portal.
 
 ## 4b. Probe the feed before trusting it
 

@@ -72,14 +72,18 @@ def _env_csv(name: str, default: str) -> tuple[str, ...]:
 class TfnswConfig:
     """Transport for NSW Open Data Hub access.
 
-    ``trip_update_url`` is the v2 Sydney Trains feed, confirmed against the
-    product's own OpenAPI console (base ``api.transport.nsw.gov.au/v2/gtfs/
-    realtime``, path ``/sydneytrains``). Note the version is a path *prefix*,
-    not a suffix — ``/v1/gtfs/realtime/sydneytrains/v2`` is not a thing.
+    Both URLs are confirmed against the products' own OpenAPI consoles:
 
-    ``alerts_url`` is NOT confirmed the same way: the Service Alerts product
-    has its own console and may or may not share the v2 base. Check it the
-    same way before relying on it, and override via ``TFNSW_ALERTS_URL``.
+    * trip updates — base ``api.transport.nsw.gov.au/v2/gtfs/realtime``,
+      path ``/sydneytrains``
+    * service alerts — base ``api.transport.nsw.gov.au/v2/gtfs/alerts``,
+      path ``/sydneytrains``
+
+    The version is a path *prefix* in both cases, not a suffix; the two
+    products differ only in the segment after it. The alerts product also
+    serves ``/all`` across every operator, which the agent's live tool layer
+    may want later — the per-mode path is the right scope for the
+    prediction layer's active-alert feature.
     """
 
     api_key: str
@@ -102,7 +106,7 @@ class TfnswConfig:
             ),
             alerts_url=_env(
                 "TFNSW_ALERTS_URL",
-                "https://api.transport.nsw.gov.au/v1/gtfs/alerts/sydneytrains",
+                "https://api.transport.nsw.gov.au/v2/gtfs/alerts/sydneytrains",
             ),
         )
 
