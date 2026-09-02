@@ -341,3 +341,18 @@ class TestSchemaGuard:
     def test_a_fresh_database_opens_normally(self, tmp_path: Path) -> None:
         with SqliteObservationStore(tmp_path / "new.db") as store:
             assert store.observation_count() == 0
+
+
+def test_probe_lists_route_ids_even_without_a_lookup(
+    make_feed: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without a lookup these ids are the only handle on the feed, and they
+    are what the static bundle has to be checked against."""
+    feed = make_feed([("a", "APS_1a", [("s", 1, 60, None)]), ("b", "APS_4a", [("s", 1, 60, None)])])
+
+    print_probe(FakeClient(feed=feed), {}, TRACKED)  # type: ignore[arg-type]
+
+    output = capsys.readouterr().out
+    assert "APS_1a" in output
+    assert "APS_4a" in output
+    assert "No route lookup loaded" in output

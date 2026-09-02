@@ -181,7 +181,19 @@ def print_probe(
     print(f"Distinct route_ids: {len(summaries)}")
 
     if not route_lookup:
-        print("\nNo route lookup loaded — build it before collecting (docs/05 §5).")
+        # Print them anyway. Without a lookup these ids are the only handle on
+        # the feed, and they are exactly what you check the static bundle
+        # against — withholding them makes the next step guesswork.
+        print(f"\n{'route_id':<24} trips")
+        for summary in summaries[:20]:
+            print(f"  {summary.route_id:<22} {summary.trip_count}")
+        if len(summaries) > 20:
+            print(f"  … and {len(summaries) - 20} more")
+        print(
+            "\nNo route lookup loaded, so these cannot be resolved to line names yet.\n"
+            "Build it from the static bundle (docs/05 §5), then confirm those route_ids\n"
+            "appear in its routes.txt — that is what pairs the bundle with this feed."
+        )
         return trip_updates > 0
 
     print(f"\n{'route_id':<24} {'line':<8} trips")
