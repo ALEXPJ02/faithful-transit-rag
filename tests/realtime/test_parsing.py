@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from transit_rag.realtime.parsing import extract_delay_observations
+from transit_rag.realtime.parsing import extract_delay_observations, summarise_routes
 
 POLL_TIME = "2026-09-02T09:00:00+00:00"
 LOOKUP = {"APS_1a": "T1", "APS_4a": "T4", "APS_8a": "T8"}
@@ -123,3 +123,61 @@ def test_service_date_falls_back_to_the_sydney_local_date(make_feed: Any) -> Non
     observations = extract_delay_observations(feed, LOOKUP, TRACKED, "2026-09-02T22:00:00+00:00")
 
     assert observations[0].service_date == "2026-09-03"
+
+
+class TestSummariseRoutes:
+    """The probe exists to catch a static bundle and a realtime feed published
+    in different versions — the failure that looks like success."""
+
+    def test_counts_trips_per_route(self, make_feed: Any) -> None:
+        feed = make_feed(
+            [
+                ("t1-a", "APS_1a", [("s", 1, 10, None)]),
+                ("t1-b", "APS_1a", [("s", 1, 10, None)]),
+                ("t4-a", "APS_4a", [("s", 1, 10, None)]),
+            ]
+        )
+
+        summaries = summarise_routes(feed, LOOKUP)
+
+        assert [(s.route_id, s.trip_count) for s in summaries] == [
+            ("APS_1a", 2),
+            ("APS_4a", 1),
+        ]
+
+    def test_resolves_line_names_and_flags_unknown_ids(self, make_feed: Any) -> None:
+        feed = make_feed(
+            [
+                ("known", "APS_1a", [("s", 1, 10, None)]),
+                ("unknown", "SOMETHING_ELSE", [("s", 1, 10, None)]),
+            ]
+        )
+
+        summaries = summarise_routes(feed, LOOKUP)
+        by_id = {s.route_id: s for s in summaries}
+
+        assert by_id["APS_1a"].route_short_name == "T1"
+        assert by_id["APS_1a"].matched is True
+        assert by_id["SOMETHING_ELSE"].route_short_name is None
+        assert by_id["SOMETHING_ELSE"].matched is False
+
+    def test_matched_routes_sort_ahead_of_unmatched(self, make_feed: Any) -> None:
+        """The head of the list is what a human reads, so what they can act on
+        goes there — even when the unmatched ids carry far more traffic."""
+        feed = make_feed(
+            [(f"u{i}", "UNKNOWN_X", [("s", 1, 10, None)]) for i in range(9)]
+            + [("k", "APS_1a", [("s", 1, 10, None)])]
+        )
+
+        summaries = summarise_routes(feed, LOOKUP)
+
+        assert summaries[0].route_id == "APS_1a"
+
+    def test_ignores_entities_without_a_trip_update(self, make_feed: Any) -> None:
+        feed = make_feed([("t", "APS_1a", [("s", 1, 10, None)])])
+        feed.entity.add().id = "alert-only"
+
+        assert sum(s.trip_count for s in summarise_routes(feed, LOOKUP)) == 1
+
+    def test_empty_feed_summarises_to_nothing(self, make_feed: Any) -> None:
+        assert summarise_routes(make_feed([]), LOOKUP) == []

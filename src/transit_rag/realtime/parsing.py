@@ -148,3 +148,43 @@ def extract_delay_observations(
                 )
             )
     return observations
+
+
+@dataclass(frozen=True)
+class RouteSummary:
+    """How many trips a feed carried for one route_id, and whether the static
+    bundle knows that id."""
+
+    route_id: str
+    route_short_name: str | None
+    trip_count: int
+
+    @property
+    def matched(self) -> bool:
+        return self.route_short_name is not None
+
+
+def summarise_routes(feed: Any, route_lookup: Mapping[str, str]) -> list[RouteSummary]:
+    """Count trips per route_id in a feed, resolved against the lookup.
+
+    Exists to diagnose the quietest failure in the whole pipeline: the static
+    bundle and the realtime feed are published in versioned pairs, and mixing
+    versions gives a feed full of route_ids that the lookup has never heard
+    of. Everything still "works" — the fetch succeeds, the parse succeeds —
+    and zero rows are collected, for days. This turns that into a sentence.
+    """
+    counts: dict[str, int] = {}
+    for entity in feed.entity:
+        if not entity.HasField("trip_update"):
+            continue
+        route_id = entity.trip_update.trip.route_id
+        counts[route_id] = counts.get(route_id, 0) + 1
+
+    summaries = [
+        RouteSummary(route_id, route_lookup.get(route_id), count)
+        for route_id, count in counts.items()
+    ]
+    # Matched routes first, then by how much traffic each carries — the head of
+    # the list is what you actually need to read.
+    summaries.sort(key=lambda s: (not s.matched, -s.trip_count, s.route_id))
+    return summaries

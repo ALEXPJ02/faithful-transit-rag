@@ -83,6 +83,40 @@ exact URL from the API's resource page in your account and override it:
 TFNSW_TRIP_UPDATE_URL=https://api.transport.nsw.gov.au/v1/gtfs/realtime/<actual-path>
 ```
 
+## 4b. Probe the feed before trusting it
+
+TfNSW publishes the static bundle and the realtime feed in **versioned pairs**, and
+`route_id` values differ between versions. Mixing them is the quietest failure in
+the pipeline: the fetch succeeds, the parse succeeds, the filter matches nothing,
+and you collect zero rows for a week without a single error.
+
+```bash
+transit-poller --probe
+```
+
+It fetches once, stores nothing, and tells you which lines the feed is actually
+carrying and whether the lookup resolves them:
+
+```
+Entities: 312  (trip updates: 298)
+Distinct route_ids: 14
+
+route_id                 line     trips
+  APS_1a                 T1       41
+  APS_4a                 T4       23
+  ...
+
+T1: 41 active trips
+T4: 23 active trips
+
+Feed and lookup agree. Safe to start collecting.
+```
+
+If instead every `route_id` shows `—`, the bundle and the feed are from different
+versions — re-download the static bundle that pairs with the realtime product on
+your key. If the ids resolve but T1/T4 are absent, you are probably probing
+overnight; try again during service hours before changing anything.
+
 ## 5. Build the route lookup
 
 The realtime feed identifies trips by `route_id`; `T1` and `T4` only exist in the

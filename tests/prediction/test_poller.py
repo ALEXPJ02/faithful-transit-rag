@@ -13,7 +13,12 @@ from typing import Any
 import pytest
 
 from transit_rag.config import CollectionConfig, ConfigError
-from transit_rag.prediction.collection.poller import build_sink, poll_once, print_status
+from transit_rag.prediction.collection.poller import (
+    build_sink,
+    poll_once,
+    print_probe,
+    print_status,
+)
 from transit_rag.prediction.collection.store import CsvSnapshotStore, SqliteObservationStore
 from transit_rag.realtime.client import FeedFetchError
 
@@ -135,3 +140,68 @@ def test_an_unknown_sink_is_rejected_at_config_time(monkeypatch: pytest.MonkeyPa
 
     with pytest.raises(ConfigError, match="COLLECTION_SINK"):
         CollectionConfig()
+
+
+class TestProbe:
+    def test_reports_active_trips_on_the_tracked_lines(
+        self, make_feed: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        feed = make_feed(
+            [
+                ("a", "APS_1a", [("s", 1, 60, None)]),
+                ("b", "APS_1a", [("s", 1, 60, None)]),
+            ]
+        )
+
+        ok = print_probe(FakeClient(feed=feed), LOOKUP, TRACKED)  # type: ignore[arg-type]
+
+        output = capsys.readouterr().out
+        assert ok is True
+        assert "T1: 2 active trips" in output
+        assert "Feed and lookup agree" in output
+
+    def test_names_the_version_mismatch_when_nothing_resolves(
+        self, make_feed: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A static bundle paired with the wrong realtime feed version: the
+        fetch works, the parse works, and every route_id is a stranger."""
+        feed = make_feed([("a", "V2_STYLE_ID", [("s", 1, 60, None)])])
+
+        ok = print_probe(FakeClient(feed=feed), LOOKUP, TRACKED)  # type: ignore[arg-type]
+
+        output = capsys.readouterr().out
+        assert ok is False
+        assert "different versions" in output
+
+    def test_distinguishes_quiet_hours_from_a_broken_filter(
+        self, make_feed: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The lookup resolves fine, T1/T4 just are not running. Telling the
+        user to re-probe beats sending them to re-download a correct bundle."""
+        feed = make_feed([("a", "APS_8a", [("s", 1, 60, None)])])
+        lookup = {**LOOKUP, "APS_8a": "T8"}  # the id resolves; it is just not tracked
+
+        ok = print_probe(FakeClient(feed=feed), lookup, TRACKED)  # type: ignore[arg-type]
+
+        output = capsys.readouterr().out
+        assert ok is True
+        assert "none of T1, T4 are running" in output
+
+    def test_says_so_when_the_lookup_is_missing(
+        self, make_feed: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        feed = make_feed([("a", "APS_1a", [("s", 1, 60, None)])])
+
+        print_probe(FakeClient(feed=feed), {}, TRACKED)  # type: ignore[arg-type]
+
+        assert "No route lookup loaded" in capsys.readouterr().out
+
+    def test_a_failed_fetch_reports_rather_than_raises(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        client = FakeClient(error=FeedFetchError("not a GTFS-Realtime protobuf"))
+
+        ok = print_probe(client, LOOKUP, TRACKED)  # type: ignore[arg-type]
+
+        assert ok is False
+        assert "Could not read the feed" in capsys.readouterr().out

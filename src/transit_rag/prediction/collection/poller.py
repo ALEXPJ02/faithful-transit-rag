@@ -6,6 +6,7 @@ Two modes, because collection has to survive a laptop lid closing:
     transit-poller --once             # a single poll (scheduled runs — see docs/04)
     transit-poller --once --sink csv  # stateless: write one snapshot file
     transit-poller --status           # how much data so far, and are polls succeeding
+    transit-poller --probe            # what the feed contains, and does the filter match
 
 Every day of missed collection is a day of training data that cannot be
 recovered later, so ``--status`` exists to make silent failure loud: an auth
@@ -31,7 +32,7 @@ from transit_rag.prediction.collection.store import (
     SqliteObservationStore,
 )
 from transit_rag.realtime.client import FeedFetchError, GtfsRealtimeClient
-from transit_rag.realtime.parsing import extract_delay_observations
+from transit_rag.realtime.parsing import extract_delay_observations, summarise_routes
 
 log = logging.getLogger("transit_rag.poller")
 
@@ -104,6 +105,68 @@ def run_forever(
     log.info("Stopped. %d observations collected in total.", sink.observation_count())
 
 
+def print_probe(
+    client: GtfsRealtimeClient, route_lookup: dict[str, str], tracked_routes: tuple[str, ...]
+) -> bool:
+    """Fetch once and report what the feed actually contains.
+
+    Answers the two questions a failed first run leaves open — is the endpoint
+    right, and does the static bundle match the feed — without writing
+    anything.
+    """
+    try:
+        feed = client.fetch_trip_updates()
+    except FeedFetchError as exc:
+        print(f"Could not read the feed:\n  {exc}")
+        return False
+
+    summaries = summarise_routes(feed, route_lookup)
+    trip_updates = sum(s.trip_count for s in summaries)
+    print(f"Entities: {len(feed.entity)}  (trip updates: {trip_updates})")
+    print(f"Distinct route_ids: {len(summaries)}")
+
+    if not route_lookup:
+        print("\nNo route lookup loaded — build it before collecting (docs/05 §5).")
+        return trip_updates > 0
+
+    print(f"\n{'route_id':<24} {'line':<8} trips")
+    for summary in summaries[:20]:
+        line = summary.route_short_name or "—"
+        print(f"  {summary.route_id:<22} {line:<8} {summary.trip_count}")
+    if len(summaries) > 20:
+        print(f"  … and {len(summaries) - 20} more")
+
+    unmatched = [s for s in summaries if not s.matched]
+    tracked_present = {
+        s.route_short_name: s.trip_count for s in summaries if s.route_short_name in tracked_routes
+    }
+
+    print()
+    if unmatched and not tracked_present:
+        # The version-mismatch signature: a feed full of ids the bundle has
+        # never seen. Worth naming explicitly, because everything else looks
+        # healthy.
+        print(
+            f"None of the {len(summaries)} route_ids in this feed are in the route lookup.\n"
+            "That is what a static bundle and a realtime feed from different versions\n"
+            "looks like — re-download the static bundle that pairs with this feed."
+        )
+        return False
+    if not tracked_present:
+        print(
+            f"The lookup matched, but none of {', '.join(tracked_routes)} are running right now.\n"
+            "Normal overnight; re-probe during service hours before concluding anything."
+        )
+        return True
+
+    for line, count in sorted(tracked_present.items()):
+        print(f"{line}: {count} active trip{'' if count == 1 else 's'}")
+    if unmatched:
+        print(f"({len(unmatched)} route_ids not in the lookup — fine, they are other lines.)")
+    print("\nFeed and lookup agree. Safe to start collecting.")
+    return True
+
+
 def print_status(sink: ObservationSink) -> None:
     print(f"Store: {sink.describe()}")
     print(f"Observations collected: {sink.observation_count():,}")
@@ -133,6 +196,11 @@ def main() -> None:
     )
     parser.add_argument("--once", action="store_true", help="Run a single poll and exit")
     parser.add_argument("--status", action="store_true", help="Report collection progress and exit")
+    parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="Fetch once and report what the feed contains, without storing anything",
+    )
     parser.add_argument(
         "--sink",
         choices=("sqlite", "csv"),
@@ -170,6 +238,10 @@ def main() -> None:
 
     client = GtfsRealtimeClient(tfnsw, timeout_seconds=config.request_timeout_seconds)
     route_lookup = load_routes_lookup(config.routes_lookup_path)
+
+    if args.probe:
+        sink.close()
+        sys.exit(0 if print_probe(client, route_lookup, config.tracked_routes) else 1)
 
     try:
         if args.once:
