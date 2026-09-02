@@ -55,7 +55,7 @@ data/*
 # collector. Never part of main.
 .data/
 
-# Vector store (rebuilt from data/raw by scripts/build_index.py)
+# Vector store — rebuilt from the corpus by the ingestion step
 .chroma/
 chroma/
 

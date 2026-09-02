@@ -10,6 +10,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     name: Lint, typecheck, test
@@ -22,20 +25,21 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python
-        run: uv python install
-
+      # `uv sync --frozen` resolves nothing: it installs exactly what uv.lock
+      # pins, into a venv built from .python-version. `uv pip install --system`
+      # would instead target whatever interpreter the runner image happens to
+      # ship, silently ignoring the pin.
       - name: Install dependencies
-        run: uv pip install --system -e ".[dev,realtime,prediction]"
+        run: uv sync --frozen --extra dev --extra realtime --extra prediction
 
       - name: Lint
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: Format check
-        run: ruff format --check .
+        run: uv run ruff format --check .
 
       - name: Typecheck
-        run: mypy
+        run: uv run mypy
 
       - name: Test
-        run: pytest --cov=transit_rag --cov-report=term-missing
+        run: uv run pytest --cov=transit_rag --cov-report=term-missing

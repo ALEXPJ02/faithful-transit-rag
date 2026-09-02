@@ -56,6 +56,15 @@ def _env_path(name: str, default: str) -> Path:
     return path if path.is_absolute() else PROJECT_ROOT / path
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = _env(name, "1" if default else "0").lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    raise ConfigError(f"{name} must be a boolean (true/false), got {raw!r}")
+
+
 def _env_choice(name: str, default: str, allowed: tuple[str, ...]) -> str:
     value = _env(name, default).lower()
     if value not in allowed:
@@ -142,6 +151,13 @@ class CollectionConfig:
     )
     max_upcoming_stops: int = field(
         default_factory=lambda: _env_int("POLLER_MAX_UPCOMING_STOPS", 3)
+    )
+    # Unattended runs must refuse to collect without a route lookup. Locally an
+    # unfiltered run is a useful way to see what the feed contains; in a
+    # scheduled job it is weeks of unattributed rows behind a green tick,
+    # because the only signal is a log line nobody reads.
+    require_routes_lookup: bool = field(
+        default_factory=lambda: _env_bool("COLLECTION_REQUIRE_ROUTES_LOOKUP", False)
     )
 
 

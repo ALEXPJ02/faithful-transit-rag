@@ -101,15 +101,25 @@ separate model service would be infrastructure with no research payoff.
 Base install is the retrieval + agent path. Everything else is an extra, so the
 collector can run in a minimal environment:
 
+Base is `requests` + `python-dotenv` and nothing else. Everything with weight —
+the RAG stack, the model stack, the server, the harness — sits behind an extra:
+
 ```bash
-pip install -e ".[realtime]"                        # collector only — no model stack
-pip install -e ".[dev,realtime,prediction]"         # normal development
-pip install -e ".[dev,realtime,prediction,serve,evaluation]"   # everything
+pip install -e ".[realtime]"                     # the collector's entire footprint
+pip install -e ".[dev,realtime]"                 # working on collection
+pip install -e ".[dev,realtime,rag,prediction]"  # once retrieval and the model exist
 ```
 
-This is not tidiness for its own sake: the collector is the component most likely to
-run somewhere small and unattended, and a dependency it doesn't need is a way for it
-to fail to start.
+This is not tidiness for its own sake. The scheduled collector rebuilds its
+environment on **every** run — a few hundred times a day — so anything in the base
+install is paid for continuously, and installing chromadb in order to poll a
+protobuf feed is a real cost. It is also a reliability argument: a dependency the
+collector does not need is one more way for it to fail to start.
+
+`uv.lock` pins the full resolved graph. CI and the collector both install with
+`uv sync --frozen`, so a breaking upstream release cannot take collection down
+without a deliberate lockfile update — and the Trivy scan has resolved versions to
+actually scan.
 
 ## 5. Cost
 

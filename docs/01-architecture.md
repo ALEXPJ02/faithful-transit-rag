@@ -29,7 +29,7 @@ flowchart TB
         PRED["XGBoost delay regressor<br/>T1 / T4"] --> TRAIN["Training table<br/>reconciled from collected observations"]
     end
 
-    TF -.->|"polled every ~2 min<br/>since collection start"| COLL["Delay collector<br/>raw_polls (SQLite)"]
+    TF -.->|"polled every few minutes"| COLL["Delay collector<br/>stop_observations"]
     COLL -.->|"offline reconciliation"| TRAIN
 
     AG --> ANS["Answer + evidence<br/>+ error margin when predicted"]
@@ -74,7 +74,7 @@ src/transit_rag/
     collection/
       poller.py                The unattended collector (loop / --once / --status)
       routes.py                route_id -> line-name lookup from the static bundle
-      store.py                 Append-only SQLite: raw_polls + poll_log
+      store.py                 Two sinks: upserting SQLite, or CSV snapshots
     features/                  (next) reconciliation + feature engineering
     model/                     (next) XGBoost training and inference
   agent/                       The hand-rolled tool-use loop
@@ -86,7 +86,6 @@ tests/                         Mirrors src/. Live-API tests are marked `live`
 docs/                          These documents
 data/                          Gitignored. Downloaded bundles, collected SQLite
 models/                        Gitignored. Serialized model artefacts
-scripts/                       One-off operational scripts
 ```
 
 `realtime/` sits above `prediction/` in the dependency order on purpose: the
@@ -121,10 +120,21 @@ a collection window, slow to reconcile, and impossible to commit anywhere.
 Only the **imminent** stops are close enough to the event to serve as an outcome
 proxy. The collector keeps the first `POLLER_MAX_UPCOMING_STOPS` (default 3) per
 trip per poll — three rather than one so a trip can pass two stops between polls
-without the middle one going unrecorded. That single constant takes the rate to
-roughly **25k rows a day**, and `stops_ahead` is stored alongside each row so a
-later analysis can weight or filter on how close to the event the prediction was
+without the middle one going unrecorded. `stops_ahead` is stored alongside each row
+so a later analysis can weight or filter on how close to the event a prediction was
 made, rather than trusting all rows equally.
+
+**The two sinks count different things, and it matters when reading a volume
+check:**
+
+| | Rate | What a row is |
+| --- | --- | --- |
+| CSV snapshots (5-min schedule) | ~60k rows/day, ~5 MB/day | One observation per poll — the same stop appears in several |
+| SQLite (2-min loop) | ~25k rows/day | One row per *stop event*, upserted — the deduplicated count |
+
+So the CSV figure is raw throughput and the SQLite figure is distinct stop events;
+the second is the one that bounds the training set. Both are far below the ~1M/day
+the unfiltered feed would produce.
 
 ### Two sinks, because collection runs in two places
 
@@ -150,10 +160,23 @@ every few minutes stores a fresh copy of its entire contents in history each tim
 The upsert then happens during reconciliation, by taking the last snapshot that
 mentions each stop event — the same result, computed later.
 
-**`service_date` is part of the key.** Trip ids repeat daily, so without it each day
-would overwrite the last. It comes from the trip's GTFS `start_date`, falling back
-to the **Sydney-local** date of the poll — a UTC fallback would roll the date over
-mid-morning and split every peak across two service dates.
+**`service_date` and `stop_sequence` are both part of the key.** Trip ids repeat
+daily, so without the date each day would overwrite the last. And a T1 service
+running via the City Circle calls at the same `stop_id` twice in one trip — two
+distinct stop events — so the sequence has to be in the key too. It is stored
+`NOT NULL` with a `-1` sentinel because SQLite treats NULLs in a composite key as
+distinct from one another, which would silently switch deduplication off rather
+than merging rows.
+
+`service_date` comes from the trip's GTFS `start_date`. When that is absent it is
+derived from the poll instant in **Sydney local time, offset back three hours**.
+Midnight is the wrong boundary twice over: a UTC rollover lands mid-morning, and
+even a local-midnight rollover disagrees with GTFS for every after-midnight trip
+(a service departing 23:50 keeps the previous day's `start_date`). Three hours puts
+the boundary in the service gap, so the derived date and the reported one agree.
+
+CSV snapshots are partitioned by that same service day, so one service date never
+scatters across two directories.
 
 ### `poll_log`
 

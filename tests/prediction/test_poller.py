@@ -7,6 +7,7 @@ costs a week of irreplaceable training data before anyone notices.
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -205,3 +206,53 @@ class TestProbe:
 
         assert ok is False
         assert "Could not read the feed" in capsys.readouterr().out
+
+
+class TestPollResilience:
+    """A collector that has run for weeks must not die on one bad poll."""
+
+    def test_a_sink_failure_is_recorded_not_raised(self, tmp_path: Path, make_feed: Any) -> None:
+        class BrokenSink:
+            def __init__(self) -> None:
+                self.failures: list[str] = []
+
+            def record_observations(self, observations: Any) -> int:
+                raise OSError(28, "No space left on device")
+
+            def record_poll(self, poll_time: str, entities: int, rows: int, status: str) -> None:
+                self.failures.append(status)
+
+        sink = BrokenSink()
+        client = FakeClient(feed=make_feed([("t", "APS_1a", [("s", 1, 60, None)])]))
+
+        ok = poll_once(client, sink, LOOKUP, TRACKED)  # type: ignore[arg-type]
+
+        assert ok is False
+        assert sink.failures and sink.failures[0].startswith("error: OSError")
+
+    def test_a_sink_that_cannot_even_log_does_not_raise(self, make_feed: Any) -> None:
+        """If recording the failure also fails, the loop still has to survive
+        — the alternative is a dead process and a silent collection window."""
+
+        class TotallyBrokenSink:
+            def record_observations(self, observations: Any) -> int:
+                raise RuntimeError("boom")
+
+            def record_poll(self, *args: Any) -> None:
+                raise sqlite3.OperationalError("database is locked")
+
+        client = FakeClient(feed=make_feed([("t", "APS_1a", [("s", 1, 60, None)])]))
+
+        assert poll_once(client, TotallyBrokenSink(), LOOKUP, TRACKED) is False  # type: ignore[arg-type]
+
+    def test_a_malformed_feed_is_recorded_not_raised(self, tmp_path: Path) -> None:
+        class Nonsense:
+            @property
+            def entity(self) -> Any:
+                raise AttributeError("not a feed")
+
+        client = FakeClient(feed=Nonsense())
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            assert poll_once(client, store, LOOKUP, TRACKED) is False  # type: ignore[arg-type]
+            assert store.recent_poll_status()[0][3].startswith("error: AttributeError")

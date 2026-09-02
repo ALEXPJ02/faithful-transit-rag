@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from transit_rag.realtime.parsing import extract_delay_observations, summarise_routes
+from conftest import NO_SEQUENCE, TIME_ONLY
+from transit_rag.realtime.parsing import (
+    extract_delay_observations,
+    service_day,
+    summarise_routes,
+)
 
 POLL_TIME = "2026-09-02T09:00:00+00:00"
 LOOKUP = {"APS_1a": "T1", "APS_4a": "T4", "APS_8a": "T8"}
@@ -181,3 +186,71 @@ class TestSummariseRoutes:
 
     def test_empty_feed_summarises_to_nothing(self, make_feed: Any) -> None:
         assert summarise_routes(make_feed([]), LOOKUP) == []
+
+
+class TestDelayPresence:
+    """GTFS-Realtime has two levels of presence and both matter: the
+    StopTimeEvent can exist while carrying no delay at all."""
+
+    def test_a_stop_with_a_time_but_no_delay_is_not_a_zero_delay(self, make_feed: Any) -> None:
+        """Reading .delay off a time-only event returns the proto default of
+        0, fabricating an on-time observation in the training target — and
+        one indistinguishable, afterwards, from a genuinely punctual train."""
+        feed = make_feed([("trip-1", "APS_1a", [("stop-a", 1, TIME_ONLY, TIME_ONLY)])])
+
+        observations = extract_delay_observations(feed, LOOKUP, TRACKED, POLL_TIME)
+
+        assert observations == []
+
+    def test_a_time_only_arrival_alongside_a_real_departure_delay(self, make_feed: Any) -> None:
+        feed = make_feed([("trip-1", "APS_1a", [("stop-a", 1, TIME_ONLY, 45)])])
+
+        observation = extract_delay_observations(feed, LOOKUP, TRACKED, POLL_TIME)[0]
+
+        assert observation.arrival_delay_s is None
+        assert observation.departure_delay_s == 45
+
+    def test_a_genuine_zero_delay_is_still_recorded(self, make_feed: Any) -> None:
+        """The fix must not throw away real on-time observations — they are
+        the majority class the model has to learn."""
+        feed = make_feed([("trip-1", "APS_1a", [("stop-a", 1, 0, None)])])
+
+        observation = extract_delay_observations(feed, LOOKUP, TRACKED, POLL_TIME)[0]
+
+        assert observation.arrival_delay_s == 0
+
+
+class TestFieldPresence:
+    def test_an_unset_stop_sequence_is_none_not_zero(self, make_feed: Any) -> None:
+        feed = make_feed([("trip-1", "APS_1a", [("stop-a", NO_SEQUENCE, 60, None)])])
+
+        assert extract_delay_observations(feed, LOOKUP, TRACKED, POLL_TIME)[0].stop_sequence is None
+
+    def test_a_trip_without_an_id_is_skipped(self, make_feed: Any) -> None:
+        """Every such row would collapse onto one (service_date, '', stop_id)
+        key and overwrite the last."""
+        feed = make_feed([("", "APS_1a", [("stop-a", 1, 60, None)])])
+
+        assert extract_delay_observations(feed, LOOKUP, TRACKED, POLL_TIME) == []
+
+
+class TestServiceDay:
+    def test_after_midnight_belongs_to_the_previous_service_date(self) -> None:
+        """00:20 Sydney is still the previous service day, which is what GTFS
+        start_date says too. Rolling over at local midnight would make the
+        derived date disagree with the reported one for the same stop event."""
+        assert service_day("2026-09-02T14:20:00+00:00") == "2026-09-02"
+
+    def test_the_boundary_sits_in_the_service_gap(self) -> None:
+        assert service_day("2026-09-02T16:59:00+00:00") == "2026-09-02"  # 02:59 Sydney
+        assert service_day("2026-09-02T17:01:00+00:00") == "2026-09-03"  # 03:01 Sydney
+
+    def test_the_derived_date_agrees_with_a_reported_start_date(self, make_feed: Any) -> None:
+        after_midnight = "2026-09-02T14:20:00+00:00"
+        with_start = make_feed([("a", "APS_1a", [("s", 1, 60, None)], "20260902")])
+        without_start = make_feed([("b", "APS_1a", [("s", 1, 60, None)])])
+
+        reported = extract_delay_observations(with_start, LOOKUP, TRACKED, after_midnight)[0]
+        derived = extract_delay_observations(without_start, LOOKUP, TRACKED, after_midnight)[0]
+
+        assert reported.service_date == derived.service_date

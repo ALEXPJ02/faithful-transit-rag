@@ -19,12 +19,11 @@ from __future__ import annotations
 import csv
 import sqlite3
 from collections.abc import Sequence
-from datetime import datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Protocol
 
-from transit_rag.realtime.parsing import StopDelayObservation
+from transit_rag.realtime.parsing import StopDelayObservation, service_day
 
 COLUMNS = (
     "service_date",
@@ -64,9 +63,14 @@ CREATE TABLE IF NOT EXISTS stop_observations (
     service_date          TEXT    NOT NULL,
     trip_id               TEXT    NOT NULL,
     stop_id               TEXT    NOT NULL,
+    -- Part of the key, and NOT NULL with a -1 sentinel: a T1 service running
+    -- via the City Circle calls at the same stop_id twice in one trip, and
+    -- those are two distinct stop events. SQLite treats NULLs in a composite
+    -- primary key as distinct from each other, so a nullable column here
+    -- would silently stop deduplicating instead.
+    stop_sequence         INTEGER NOT NULL DEFAULT -1,
     route_id              TEXT,
     route_short_name      TEXT,
-    stop_sequence         INTEGER,
     stops_ahead           INTEGER,
     arrival_delay_s       INTEGER,
     departure_delay_s     INTEGER,
@@ -74,7 +78,7 @@ CREATE TABLE IF NOT EXISTS stop_observations (
     first_seen_utc        TEXT    NOT NULL,
     last_seen_utc         TEXT    NOT NULL,
     observation_count     INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (service_date, trip_id, stop_id)
+    PRIMARY KEY (service_date, trip_id, stop_id, stop_sequence)
 );
 
 CREATE INDEX IF NOT EXISTS idx_obs_route_date
@@ -96,12 +100,11 @@ CREATE TABLE IF NOT EXISTS poll_log (
 # feed is the outcome proxy.
 _UPSERT = """
 INSERT INTO stop_observations (
-    service_date, trip_id, stop_id, route_id, route_short_name,
-    stop_sequence, stops_ahead, arrival_delay_s, departure_delay_s,
+    service_date, trip_id, stop_id, stop_sequence, route_id, route_short_name,
+    stops_ahead, arrival_delay_s, departure_delay_s,
     schedule_relationship, first_seen_utc, last_seen_utc, observation_count
 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)
-ON CONFLICT (service_date, trip_id, stop_id) DO UPDATE SET
-    stop_sequence         = excluded.stop_sequence,
+ON CONFLICT (service_date, trip_id, stop_id, stop_sequence) DO UPDATE SET
     stops_ahead           = excluded.stops_ahead,
     arrival_delay_s       = excluded.arrival_delay_s,
     departure_delay_s     = excluded.departure_delay_s,
@@ -126,6 +129,14 @@ class SqliteObservationStore:
         self._connection.commit()
 
     def record_observations(self, observations: Sequence[StopDelayObservation]) -> int:
+        """Upsert observations. Returns rows actually **applied**.
+
+        Not rows submitted: the guard on ``last_seen_utc`` rejects anything
+        older than what is already stored, so submitted and applied differ
+        whenever a poll is retried or arrives late. Reporting submitted counts
+        would inflate ``poll_log.rows_written``, which is the number the
+        collection-volume checkpoint is read against.
+        """
         if not observations:
             return 0
         rows = [
@@ -133,9 +144,10 @@ class SqliteObservationStore:
                 o.service_date,
                 o.trip_id,
                 o.stop_id,
+                # -1 stands in for an absent sequence; see the schema comment.
+                o.stop_sequence if o.stop_sequence is not None else -1,
                 o.route_id,
                 o.route_short_name,
-                o.stop_sequence,
                 o.stops_ahead,
                 o.arrival_delay_s,
                 o.departure_delay_s,
@@ -145,15 +157,17 @@ class SqliteObservationStore:
             )
             for o in observations
         ]
+        before = self._connection.total_changes
         self._connection.executemany(_UPSERT, rows)
         self._connection.commit()
-        return len(rows)
+        return self._connection.total_changes - before
 
     def record_poll(
         self, poll_time_utc: str, entities_seen: int, rows_written: int, status: str
     ) -> None:
         self._connection.execute(
-            "INSERT OR REPLACE INTO poll_log VALUES (?,?,?,?)",
+            "INSERT OR REPLACE INTO poll_log "
+            "(poll_time_utc, entities_seen, rows_written, status) VALUES (?,?,?,?)",
             (poll_time_utc, entities_seen, rows_written, status),
         )
         self._connection.commit()
@@ -209,8 +223,7 @@ class CsvSnapshotStore:
         root.mkdir(parents=True, exist_ok=True)
 
     def _partition(self, poll_time_utc: str) -> Path:
-        date = datetime.fromisoformat(poll_time_utc).date().isoformat()
-        partition = self.root / date
+        partition = self.root / service_day(poll_time_utc)
         partition.mkdir(parents=True, exist_ok=True)
         return partition
 

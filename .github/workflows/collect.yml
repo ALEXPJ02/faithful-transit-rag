@@ -30,7 +30,10 @@ jobs:
   collect:
     name: Poll TfNSW and append a snapshot
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    # Under the 5-minute schedule interval on purpose: a run that outlives it
+    # overlaps the next one, and GitHub's concurrency queue holds only one
+    # pending run, so overruns turn into dropped polls rather than a backlog.
+    timeout-minutes: 4
     steps:
       # The schedule goes live the moment this file reaches the default
       # branch, which is well before the key exists. Skipping quietly beats
@@ -56,6 +59,7 @@ jobs:
       # first run, and creating it here removes a manual setup step. Must run
       # after the code checkout, which cleans the workspace.
       - name: Check out (or create) the data branch
+        id: data
         if: steps.guard.outputs.ready == 'true'
         env:
           REMOTE: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
@@ -81,13 +85,12 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python
-        if: steps.guard.outputs.ready == 'true'
-        run: uv python install
-
+      # Base + realtime only: no chromadb, no model stack. This runs a few
+      # hundred times a day, so every package in the base install is paid for
+      # every five minutes.
       - name: Install the collector only
         if: steps.guard.outputs.ready == 'true'
-        run: uv pip install --system -e ".[realtime]"
+        run: uv sync --frozen --extra realtime
 
       - name: Poll
         if: steps.guard.outputs.ready == 'true'
@@ -99,10 +102,16 @@ jobs:
           COLLECTION_SINK: csv
           COLLECTION_SNAPSHOT_DIR: ${{ github.workspace }}/.data/observations
           COLLECTION_ROUTES_LOOKUP: ${{ github.workspace }}/data/routes_lookup.csv
-        run: transit-poller --once --sink csv
+        # --require-routes: refuse to run unfiltered here. Locally an unfiltered
+        # run is informative; unattended it is weeks of rows that cannot be
+        # attributed to a line, behind a green tick.
+        run: uv run transit-poller --once --sink csv --require-routes
 
+      # always(): a failed poll still writes an `error:` row, and that row is
+      # the entire early-warning system. Skipping the commit on failure would
+      # leave a poll log that, by construction, only ever contains successes.
       - name: Commit the snapshot
-        if: steps.guard.outputs.ready == 'true'
+        if: always() && steps.guard.outputs.ready == 'true' && steps.data.outcome == 'success'
         working-directory: .data
         run: |
           git config user.name "github-actions[bot]"

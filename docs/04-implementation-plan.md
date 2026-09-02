@@ -30,9 +30,9 @@ fall back on ([`02-tech-stack.md`](./02-tech-stack.md) §3), so the training set
 exactly what gets collected between the day the poller starts and the day the model
 is needed — and not a row more.
 
-The methodology write-up records collection as having started 2026-08-23. It has
-not: there is no observation database and no route lookup. That gap is real, it is
-counted in days, and closing it is the first task in this repo's queue.
+Collection has not started yet, so the window is shorter than planned and shrinking
+daily. Closing that gap is the first task in this repo's queue, ahead of every other
+build item.
 
 **Consequence for the fallback.** The Week-6 checkpoint below exists to decide
 between a live-trained model and a methodological feasibility study benchmarked

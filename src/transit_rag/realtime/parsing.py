@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -27,6 +27,21 @@ SYDNEY = ZoneInfo("Australia/Sydney")
 # one going unrecorded. This single constant is the difference between roughly
 # 1M rows a day and roughly 25k.
 DEFAULT_MAX_UPCOMING_STOPS = 3
+
+# Transit service days do not end at midnight — a trip departing 23:50 belongs
+# to the day it started, and GTFS says so via the trip's own ``start_date``.
+# When that field is absent we have to derive one, and rolling over at local
+# midnight would disagree with GTFS for every after-midnight trip: the same
+# stop event would land under two different service dates depending on whether
+# start_date happened to be populated, splitting the very key the upsert
+# depends on. Backing off three hours puts the boundary in the service gap.
+SERVICE_DAY_START_HOUR = 3
+
+
+def service_day(instant_utc: str) -> str:
+    """The Sydney service date an instant belongs to (see above)."""
+    local = datetime.fromisoformat(instant_utc).astimezone(SYDNEY)
+    return (local - timedelta(hours=SERVICE_DAY_START_HOUR)).date().isoformat()
 
 
 @dataclass(frozen=True)
@@ -59,6 +74,30 @@ class StopDelayObservation:
         return asdict(self)
 
 
+def _delay_seconds(stop_time_update: Any, field: str) -> int | None:
+    """Read ``arrival.delay`` / ``departure.delay``, or None if absent.
+
+    Two levels of presence, and both matter. ``HasField(field)`` only says the
+    StopTimeEvent sub-message exists — it is routinely present carrying just a
+    predicted ``time`` and no ``delay``. Reading ``.delay`` off that returns
+    the proto default of 0, which would record a fabricated on-time
+    observation in the column the model is trained to predict. Indistinguish-
+    able, afterwards, from a train that was genuinely on time.
+    """
+    if not stop_time_update.HasField(field):
+        return None
+    event = getattr(stop_time_update, field)
+    if not event.HasField("delay"):
+        return None
+    return int(event.delay)
+
+
+def _optional_int(message: Any, field: str) -> int | None:
+    if not message.HasField(field):
+        return None
+    return int(getattr(message, field))
+
+
 def _schedule_relationship_name(value: int) -> str:
     from google.transit import gtfs_realtime_pb2
 
@@ -78,7 +117,7 @@ def _service_date(trip: Any, fallback_utc: str) -> str:
     raw = getattr(trip, "start_date", "") or ""
     if len(raw) == 8 and raw.isdigit():
         return f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}"
-    return datetime.fromisoformat(fallback_utc).astimezone(SYDNEY).date().isoformat()
+    return service_day(fallback_utc)
 
 
 def extract_delay_observations(
@@ -110,6 +149,11 @@ def extract_delay_observations(
         if route_lookup and tracked and route_short_name not in tracked:
             continue
 
+        if not trip_update.trip.trip_id:
+            # Without one there is no key: every such row would collapse onto
+            # a single (service_date, "", stop_id) and overwrite the last.
+            continue
+
         service_date = _service_date(trip_update.trip, poll_time_utc)
         kept = 0
 
@@ -117,12 +161,8 @@ def extract_delay_observations(
             if 0 < max_upcoming_stops <= kept:
                 break
 
-            arrival_delay = (
-                stop_time_update.arrival.delay if stop_time_update.HasField("arrival") else None
-            )
-            departure_delay = (
-                stop_time_update.departure.delay if stop_time_update.HasField("departure") else None
-            )
+            arrival_delay = _delay_seconds(stop_time_update, "arrival")
+            departure_delay = _delay_seconds(stop_time_update, "departure")
             if arrival_delay is None and departure_delay is None:
                 # Carries no signal, and must not consume one of the kept
                 # slots — otherwise a trip whose next stop has no prediction
@@ -137,7 +177,7 @@ def extract_delay_observations(
                     stop_id=stop_time_update.stop_id,
                     route_id=route_id,
                     route_short_name=route_short_name,
-                    stop_sequence=stop_time_update.stop_sequence,
+                    stop_sequence=_optional_int(stop_time_update, "stop_sequence"),
                     stops_ahead=stops_ahead,
                     arrival_delay_s=arrival_delay,
                     departure_delay_s=departure_delay,

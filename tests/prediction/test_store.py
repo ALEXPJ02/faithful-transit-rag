@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from pathlib import Path
 
 from transit_rag.prediction.collection.store import CsvSnapshotStore, SqliteObservationStore
@@ -191,3 +192,68 @@ class TestCsvSnapshotStore:
             assert store.record_observations([]) == 0
 
         assert list(tmp_path.glob("*/*.csv")) == []
+
+
+class TestStoreCountingAndKeys:
+    def test_rows_written_counts_applied_not_submitted(self, tmp_path: Path) -> None:
+        """poll_log.rows_written is what the volume checkpoint is read
+        against, so it must not count writes the guard rejected."""
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            store.record_observations([_observation(observed_at="2026-09-02T09:02:00+00:00")])
+
+            stale = store.record_observations(
+                [_observation(observed_at="2026-09-02T09:00:00+00:00")]
+            )
+
+            assert stale == 0
+            assert store.observation_count() == 1
+
+    def test_a_loop_route_calling_twice_at_one_stop_is_two_rows(self, tmp_path: Path) -> None:
+        """T1 services run via the City Circle, so one trip legitimately calls
+        at the same stop_id twice, at different points in its sequence. Keying
+        on stop_id alone would collapse the second visit onto the first and
+        lose a real stop event."""
+        first_visit = replace(_observation(stop_id="central"), stop_sequence=3)
+        second_visit = replace(_observation(stop_id="central"), stop_sequence=12)
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            store.record_observations([first_visit, second_visit])
+
+            assert store.observation_count() == 2
+
+    def test_an_absent_stop_sequence_is_stored_as_the_sentinel(self, tmp_path: Path) -> None:
+        """SQLite treats NULLs in a composite key as distinct from each other,
+        so a nullable column here would stop deduplicating altogether."""
+        observation = replace(_observation(), stop_sequence=None)
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            store.record_observations([observation])
+            store.record_observations([observation])
+
+            assert store.observation_count() == 1
+            assert (
+                store._connection.execute("SELECT stop_sequence FROM stop_observations").fetchone()[
+                    0
+                ]
+                == -1
+            )
+
+
+class TestCsvPartitioning:
+    def test_partitions_by_service_day_not_the_utc_date(self, tmp_path: Path) -> None:
+        """22:00 UTC is 08:00 next morning in Sydney. Filing it under the UTC
+        date would scatter one service date across two directories."""
+        with CsvSnapshotStore(tmp_path) as store:
+            store.record_observations(
+                [_observation(observed_at="2026-09-02T22:00:00+00:00", service_date="2026-09-03")]
+            )
+
+        assert [p.name for p in tmp_path.iterdir()] == ["2026-09-03"]
+
+    def test_an_after_midnight_poll_stays_with_its_service_day(self, tmp_path: Path) -> None:
+        with CsvSnapshotStore(tmp_path) as store:
+            store.record_observations(
+                [_observation(observed_at="2026-09-02T14:20:00+00:00", service_date="2026-09-02")]
+            )
+
+        assert [p.name for p in tmp_path.iterdir()] == ["2026-09-02"]

@@ -12,27 +12,29 @@ license = { text = "MIT" }
 authors = [{ name = "Piero Jauregui" }]
 keywords = ["rag", "agentic", "gtfs", "public-transport", "llm-evaluation"]
 
-# Core dependencies: everything the retrieval + agent path needs.
-# Heavier, optional concerns live in the extras below so CI and the
-# collection-only environment stay light.
+# Base is deliberately tiny — just what config and HTTP need. The delay
+# collector reinstalls its environment on every scheduled run, so anything
+# in here is paid for hundreds of times a day; the RAG stack in particular
+# has no business being installed to poll a protobuf feed.
 dependencies = [
-    "anthropic>=0.40",
-    "voyageai>=0.3",
-    "chromadb>=0.5",
-    "pypdf>=5.0",
     "python-dotenv>=1.0",
-    "pydantic>=2.7",
-    "pydantic-settings>=2.3",
     "requests>=2.31",
 ]
 
 [project.optional-dependencies]
-# Realtime + delay collection. Deliberately separate: the poller runs
-# unattended (GitHub Actions / an always-on box) and must not drag in
-# chromadb or the model stack.
+# Realtime feeds + delay collection. This plus the base is the entire
+# footprint of the scheduled collector.
 realtime = [
     "gtfs-realtime-bindings>=1.0",
     "protobuf>=4.25",
+]
+# Retrieval and generation: the static-corpus half of the system.
+rag = [
+    "anthropic>=0.40",
+    "voyageai>=0.3",
+    "chromadb>=0.5",
+    "pypdf>=5.0",
+    "pydantic>=2.7",
 ]
 # Phase 1b prediction layer (see docs/02-tech-stack.md).
 prediction = [
@@ -133,6 +135,9 @@ ignore_missing_imports = true
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# src so the package imports without an editable install; tests so shared
+# fixtures and sentinels can be imported by name from the suite's own modules.
+pythonpath = ["src", "tests"]
 addopts = "-q --strict-markers"
 markers = [
     "live: hits a real external API (TfNSW / Anthropic / Voyage). Skipped by default.",

@@ -8,7 +8,7 @@ extra is not installed.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeAlias
 
 import pytest
 
@@ -18,7 +18,17 @@ gtfs_realtime_pb2 = pytest.importorskip(
 )
 
 # (stop_id, stop_sequence, arrival_delay, departure_delay)
-Stop = tuple[str, int, "int | None", "int | None"]
+#
+# A delay of None means the StopTimeEvent is absent entirely. TIME_ONLY means
+# it is present carrying a predicted time but no delay — the shape the real
+# feed sends constantly, and the one a fixture that can only set .delay is
+# structurally incapable of producing.
+TIME_ONLY = object()
+Delay: TypeAlias = "int | object | None"
+Stop: TypeAlias = "tuple[str, int, Delay, Delay]"
+
+# stop_sequence sentinel: leave the field unset rather than assigning 0.
+NO_SEQUENCE = object()
 
 
 @pytest.fixture
@@ -26,9 +36,11 @@ def make_feed() -> Any:
     """Build a Trip Update FeedMessage from plain Python descriptions.
 
     Each trip is ``(trip_id, route_id, [stops])``, optionally with a fourth
-    element giving the GTFS ``start_date`` (``YYYYMMDD``). A delay of ``None``
-    leaves that field unset, which is how the real feed represents "no
-    prediction for this stop".
+    element giving the GTFS ``start_date`` (``YYYYMMDD``).
+
+    A delay of ``None`` omits the StopTimeEvent entirely; ``TIME_ONLY``
+    includes it with a predicted time and no delay. Pass ``NO_SEQUENCE`` as
+    the sequence to leave that field unset.
     """
 
     def _make(trips: list[tuple[Any, ...]]) -> Any:
@@ -48,11 +60,16 @@ def make_feed() -> Any:
             for stop_id, sequence, arrival_delay, departure_delay in stops:
                 stop_time_update = entity.trip_update.stop_time_update.add()
                 stop_time_update.stop_id = stop_id
-                stop_time_update.stop_sequence = sequence
-                if arrival_delay is not None:
-                    stop_time_update.arrival.delay = arrival_delay
-                if departure_delay is not None:
-                    stop_time_update.departure.delay = departure_delay
+                if sequence is not NO_SEQUENCE:
+                    stop_time_update.stop_sequence = sequence
+                for field, delay in (("arrival", arrival_delay), ("departure", departure_delay)):
+                    if delay is None:
+                        continue
+                    event = getattr(stop_time_update, field)
+                    if delay is TIME_ONLY:
+                        event.time = 1_788_000_000  # present, but no delay
+                    else:
+                        event.delay = delay
         return feed
 
     return _make

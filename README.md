@@ -24,9 +24,13 @@ baseline?
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,realtime]"
-cp .env.example .env          # then fill in the keys
+pip install -e ".[dev,realtime]"     # add ,rag when building retrieval
+cp .env.example .env                 # then fill in the keys
 ```
+
+Dependencies are split so the collector installs almost nothing: base is
+`requests` + `python-dotenv`, and the RAG stack lives behind the `rag` extra.
+`uv.lock` pins every version — CI installs from it with `uv sync --frozen`.
 
 Full walkthrough, including the endpoint confirmation step you should not skip:
 [`docs/05-setup-checklist.md`](./docs/05-setup-checklist.md).
@@ -39,14 +43,18 @@ training data gone permanently**. Getting this running comes before everything e
 
 ```bash
 python -m transit_rag.prediction.collection.routes path/to/gtfs.zip   # once
-transit-poller --once      # verify the endpoint and key work
+transit-poller --probe     # what is the feed carrying, and does the filter match?
 transit-poller             # collect continuously
 transit-poller --status    # how much data so far, and are polls succeeding
 ```
 
-`--status` is the important one. The dangerous failure is not a crash but a collector
-that runs for a week while every request fails; it prints the last ten poll outcomes
-so that shows up immediately.
+`--probe` before anything else: it fetches once, stores nothing, and separates the
+three failures that otherwise look identical — a wrong endpoint, a static bundle
+that does not pair with the feed, and the tracked lines simply not running yet.
+
+`--status` is the one to keep coming back to. The dangerous failure is not a crash
+but a collector that runs for a week while every request fails; it prints the last
+ten poll outcomes, so that shows up immediately.
 
 In production the collector runs as a scheduled GitHub Action rather than on a
 laptop, writing immutable per-poll snapshots to a dedicated `collected-data` branch.
@@ -60,8 +68,7 @@ somewhere that stays awake.
 ruff check .              # lint
 ruff format .             # format
 mypy                      # typecheck
-pytest                    # tests (live-API tests are skipped by default)
-pytest -m live            # tests that hit real APIs — needs keys
+pytest                    # tests (no PYTHONPATH needed; see [tool.pytest] in pyproject)
 ```
 
 CI runs all four on every push and PR.

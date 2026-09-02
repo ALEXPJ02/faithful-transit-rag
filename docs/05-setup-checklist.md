@@ -10,9 +10,13 @@ Python 3.11+ (3.12 recommended — see `.python-version`).
 ```bash
 git clone <repo> && cd <repo>
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,realtime]"        # add ,prediction when training starts
+pip install -e ".[dev,realtime]"     # add ,rag and ,prediction as those land
 cp .env.example .env
 ```
+
+Base dependencies are deliberately tiny (`requests`, `python-dotenv`); the RAG and
+model stacks sit behind extras so the collector installs almost nothing. `uv.lock`
+pins every version, and CI installs from it with `uv sync --frozen`.
 
 Verify the toolchain before writing anything:
 
@@ -134,9 +138,14 @@ python -m transit_rag.prediction.collection.routes path/to/gtfs.zip
 ```
 
 This writes `data/routes_lookup.csv`. **Open it and confirm `T1` and `T4` appear
-against plausible `route_id`s** before a long run. Without the file the collector
-still runs, but logs every line unfiltered — a bigger database, not a wrong one.
-That is deliberate: collecting too much is recoverable, collecting nothing is not.
+against plausible `route_id`s** before a long run.
+
+Locally, a missing lookup only warns and collects every line — useful when you want
+to see what the feed actually contains. The scheduled collector passes
+`--require-routes` and **refuses to run** instead. Unattended, that same
+permissiveness produces weeks of rows with an empty `route_short_name` behind a
+green tick, and re-attributing them afterwards needs the static bundle that paired
+with that feed version — the very thing §4b exists because it drifts.
 
 ## 6. Keep it running — GitHub Actions
 
@@ -166,6 +175,9 @@ gitignored precisely so it can be.
    ```bash
    git add data/routes_lookup.csv && git commit -m "Add T1/T4 route lookup" && git push
    ```
+
+   Commit this **before** adding the secret in step 3 — the workflow refuses to
+   collect without it, so runs will fail loudly until it is there.
 
 3. **Add the API key as a secret.** Repo → Settings → Secrets and variables →
    Actions → New repository secret: `TFNSW_API_KEY`.
@@ -224,14 +236,29 @@ coverage is insurance against one silently stopping.
 
 ## 7. Weekly check (5 minutes)
 
+For a local SQLite collector:
+
 ```bash
-transit-poller --status              # local SQLite collector
-transit-poller --status --sink csv   # snapshots (run on the collected-data branch)
+transit-poller --status
 ```
 
-It prints the total collected, the service dates covered, and the last ten polls.
+For the scheduled collector, the snapshots live on the `collected-data` branch at
+`observations/` — not the `data/observations/` the default points at, so the
+directory has to be given explicitly. Run as-is against a normal checkout it would
+report zero, which is exactly the output that means "collection has stopped":
 
-- Is the total still climbing at roughly the expected rate (~25k rows/day)?
+```bash
+git fetch origin collected-data
+git worktree add /tmp/collected collected-data
+COLLECTION_SNAPSHOT_DIR=/tmp/collected/observations transit-poller --status --sink csv
+git worktree remove /tmp/collected
+```
+
+Either prints the total collected, the service dates covered, and the last ten polls.
+
+- Is the total still climbing at roughly the expected rate? See the table in
+  [`01-architecture.md`](./01-architecture.md) §5 — the two sinks count different
+  things, so use the row for the one you are actually running.
 - Are recent polls `ok`? Consecutive `error:` rows mean collection has stopped.
 - Are rows non-zero during peak hours? Zero at 3am is normal; zero at 8am is not.
 

@@ -7,6 +7,7 @@ Two modes, because collection has to survive a laptop lid closing:
     transit-poller --once --sink csv  # stateless: write one snapshot file
     transit-poller --status           # how much data so far, and are polls succeeding
     transit-poller --probe            # what the feed contains, and does the filter match
+    transit-poller --once --require-routes   # refuse to run unfiltered (scheduled runs)
 
 Every day of missed collection is a day of training data that cannot be
 recovered later, so ``--status`` exists to make silent failure loud: an auth
@@ -66,23 +67,42 @@ def poll_once(
     tracked_routes: tuple[str, ...],
     max_upcoming_stops: int = 3,
 ) -> bool:
-    """Run one poll. Returns True if the feed was fetched and stored."""
+    """Run one poll. Returns True if the feed was fetched and stored.
+
+    Nothing raised in here escapes. A collector that has been running for
+    weeks must not die on a malformed feed, a full disk, or a locked
+    database — the cost of one lost poll is a two-minute gap; the cost of an
+    unnoticed dead process is the rest of the collection window.
+    """
     poll_time = datetime.now(UTC).isoformat()
 
     try:
         feed = client.fetch_trip_updates()
+        observations = extract_delay_observations(
+            feed, route_lookup, tracked_routes, poll_time, max_upcoming_stops
+        )
+        written = sink.record_observations(observations)
+        sink.record_poll(poll_time, len(feed.entity), written, "ok")
     except FeedFetchError as exc:
+        # Routine and expected — a 502 or a timeout. No traceback needed.
         log.error("Poll failed: %s", exc)
-        sink.record_poll(poll_time, 0, 0, f"error: {exc}")
+        _try_record_failure(sink, poll_time, f"error: {exc}")
+        return False
+    except Exception as exc:
+        log.exception("Poll failed unexpectedly")
+        _try_record_failure(sink, poll_time, f"error: {type(exc).__name__}: {exc}")
         return False
 
-    observations = extract_delay_observations(
-        feed, route_lookup, tracked_routes, poll_time, max_upcoming_stops
-    )
-    written = sink.record_observations(observations)
-    sink.record_poll(poll_time, len(feed.entity), written, "ok")
     log.info("poll ok — %d entities seen, %d observations written", len(feed.entity), written)
     return True
+
+
+def _try_record_failure(sink: ObservationSink, poll_time: str, status: str) -> None:
+    """Record a failed poll, tolerating a sink that is itself the problem."""
+    try:
+        sink.record_poll(poll_time, 0, 0, status)
+    except Exception:
+        log.exception("Could not record the failed poll either")
 
 
 def run_forever(
@@ -207,6 +227,11 @@ def main() -> None:
         default=None,
         help="Where to write observations (default: COLLECTION_SINK, else sqlite)",
     )
+    parser.add_argument(
+        "--require-routes",
+        action="store_true",
+        help="Refuse to collect if the route lookup is missing (use for scheduled runs)",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Debug logging")
     args = parser.parse_args()
 
@@ -217,12 +242,19 @@ def main() -> None:
 
     try:
         config = CollectionConfig()
-        sink = build_sink(config, args.sink)
     except ConfigError as exc:
         log.error("%s", exc)
         sys.exit(1)
 
     if args.status:
+        # Built here rather than up front so --probe stays side-effect free:
+        # constructing the SQLite sink creates the database file, which is a
+        # surprising thing for a command documented as storing nothing to do.
+        try:
+            sink = build_sink(config, args.sink)
+        except ConfigError as exc:
+            log.error("%s", exc)
+            sys.exit(1)
         print_status(sink)
         sink.close()
         return
@@ -233,15 +265,30 @@ def main() -> None:
         log.error("%s", exc)
         sys.exit(1)
 
-    signal.signal(signal.SIGINT, _request_shutdown)
-    signal.signal(signal.SIGTERM, _request_shutdown)
-
     client = GtfsRealtimeClient(tfnsw, timeout_seconds=config.request_timeout_seconds)
     route_lookup = load_routes_lookup(config.routes_lookup_path)
 
     if args.probe:
-        sink.close()
         sys.exit(0 if print_probe(client, route_lookup, config.tracked_routes) else 1)
+
+    if not route_lookup and (args.require_routes or config.require_routes_lookup):
+        log.error(
+            "No route lookup at %s, and this run requires one. Without it every line is "
+            "collected unfiltered, which in a scheduled job is weeks of unattributed rows "
+            "behind a green tick. Build it with "
+            "`python -m transit_rag.prediction.collection.routes <gtfs.zip>` and commit it.",
+            config.routes_lookup_path,
+        )
+        sys.exit(1)
+
+    signal.signal(signal.SIGINT, _request_shutdown)
+    signal.signal(signal.SIGTERM, _request_shutdown)
+
+    try:
+        sink = build_sink(config, args.sink)
+    except ConfigError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
 
     try:
         if args.once:
