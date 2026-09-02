@@ -136,6 +136,25 @@ So the CSV figure is raw throughput and the SQLite figure is distinct stop event
 the second is the one that bounds the training set. Both are far below the ~1M/day
 the unfiltered feed would produce.
 
+### What the tracked lines actually resolve to
+
+One line is many `route_id`s. From the live bundle: **T1** spans eight
+(`NSN_1a`, `NSN_2a`, `NSN_2i`, `NSN_2k`, `WST_1a`, `WST_1b`, `WST_2c`, `WST_2d` —
+North Shore and Western), **T4** twelve (`ESI_1a` … `ESI_2f` — Eastern Suburbs &
+Illawarra: Bondi Junction, Waterfall, Cronulla, City Circle). Anything reporting
+per-line figures has to sum across them.
+
+Two route_ids carry no line name at all: `RTTA_DEF` is *Out Of Service* and
+`RTTA_REV` is *Non Revenue* — empty-train movements, not services. They resolve
+against the bundle (so they are not a version mismatch) but never match a tracked
+line, and are excluded by design. Overnight they can outnumber real services;
+`--probe` counts them separately so that does not read as a broken filter.
+
+Worth noting for the training set: a service diverted or altered in ways the
+scheduled timetable cannot express may be published under `RTTA_*` rather than its
+line. Those trips are not collected. The effect on coverage has not been measured,
+and should be before the model's scope is written up.
+
 ### Two sinks, because collection runs in two places
 
 | Sink | Used by | Shape |

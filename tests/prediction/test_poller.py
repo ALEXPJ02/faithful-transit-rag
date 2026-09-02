@@ -356,3 +356,45 @@ def test_probe_lists_route_ids_even_without_a_lookup(
     assert "APS_1a" in output
     assert "APS_4a" in output
     assert "No route lookup loaded" in output
+
+
+class TestProbeCounting:
+    def test_trips_are_summed_across_a_lines_route_ids(
+        self, make_feed: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """T1 spans eight route_ids and T4 twelve, so per-line counts have to
+        accumulate. Assigning instead of summing reports only the last id's
+        trips and makes a busy line look nearly idle."""
+        feed = make_feed(
+            [
+                ("a", "NSN_2k", [("s", 1, 60, None)]),
+                ("b", "NSN_2k", [("s", 1, 60, None)]),
+                ("c", "WST_1a", [("s", 1, 60, None)]),
+            ]
+        )
+        lookup = {"NSN_2k": "T1", "WST_1a": "T1"}
+
+        print_probe(FakeClient(feed=feed), lookup, ("T1",))  # type: ignore[arg-type]
+
+        assert "T1: 3 active trips" in capsys.readouterr().out
+
+    def test_out_of_service_trips_are_reported_separately(
+        self, make_feed: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Sydney Trains files empty-train movements under routes with no
+        line name. Overnight they outnumber real services, and unexplained
+        that reads as a broken filter."""
+        feed = make_feed(
+            [
+                ("a", "RTTA_REV", [("s", 1, 60, None)]),
+                ("b", "RTTA_DEF", [("s", 1, 60, None)]),
+                ("c", "NSN_2k", [("s", 1, 60, None)]),
+            ]
+        )
+        lookup = {"RTTA_REV": "", "RTTA_DEF": "", "NSN_2k": "T1"}
+
+        print_probe(FakeClient(feed=feed), lookup, ("T1",))  # type: ignore[arg-type]
+
+        output = capsys.readouterr().out
+        assert "T1: 1 active trip" in output
+        assert "2 out-of-service / non-revenue trips" in output

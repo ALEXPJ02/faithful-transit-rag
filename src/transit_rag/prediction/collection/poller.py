@@ -204,9 +204,22 @@ def print_probe(
         print(f"  … and {len(summaries) - 20} more")
 
     unmatched = [s for s in summaries if not s.matched]
-    tracked_present = {
-        s.route_short_name: s.trip_count for s in summaries if s.route_short_name in tracked_routes
-    }
+
+    # Summed, not assigned: one line maps to many route_ids (T1 spans eight,
+    # T4 twelve), and a dict comprehension here would keep only the last one's
+    # count and under-report the line by most of its traffic.
+    tracked_present: dict[str, int] = {}
+    unnamed_trips = 0
+    for summary in summaries:
+        name = summary.route_short_name
+        if name in tracked_routes:
+            tracked_present[name] = tracked_present.get(name, 0) + summary.trip_count
+        elif summary.matched and not name:
+            # Resolved against the bundle but carrying no line name — Sydney
+            # Trains files Out Of Service and Non Revenue movements this way.
+            # Empty trains, correctly excluded, and worth naming so a big
+            # count overnight does not read as a fault.
+            unnamed_trips += summary.trip_count
 
     print()
     if unmatched and not tracked_present:
@@ -228,6 +241,8 @@ def print_probe(
 
     for line, count in sorted(tracked_present.items()):
         print(f"{line}: {count} active trip{'' if count == 1 else 's'}")
+    if unnamed_trips:
+        print(f"({unnamed_trips} out-of-service / non-revenue trips, excluded by design.)")
     if unmatched:
         print(f"({len(unmatched)} route_ids not in the lookup — fine, they are other lines.)")
     print("\nFeed and lookup agree. Safe to start collecting.")
