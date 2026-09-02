@@ -1,5 +1,7 @@
 # ---------------------------------------------------------------------------
-# Academic / supervisor documents — kept locally, never in the public repo.
+# Academic / supervisor documents. These live one level up, in the Capstone
+# folder alongside this repo, so they are already outside it — this is a
+# second line of defence against a draft being exported in here by accident.
 # The repo is a portfolio artefact; assessment drafts and meeting notes are not.
 # ---------------------------------------------------------------------------
 *.docx
