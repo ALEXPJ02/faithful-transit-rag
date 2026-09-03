@@ -3,7 +3,8 @@
 Two modes, because collection has to survive a laptop lid closing:
 
     transit-poller                    # loop forever (systemd / an always-on box)
-    transit-poller --once             # a single poll (scheduled runs — see docs/04)
+    transit-poller --once             # a single poll
+    transit-poller --burst            # several polls, then exit (scheduled runs)
     transit-poller --once --sink csv  # stateless: write one snapshot file
     transit-poller --status           # how much data so far, and are polls succeeding
     transit-poller --probe            # what the feed contains, and does the filter match
@@ -138,6 +139,41 @@ def _try_record_failure(sink: ObservationSink, poll_time: str, status: str) -> N
         sink.record_poll(poll_time, 0, 0, status)
     except Exception:
         log.exception("Could not record the failed poll either")
+
+
+def run_burst(
+    client: GtfsRealtimeClient,
+    sink: ObservationSink,
+    route_lookup: dict[str, str],
+    config: CollectionConfig,
+) -> bool:
+    """Poll a handful of times in quick succession, then exit.
+
+    For a scheduled runner that is admitted rarely. A single poll per
+    admission sees each stop event exactly once, at whatever distance the
+    train happened to be — which is a prediction, not an outcome. Several
+    polls a minute or two apart let the same trip be seen more than once as
+    it approaches, so the last of them is a usable proxy for what happened.
+
+    Returns True if every poll succeeded.
+    """
+    log.info(
+        "Burst: %d polls %ds apart into %s",
+        config.burst_polls,
+        config.burst_spacing_seconds,
+        sink.describe(),
+    )
+    ok = True
+    for index in range(config.burst_polls):
+        if index and _shutdown.wait(timeout=config.burst_spacing_seconds):
+            log.info("Shutdown requested — ending the burst early.")
+            break
+        log.info("poll %d of %d", index + 1, config.burst_polls)
+        if not poll_once(
+            client, sink, route_lookup, config.tracked_routes, config.max_upcoming_stops
+        ):
+            ok = False
+    return ok
 
 
 def run_forever(
@@ -277,6 +313,11 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--once", action="store_true", help="Run a single poll and exit")
+    parser.add_argument(
+        "--burst",
+        action="store_true",
+        help="Run POLLER_BURST_POLLS polls spaced POLLER_BURST_SPACING apart, then exit",
+    )
     parser.add_argument("--status", action="store_true", help="Report collection progress and exit")
     parser.add_argument(
         "--probe",
@@ -353,9 +394,13 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        if args.once:
-            ok = poll_once(
-                client, sink, route_lookup, config.tracked_routes, config.max_upcoming_stops
+        if args.once or args.burst:
+            ok = (
+                run_burst(client, sink, route_lookup, config)
+                if args.burst
+                else poll_once(
+                    client, sink, route_lookup, config.tracked_routes, config.max_upcoming_stops
+                )
             )
             print_status(sink)
             sys.exit(0 if ok else 1)

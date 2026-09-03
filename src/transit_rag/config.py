@@ -163,6 +163,14 @@ class CollectionConfig:
     max_upcoming_stops: int = field(
         default_factory=lambda: _env_int("POLLER_MAX_UPCOMING_STOPS", 3)
     )
+    # Burst mode. A scheduled runner is admitted rarely and unpredictably —
+    # GitHub honoured roughly one run every two hours against a five-minute
+    # request — so each admission has to be worth more than a single poll.
+    # Several polls spaced a minute or two apart let a trip be seen more than
+    # once as it approaches, which is the whole basis of treating the last
+    # observation as an outcome. One snapshot every two hours cannot do that.
+    burst_polls: int = field(default_factory=lambda: _env_int("POLLER_BURST_POLLS", 5))
+    burst_spacing_seconds: int = field(default_factory=lambda: _env_int("POLLER_BURST_SPACING", 90))
     # Unattended runs must refuse to collect without a route lookup. Locally an
     # unfiltered run is a useful way to see what the feed contains; in a
     # scheduled job it is weeks of unattributed rows behind a green tick,

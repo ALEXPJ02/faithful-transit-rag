@@ -34,10 +34,12 @@ jobs:
   collect:
     name: Poll TfNSW and append a snapshot
     runs-on: ubuntu-latest
-    # Under the 5-minute schedule interval on purpose: a run that outlives it
-    # overlaps the next one, and GitHub's concurrency queue holds only one
-    # pending run, so overruns turn into dropped polls rather than a backlog.
-    timeout-minutes: 4
+    # Long enough for a burst (5 polls, 90s apart = 6 min) plus setup.
+    # This exceeds the requested 5-minute interval, which would matter if
+    # GitHub actually scheduled at that rate — measured, it admits a run
+    # roughly every two hours, and the concurrency queue absorbs the rest.
+    # Bursting is the response to that: see docs/05 §6.
+    timeout-minutes: 12
     steps:
       # The schedule goes live the moment this file reaches the default
       # branch, which is well before the key exists. Skipping quietly beats
@@ -106,10 +108,16 @@ jobs:
           COLLECTION_SINK: csv
           COLLECTION_SNAPSHOT_DIR: ${{ github.workspace }}/.data/observations
           COLLECTION_ROUTES_LOOKUP: ${{ github.workspace }}/data/routes_lookup.csv
+        # --burst, not --once: GitHub admits this workflow roughly once every
+        # two hours despite a five-minute request, and a single poll per
+        # admission sees each stop event exactly once at an arbitrary distance
+        # from it — a prediction, never an outcome. Five polls 90s apart let a
+        # trip be seen more than once as it approaches.
+        #
         # --require-routes: refuse to run unfiltered here. Locally an unfiltered
         # run is informative; unattended it is weeks of rows that cannot be
         # attributed to a line, behind a green tick.
-        run: uv run --frozen --extra realtime transit-poller --once --sink csv --require-routes
+        run: uv run --frozen --extra realtime transit-poller --burst --sink csv --require-routes
 
       # always(): a failed poll still writes an `error:` row, and that row is
       # the entire early-warning system. Skipping the commit on failure would

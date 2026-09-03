@@ -19,6 +19,7 @@ from transit_rag.prediction.collection.poller import (
     poll_once,
     print_probe,
     print_status,
+    run_burst,
 )
 from transit_rag.prediction.collection.store import (
     CsvSnapshotStore,
@@ -398,3 +399,68 @@ class TestProbeCounting:
         output = capsys.readouterr().out
         assert "T1: 1 active trip" in output
         assert "2 out-of-service / non-revenue trips" in output
+
+
+class TestBurstMode:
+    """A scheduled runner is admitted rarely, so each admission has to be
+    worth more than one poll."""
+
+    def _config(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, polls: int) -> Any:
+        monkeypatch.setenv("POLLER_BURST_POLLS", str(polls))
+        monkeypatch.setenv("POLLER_BURST_SPACING", "0")
+        monkeypatch.setenv("COLLECTION_DB_PATH", str(tmp_path / "obs.db"))
+        return CollectionConfig()
+
+    def test_it_polls_the_configured_number_of_times(
+        self, tmp_path: Path, make_feed: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = FakeClient(feed=make_feed([("t", "APS_1a", [("s", 1, 60, None)])]))
+        config = self._config(monkeypatch, tmp_path, 5)
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            ok = run_burst(client, store, LOOKUP, config)  # type: ignore[arg-type]
+
+            assert ok is True
+            assert client.calls == 5
+            assert len(store.recent_poll_status(limit=10)) == 5
+
+    def test_a_burst_survives_one_bad_poll(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One 502 in the middle must not abandon the rest of the burst —
+        that admission will not come round again for hours."""
+        client = FakeClient(error=FeedFetchError("502 Bad Gateway"))
+        config = self._config(monkeypatch, tmp_path, 3)
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            ok = run_burst(client, store, LOOKUP, config)  # type: ignore[arg-type]
+
+            assert ok is False
+            assert client.calls == 3
+            assert len(store.recent_poll_status(limit=10)) == 3
+
+    def test_the_first_poll_is_not_delayed(
+        self, tmp_path: Path, make_feed: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Spacing goes between polls, not before the first — a runner that
+        waited before its first poll would waste part of a short admission."""
+        monkeypatch.setenv("POLLER_BURST_SPACING", "3600")
+        monkeypatch.setenv("POLLER_BURST_POLLS", "1")
+        monkeypatch.setenv("COLLECTION_DB_PATH", str(tmp_path / "obs.db"))
+        client = FakeClient(feed=make_feed([("t", "APS_1a", [("s", 1, 60, None)])]))
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            run_burst(client, store, LOOKUP, CollectionConfig())  # type: ignore[arg-type]
+
+        assert client.calls == 1
+
+    def test_burst_defaults_are_sane(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("POLLER_BURST_POLLS", raising=False)
+        monkeypatch.delenv("POLLER_BURST_SPACING", raising=False)
+
+        config = CollectionConfig()
+
+        assert config.burst_polls == 5
+        assert config.burst_spacing_seconds == 90
+        # Must comfortably fit inside the workflow's job timeout.
+        assert (config.burst_polls - 1) * config.burst_spacing_seconds < 600
