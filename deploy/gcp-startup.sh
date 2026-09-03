@@ -30,6 +30,18 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq python3 python3-venv python3-pip git ca-certificates
 
+# pyproject requires >=3.12. Debian 12 ships 3.11 and fails deep inside pip
+# with a message about package metadata, which reads like a packaging bug
+# rather than a wrong base image. Check it here, where the fix is obvious.
+PY_VERSION="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'; then
+  log "FATAL: python3 is ${PY_VERSION}, but this project requires 3.12 or newer."
+  log "       Recreate the instance with an image that ships 3.12+:"
+  log "       --image-family=ubuntu-2404-lts-amd64 --image-project=ubuntu-os-cloud"
+  exit 1
+fi
+log "python3 ${PY_VERSION} — ok"
+
 id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin "$APP_USER"
 
 if [ -d "$APP_DIR/.git" ]; then

@@ -83,17 +83,23 @@ TFNSW_KEY=$(grep '^TFNSW_API_KEY=' .env | cut -d= -f2-)
 gcloud compute instances create transit-collector \
   --zone=us-central1-a \
   --machine-type=e2-micro \
-  --image-family=debian-12 \
-  --image-project=debian-cloud \
+  --image-family=ubuntu-2404-lts-amd64 \
+  --image-project=ubuntu-os-cloud \
   --boot-disk-size=30GB \
   --boot-disk-type=pd-standard \
   --metadata-from-file=startup-script=deploy/gcp-startup.sh \
   --metadata=tfnsw-api-key="$TFNSW_KEY"
 ```
 
+**Ubuntu 24.04, not Debian 12.** `pyproject.toml` requires Python 3.12; Debian 12
+ships 3.11.2 and the install dies inside pip with a message about package metadata
+that reads like a packaging bug rather than a wrong base image. The startup script
+now checks the version up front and says so. Ubuntu 24.04 LTS ships 3.12.
+
 **Stay inside the free tier:** the machine type must be `e2-micro`, the zone must be
 in `us-west1`, `us-central1` or `us-east1`, and the disk must be `pd-standard` at
-30 GB or less. Anything else is billable.
+30 GB or less. The image choice does not affect free-tier eligibility — Ubuntu and
+Debian images both carry no licence cost.
 
 ### 3. Confirm it is collecting
 
