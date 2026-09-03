@@ -66,6 +66,7 @@ dev = [
 
 [project.scripts]
 transit-poller = "transit_rag.prediction.collection.poller:main"
+transit-reconcile = "transit_rag.prediction.features.cli:main"
 
 [project.urls]
 Repository = "https://github.com/ALEXPJ02/faithful-transit-rag"
@@ -127,6 +128,10 @@ module = [
     "joblib.*",
     "ragas.*",
     "mcp.*",
+    # pandas-stubs is deliberately not a dependency: it disagrees with pandas
+    # often enough that chasing its false positives costs more than the typing
+    # buys on a handful of dataframe transforms.
+    "pandas.*",
 ]
 ignore_missing_imports = true
 

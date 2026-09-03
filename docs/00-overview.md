@@ -75,6 +75,7 @@ That framing is what keeps the project scoped to one semester.
 | [`04-implementation-plan.md`](./04-implementation-plan.md) | 13-week plan, current status, risks |
 | [`05-setup-checklist.md`](./05-setup-checklist.md) | Getting keys, endpoints, and collection running |
 | [`06-always-on-collector.md`](./06-always-on-collector.md) | The GCP e2-micro collector, and why Actions is not enough |
+| [`07-training-table.md`](./07-training-table.md) | Reconciliation: observations to model-ready rows |
 
 ## Ground rules
 

@@ -95,7 +95,7 @@ src/transit_rag/
   ingestion/       Opal PDFs -> cited chunks
   retrieval/       Voyage embeddings -> Chroma
   realtime/        TfNSW GTFS-Realtime client + parsers
-  prediction/      delay collection, features, XGBoost model
+  prediction/      delay collection, reconciliation, XGBoost model
   agent/           hand-rolled Anthropic tool-use loop
   mcp_server/      MCP tool interface + FastAPI
   evaluation/      Ragas + custom LLM-as-judge harness
@@ -112,6 +112,7 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 - [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) — 13-week plan, current status, risks
 - [`docs/05-setup-checklist.md`](./docs/05-setup-checklist.md) — keys, endpoints, keeping collection running
 - [`docs/06-always-on-collector.md`](./docs/06-always-on-collector.md) — the always-on GCP collector
+- [`docs/07-training-table.md`](./docs/07-training-table.md) — reconciliation and the training-table schema
 
 ## Status
 
