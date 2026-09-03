@@ -111,6 +111,7 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 - [`docs/03-data-sources.md`](./docs/03-data-sources.md) — TfNSW dataset selection and access
 - [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) — 13-week plan, current status, risks
 - [`docs/05-setup-checklist.md`](./docs/05-setup-checklist.md) — keys, endpoints, keeping collection running
+- [`docs/06-always-on-collector.md`](./docs/06-always-on-collector.md) — the always-on GCP collector
 
 ## Status
 
