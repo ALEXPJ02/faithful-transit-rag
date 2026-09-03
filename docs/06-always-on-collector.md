@@ -45,13 +45,39 @@ charged. Set a budget alert if you want a hard signal.
 ```bash
 brew install --cask google-cloud-sdk
 gcloud auth login
-gcloud config set project YOUR_PROJECT_ID
+```
+
+Then point it at a project and billing account. These read your real values
+rather than asking you to substitute them — a literal `YOUR_PROJECT_ID` pasted
+into a shell is accepted without complaint and fails confusingly later:
+
+```bash
+PROJECT_ID=$(gcloud projects list --format='value(projectId)' --limit=1)
+BILLING_ID=$(gcloud billing accounts list --format='value(name)' --limit=1 | sed 's|.*/||')
+echo "project=$PROJECT_ID billing=$BILLING_ID"
+```
+
+```bash
+gcloud config set project "$PROJECT_ID"
+gcloud billing projects link "$PROJECT_ID" --billing-account="$BILLING_ID"
 gcloud services enable compute.googleapis.com
 ```
+
+With more than one project or billing account, set those two variables by hand
+instead of taking the first of each.
 
 ### 2. Create the instance
 
 One command. The startup script provisions everything on first boot — no SSH.
+
+Run this from the repository root — `--metadata-from-file` takes a relative
+path, and the key is read straight out of your `.env`, so it never has to be
+pasted anywhere:
+
+```bash
+TFNSW_KEY=$(grep '^TFNSW_API_KEY=' .env | cut -d= -f2-)
+[ -n "$TFNSW_KEY" ] && echo "key found (${#TFNSW_KEY} chars)" || echo "NO KEY IN .env"
+```
 
 ```bash
 gcloud compute instances create transit-collector \
@@ -62,7 +88,7 @@ gcloud compute instances create transit-collector \
   --boot-disk-size=30GB \
   --boot-disk-type=pd-standard \
   --metadata-from-file=startup-script=deploy/gcp-startup.sh \
-  --metadata=tfnsw-api-key=YOUR_TFNSW_KEY
+  --metadata=tfnsw-api-key="$TFNSW_KEY"
 ```
 
 **Stay inside the free tier:** the machine type must be `e2-micro`, the zone must be
