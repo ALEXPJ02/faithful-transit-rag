@@ -102,6 +102,12 @@ cat > /etc/systemd/system/transit-poller.service <<'UNIT'
 Description=TfNSW GTFS-Realtime delay collector
 After=network-online.target
 Wants=network-online.target
+# Belongs in [Unit], not [Service] — systemd ignores it in [Service] with only
+# a warning in the journal. Zero disables the start rate limiter entirely, so
+# a repeatedly failing collector keeps retrying instead of being given up on.
+# On a collection window that cannot be re-run, a unit systemd has marked
+# failed is worse than one that is still trying.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -111,9 +117,6 @@ EnvironmentFile=/opt/transit-rag/.env
 ExecStart=/opt/transit-rag/.venv/bin/transit-poller --require-routes
 Restart=always
 RestartSec=30
-# The collection window cannot be re-run, so a crash loop must never become a
-# stopped unit.
-StartLimitIntervalSec=0
 StandardOutput=journal
 StandardError=journal
 NoNewPrivileges=true
