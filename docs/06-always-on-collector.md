@@ -119,12 +119,32 @@ which **deduplicates**: one row per stop event holding the latest value, rather
 than one row per poll. That is the training shape, and it is why the always-on
 box uses SQLite where the stateless Action uses CSV snapshots.
 
-Pull a copy whenever you want one:
+Pull a copy whenever you want one. **Two steps, and not a plain `scp`:**
 
 ```bash
-gcloud compute scp transit-collector:/opt/transit-rag/data/delay_observations.db \
-  ./data/ --zone=us-central1-a
+gcloud compute ssh transit-collector --zone=us-central1-a --command='sudo transit-snapshot'
+```
+
+```bash
+gcloud compute scp transit-collector:/tmp/delay_observations.db ./data/ --zone=us-central1-a
+```
+
+`transit-snapshot` is installed on the instance by the startup script. It exists
+because a direct `scp` of the live database fails twice over:
+
+- The data directory is owned by the `collector` user, so an SSH login cannot
+  read it — and `scp` reports that as *"No such file or directory"*, which reads
+  like the file is missing rather than unreadable.
+- The database is in WAL mode and written to every two minutes. Copying the file
+  can capture a torn read. SQLite's backup API takes a consistent snapshot of a
+  live database, which is exactly what it is for.
+
+Then, locally — remember the virtualenv, or the commands are not on your PATH:
+
+```bash
+source .venv/bin/activate
 transit-poller --status
+transit-reconcile --report-only
 ```
 
 Do this at least weekly. The instance is the only copy of the deduplicated table —

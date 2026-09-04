@@ -129,6 +129,38 @@ ReadWritePaths=/opt/transit-rag/data
 WantedBy=multi-user.target
 UNIT
 
+# A consistent, readable copy for download. Two reasons this exists rather
+# than telling anyone to scp the database directly:
+#
+#   1. The data directory is owned by the collector user, so an SSH login
+#      cannot read it — and scp reports that as "No such file or directory",
+#      which reads like the file is missing rather than unreadable.
+#   2. The database is in WAL mode and written to every two minutes. Copying
+#      the file can capture a torn read; sqlite3's backup API takes a
+#      consistent snapshot of a live database, which is the whole point of it.
+cat > /usr/local/bin/transit-snapshot <<'SNAPSHOT_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+DEST="${1:-/tmp/delay_observations.db}"
+/opt/transit-rag/.venv/bin/python - "$DEST" <<'SNAPSHOT_PY'
+import sqlite3
+import sys
+
+source = sqlite3.connect("file:/opt/transit-rag/data/delay_observations.db?mode=ro", uri=True)
+destination = sqlite3.connect(sys.argv[1])
+with destination:
+    source.backup(destination)
+rows = destination.execute("SELECT COUNT(*) FROM stop_observations").fetchone()[0]
+print(f"{rows:,} stop events")
+destination.close()
+source.close()
+SNAPSHOT_PY
+chmod 0644 "$DEST"
+echo "snapshot ready: $DEST"
+SNAPSHOT_SCRIPT
+chmod 0755 /usr/local/bin/transit-snapshot
+log "installed /usr/local/bin/transit-snapshot"
+
 systemctl daemon-reload
 systemctl enable --now transit-poller.service
 log "provisioning complete; poller enabled"
