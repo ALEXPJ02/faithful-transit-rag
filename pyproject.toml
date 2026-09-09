@@ -67,6 +67,7 @@ dev = [
 [project.scripts]
 transit-poller = "transit_rag.prediction.collection.poller:main"
 transit-reconcile = "transit_rag.prediction.features.cli:main"
+transit-train = "transit_rag.prediction.model.cli:main"
 
 [project.urls]
 Repository = "https://github.com/ALEXPJ02/faithful-transit-rag"
