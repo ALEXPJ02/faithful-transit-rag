@@ -58,11 +58,18 @@ def main() -> None:
     parser.add_argument(
         "--snapshots", type=Path, default=config.snapshot_dir, help="CSV snapshot directory"
     )
+    # Several bundles, not one. A collection window spanning a timetable
+    # republication needs a bundle per era or half the trips lose their
+    # schedule — see ScheduleIndex.across_bundles. The default glob picks up
+    # archived era bundles (gtfs_schedule_YYYYMMDD.zip) alongside the current
+    # one, so the correct behaviour does not depend on remembering a flag.
     parser.add_argument(
         "--bundle",
         type=Path,
-        default=PROJECT_ROOT / "data" / "gtfs_schedule.zip",
-        help="Static GTFS bundle, for stop order and scheduled times",
+        nargs="+",
+        default=sorted((PROJECT_ROOT / "data").glob("gtfs_schedule*.zip")),
+        help="Static GTFS bundle(s), for stop order and scheduled times. Pass one per "
+        "timetable era the collection window spans",
     )
     parser.add_argument(
         "--out",
@@ -101,20 +108,34 @@ def main() -> None:
     observations = pd.concat(sources, ignore_index=True)
 
     index = ScheduleIndex({}, set())
-    if args.bundle.exists():
+    bundles = [path for path in args.bundle if path.exists()]
+    if bundles:
         trip_ids = observations["trip_id"].astype(str).unique()
-        index = ScheduleIndex.for_trips(args.bundle, trip_ids)
+        for bundle in bundles:
+            log.info("indexing %s", bundle)
+        index = ScheduleIndex.across_bundles(bundles, trip_ids)
         matched, total = index.coverage(trip_ids)
         log.info("schedule matched %d of %d trips (%.0f%%)", matched, total, 100 * matched / total)
+        if matched < total:
+            # Past a timetable rollover this is a missing era, not an aged
+            # bundle, and re-fetching would swap which half matches rather than
+            # fixing it. Name both possibilities so the reader checks the right
+            # one.
+            log.warning(
+                "%d trips have no schedule. If the collection window spans a timetable "
+                "republication, the bundle for one era is missing and re-fetching will "
+                "not recover it — keep the superseded bundle and pass both to --bundle.",
+                total - matched,
+            )
     else:
         # Not fatal: delays are still real observations without it. But the
         # ordering falls back to observation time and scheduled arrival is lost,
         # so say so rather than silently producing a thinner table.
         log.warning(
-            "No static bundle at %s — stop order falls back to observation time and "
+            "No static bundle found at %s — stop order falls back to observation time and "
             "scheduled arrival will be empty. Fetch it with "
             "`python -m transit_rag.prediction.collection.routes --fetch`.",
-            args.bundle,
+            ", ".join(str(path) for path in args.bundle) or "the default location",
         )
 
     table = build_training_table(observations, index)
