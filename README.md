@@ -16,7 +16,7 @@ baseline?
 
 ## Prerequisites
 
-- Python 3.11+ (3.12 recommended — see `.python-version`)
+- Python 3.12+ (see `.python-version`; `pyproject.toml` sets the floor)
 - A free [TfNSW Open Data Hub](https://opendata.transport.nsw.gov.au) API key
 - Anthropic and Voyage AI API keys
 

@@ -8,7 +8,7 @@
 
 | Layer | Choice | Why |
 | --- | --- | --- |
-| Language | **Python 3.12** (floor 3.11) | The whole RAG/eval/ML ecosystem lives here |
+| Language | **Python 3.12** (hard floor) | The whole RAG/eval/ML ecosystem lives here; below 3.12 mypy silently stops checking |
 | Generation | **Claude Sonnet** via the Anthropic API | Strong tool-use; the judge is a *different, cheaper* model to avoid self-grading |
 | Eval judge | **Claude Haiku** | Judge calls dominate eval volume; a cheap judge is what makes a large QA set affordable |
 | Embeddings | **Voyage `voyage-4-lite`** | Anthropic has no first-party embeddings API; 200M free tokens covers a 3-PDF corpus many times over |

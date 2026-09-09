@@ -95,7 +95,7 @@ the same protobuf.
 
 ## 4. Conventions
 
-- **Python ≥ 3.11**, `from __future__ import annotations` in every module.
+- **Python ≥ 3.12**, `from __future__ import annotations` in every module.
 - **Ruff** for lint and format (line length 100); **mypy** with `disallow_untyped_defs`.
 - **Pure functions get unit tests; I/O gets a thin wrapper.** `realtime/parsing.py`
   is testable against a synthetic `FeedMessage`; `realtime/client.py` is a shell
