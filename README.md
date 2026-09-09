@@ -67,11 +67,11 @@ that does not pair with the feed, and the tracked lines simply not running yet.
 but a collector that runs for a week while every request fails; it prints the last
 ten poll outcomes, so that shows up immediately.
 
-In production the collector runs as a scheduled GitHub Action rather than on a
-laptop, writing immutable per-poll snapshots to a dedicated `collected-data` branch.
-
-See [`docs/05-setup-checklist.md`](./docs/05-setup-checklist.md) §5 for running it
-somewhere that stays awake.
+In production the collector runs on an always-on GCP e2-micro rather than a laptop,
+polling every 120 s into SQLite — see
+[`docs/06-always-on-collector.md`](./docs/06-always-on-collector.md). A scheduled
+GitHub Action (`.github/workflows/collect.yml`) backs it up, writing immutable
+per-poll CSV snapshots to a dedicated `collected-data` branch.
 
 ## Development
 
@@ -84,8 +84,6 @@ pytest
 
 Lint, format, typecheck, tests. `pytest` needs no `PYTHONPATH` — `pyproject.toml`
 sets it. CI runs all four on every push and PR.
-
-
 
 ## Layout
 
@@ -116,9 +114,15 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 
 ## Status
 
-Research preparation is complete; the build is at the start of Weeks 4–7. Collection
-is the critical path and is the next thing to start — see
-[`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) §1.
+Research preparation is complete and the build is in the Weeks 4–7 band.
+
+- **Collection** — live since 3 September 2026 on the always-on collector, plus the
+  scheduled-Action backup. Reconciliation into the training table is built and tested.
+- **Next** — the delay model (naive-persistence baseline, then XGBoost), then the
+  retrieval, agent and evaluation layers, which are still empty packages.
+
+See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
+phase plan and risks.
 
 ## Licence
 

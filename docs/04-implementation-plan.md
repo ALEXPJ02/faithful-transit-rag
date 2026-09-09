@@ -3,7 +3,7 @@
 > One semester, one engineer, 41029 + 41030 concurrently. The plan is written around
 > what can be cut, because something will be.
 
-## Status — 2 September 2026
+## Status — 9 September 2026
 
 | Workstream | State |
 | --- | --- |
@@ -13,13 +13,14 @@
 | Data source selection | **Done** — see [`03-data-sources.md`](./03-data-sources.md) |
 | Tech stack | **Done** — see [`02-tech-stack.md`](./02-tech-stack.md) |
 | Repo + CI + module layout | **Done** — this scaffold |
-| Scheduled collection workflow | **Done** — `.github/workflows/collect.yml` |
+| Scheduled collection workflow | **Done** — `.github/workflows/collect.yml`, now the backup |
 | System architecture diagram | **Done** — [`01-architecture.md`](./01-architecture.md) §1 |
-| **Delay collection running** | **Collector built and tested; not yet collecting.** Blocked only on the API key and a first live poll — critical path, see §1 |
+| **Delay collection running** | **Done** — live since 3 September 2026 on the always-on collector, 120 s cadence, T1 + T4 ([`06-always-on-collector.md`](./06-always-on-collector.md)) |
+| Reconciliation → training table | **Done** — `transit-reconcile`, schema in [`07-training-table.md`](./07-training-table.md) |
+| Prediction: baseline + model training | Not started — the table is ready; nothing trains on it yet |
 | Corpus ingestion + retrieval | Not started |
 | Agent loop + MCP tools | Not started |
-| Prediction: reconciliation, features, training | Not started (blocked on collection) |
-| Evaluation plan (supervisor item 4) | Not started |
+| Evaluation plan (supervisor items 4–6) | Not started — **now the most overdue item** |
 | Evaluation harness | Not started |
 
 ## 1. The one thing that cannot be caught up
@@ -30,14 +31,14 @@ fall back on ([`02-tech-stack.md`](./02-tech-stack.md) §3), so the training set
 exactly what gets collected between the day the poller starts and the day the model
 is needed — and not a row more.
 
-Collection has not started yet, so the window is shorter than planned and shrinking
-daily. Closing that gap is the first task in this repo's queue, ahead of every other
-build item.
+Collection has been running since 3 September 2026 and is no longer the bottleneck.
+What matters now is that it keeps running: the risk has moved from *starting* to
+*silently stopping*, which is what the weekly `--status` check exists to catch.
 
 **Consequence for the fallback.** The Week-6 checkpoint below exists to decide
 between a live-trained model and a methodological feasibility study benchmarked
-against published results. Every week collection is delayed moves that decision
-closer to being made for us rather than by us.
+against published results. On the volume collected so far that gate looks passed —
+but it should be *stated* from a row count at the meeting, not assumed.
 
 ## 2. Phases
 
@@ -47,8 +48,8 @@ Literature review, dataset selection, supervisor onboarding, stack decisions.
 ### Weeks 4–7 — Core build (**current**)
 Ordered by what unblocks what:
 
-1. **Start collection.** API key, endpoint confirmation, route lookup, a real poll,
-   then always-on scheduling. Nothing else on this list is time-critical.
+1. **Collection.** ✅ Done — key, endpoint confirmation, route lookup, live polling and
+   always-on scheduling. Keep checking it; do not let it stop.
 2. **Ingestion + retrieval.** The three Opal PDFs into chunks that carry document and
    page, embedded into a persisted Chroma collection. Chunks without citations are
    useless to the judge, so citation metadata is part of the ingestion contract, not
@@ -84,9 +85,9 @@ Phase 2 deployment happens **after** grading.
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-| **Collection not running / silently failing** | Fatal to the prediction layer | Start immediately; `--status` after every scheduling change; check `poll_log` weekly |
+| **Collection silently failing** | Fatal to the prediction layer | `--status` after every scheduling change; check `poll_log` weekly. Now the live risk, since collection has started |
 | Static bundle and feed from different versions | Collects nothing, looks fine | `transit-poller --probe` names this case explicitly; run it before any long collection |
-| Laptop uptime | Gaps in the training window | Schedule it off the laptop — GitHub Actions cron or an always-on box ([`05-setup-checklist.md`](./05-setup-checklist.md) §5) |
+| Laptop uptime | Gaps in the training window | Mitigated — collection runs off the laptop on an always-on box, with the scheduled Action as backup ([`06-always-on-collector.md`](./06-always-on-collector.md)) |
 | Weeks 4–7 overrun into the harness | Loses the highest-value phase | Cut system scope, not harness scope. Trip Planner API is the escape hatch for GTFS joins |
 | Anthropic spend overrun | Budget | Console spend limit; Haiku for judging; cache eval-set embeddings |
 | RQ or methodology not signed off | Rework late | Both are flagged pending; raise at the next supervisor meeting |
