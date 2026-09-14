@@ -3,7 +3,7 @@
 > One semester, one engineer, 41029 + 41030 concurrently. The plan is written around
 > what can be cut, because something will be.
 
-## Status — 9 September 2026
+## Status — 14 September 2026
 
 | Workstream | State |
 | --- | --- |
@@ -17,10 +17,10 @@
 | System architecture diagram | **Done** — [`01-architecture.md`](./01-architecture.md) §1 |
 | **Delay collection running** | **Done** — live since 3 September 2026 on the always-on collector, 120 s cadence, T1 + T4 ([`06-always-on-collector.md`](./06-always-on-collector.md)) |
 | Reconciliation → training table | **Done** — `transit-reconcile`, schema in [`07-training-table.md`](./07-training-table.md) |
-| Prediction: baseline + model training | Not started — the table is ready; nothing trains on it yet |
+| Prediction: baseline + model training | **Done** — `transit-train`; naive persistence written first. Test MAE 17.92 s vs baseline 19.09 s, **MASE 0.938** ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §3) |
 | Corpus ingestion + retrieval | Not started |
 | Agent loop + MCP tools | Not started |
-| Evaluation plan (supervisor items 4–6) | Not started — **now the most overdue item** |
+| Evaluation plan (supervisor items 4–6) | **Done** — [`08-evaluation-plan.md`](./08-evaluation-plan.md): five sub-RQs, each with criterion, metric and method. Pending sign-off |
 | Evaluation harness | Not started |
 
 ## 1. The one thing that cannot be caught up
@@ -97,9 +97,14 @@ Phase 2 deployment happens **after** grading.
 
 1. **Confirm the merged research question** (supersedes the earlier RQ1/RQ2 split).
 2. **Sign off the problem definition and methodology.**
-3. **Evaluation plan** — datasets, metrics, baselines, experimental design. Not yet
-   started; due before the harness is built, not after.
+3. **Evaluation plan** — written: [`08-evaluation-plan.md`](./08-evaluation-plan.md).
+   Needs sign-off on one change: the prediction-faithfulness margin moves from
+   "consistent with global MAE" to a conditional conformal interval, because
+   conditional error spans 7.8-82.4 s and a global margin covers only 31% of the
+   delayed trains the tool is actually asked about (§6.2).
 4. **Task 1 word count** — the expanded review runs past the original 800–1000 word
    cap. Confirm the limit before final submission.
-5. **Live-only data collection** — is a model trained on weeks of self-collected data
-   acceptable, or should the feasibility-study framing be committed to upfront?
+5. **Live-only data collection** — answered empirically. 166,076 stop events over 12
+   service dates; the Week-6 gate is passed and no feasibility-study fallback is
+   needed. The open question is now presentational: the model beats its baseline by
+   only 6%, and §3 argues that is a reportable finding rather than a problem.
