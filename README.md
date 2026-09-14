@@ -112,6 +112,7 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 - [`docs/06-always-on-collector.md`](./docs/06-always-on-collector.md) — the always-on GCP collector
 - [`docs/07-training-table.md`](./docs/07-training-table.md) — reconciliation and the training-table schema
 - [`docs/08-evaluation-plan.md`](./docs/08-evaluation-plan.md) — the research questions and how each one gets measured
+- [`docs/09-service-alerts.md`](./docs/09-service-alerts.md) — the Service Alerts feed and the alert tables
 
 ## Status
 

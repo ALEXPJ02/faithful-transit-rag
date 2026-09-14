@@ -16,6 +16,7 @@
 | Scheduled collection workflow | **Done** — `.github/workflows/collect.yml`, now the backup |
 | System architecture diagram | **Done** — [`01-architecture.md`](./01-architecture.md) §1 |
 | **Delay collection running** | **Done** — live since 3 September 2026 on the always-on collector, 120 s cadence, T1 + T4 ([`06-always-on-collector.md`](./06-always-on-collector.md)) |
+| Service Alerts collection | **Done** — `transit-poller` polls alerts every 30 min into `service_alerts`/`alert_scopes` ([`09-service-alerts.md`](./09-service-alerts.md)). The training-table flag waits for an overlap window |
 | Reconciliation → training table | **Done** — `transit-reconcile`, schema in [`07-training-table.md`](./07-training-table.md) |
 | Prediction: baseline + model training | **Done** — `transit-train`; naive persistence written first. Test MAE 17.92 s vs baseline 19.09 s, **MASE 0.938** ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §3) |
 | Corpus ingestion + retrieval | Not started |

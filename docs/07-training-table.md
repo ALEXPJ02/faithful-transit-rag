@@ -111,9 +111,14 @@ Rows per service date — min 252, median 252, max 252
 
 ## Known gaps
 
-- **No alert flag.** The feature list includes an active-alert indicator, but
-  nothing collects the Service Alerts feed yet. It is not in the table rather
-  than being present and always false.
+- **No alert flag yet, and deliberately so.** Service Alerts *are* now collected
+  (see [`09-service-alerts.md`](./09-service-alerts.md)), but delay collection
+  began 2026-09-03 and alert collection began later. Adding `has_active_alert`
+  now would produce a column that is `False` across the whole back-catalogue —
+  not because there were no alerts, but because nothing was looking — and the
+  chronological split would put that structural break inside the training
+  window. The flag lands once there is a usable overlap; rows predating alert
+  collection must carry `pd.NA`, never `False`.
 - **`RTTA_*` trips are excluded upstream.** Out Of Service and Non Revenue
   movements never reach the table. A service *altered* beyond what the timetable
   can express may also be filed that way and go uncollected — unmeasured, and it
