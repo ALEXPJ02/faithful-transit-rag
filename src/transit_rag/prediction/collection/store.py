@@ -28,7 +28,12 @@ from pathlib import Path
 from types import TracebackType
 from typing import Protocol
 
-from transit_rag.realtime.parsing import StopDelayObservation, service_day
+from transit_rag.realtime.parsing import (
+    AlertScope,
+    ServiceAlert,
+    StopDelayObservation,
+    service_day,
+)
 
 COLUMNS = (
     "service_date",
@@ -53,6 +58,33 @@ def key_stop_sequence(observation: StopDelayObservation) -> int:
     make reconciliation guess which convention it was reading.
     """
     return observation.stop_sequence if observation.stop_sequence is not None else -1
+
+
+class AlertSink(Protocol):
+    """What the poller needs from a place to put service alerts.
+
+    Deliberately separate from :class:`ObservationSink` rather than added to
+    it. ``poll_once`` takes an ``ObservationSink``, so a ``record_alerts`` on
+    that Protocol would be reachable from inside the trip-update try/except --
+    and the first tidy-up that moved the call there would make an alerts
+    outage look like a delay-collection outage. Keeping the Protocols apart
+    makes that isolation structural instead of a convention.
+
+    ``CsvSnapshotStore`` implements only ``ObservationSink``: it backs the
+    GitHub Actions burst path, which commits its snapshots to a branch, and
+    ~1,000 scope rows per burst is real repo bloat for a feed the always-on
+    collector already covers completely.
+    """
+
+    def record_alerts(
+        self, alerts: Sequence[ServiceAlert], scopes: Sequence[AlertScope]
+    ) -> int: ...
+
+    def record_alert_poll(
+        self, poll_time_utc: str, alerts_seen: int, rows_written: int, status: str
+    ) -> None: ...
+
+    def alert_count(self) -> int: ...
 
 
 class ObservationSink(Protocol):
@@ -107,6 +139,64 @@ CREATE TABLE IF NOT EXISTS poll_log (
     rows_written  INTEGER,
     status        TEXT
 );
+
+-- Alerts are split across two tables because the cardinalities differ by an
+-- order of magnitude: one live poll carries 41 alerts but 1,051 scopes, and
+-- flattening them together would store a ~400 character description once per
+-- selector per poll.
+CREATE TABLE IF NOT EXISTS service_alerts (
+    alert_id          TEXT PRIMARY KEY,
+    cause             TEXT,
+    effect            TEXT,
+    -- Stored, but do not build a feature on it: TfNSW populates
+    -- severity_level as UNKNOWN_SEVERITY on every alert it publishes.
+    severity          TEXT,
+    header_text       TEXT,
+    description_text  TEXT,
+    url               TEXT,
+    first_seen_utc    TEXT    NOT NULL,
+    last_seen_utc     TEXT    NOT NULL,
+    observation_count INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS alert_scopes (
+    alert_id            TEXT    NOT NULL,
+    -- Every key column is NOT NULL with a sentinel, for the same reason
+    -- stop_sequence is: SQLite treats NULLs in a composite primary key as
+    -- distinct from each other, so a nullable key column here would silently
+    -- stop deduplicating and the table would grow by ~1,000 rows a poll.
+    route_id            TEXT    NOT NULL DEFAULT '',
+    direction_id        INTEGER NOT NULL DEFAULT -1,
+    stop_id             TEXT    NOT NULL DEFAULT '',
+    -- POSIX seconds; 0 means unbounded. In the key because an alert with two
+    -- nightly trackwork windows is genuinely two scopes.
+    active_period_start INTEGER NOT NULL DEFAULT 0,
+    -- Deliberately NOT in the key: a publisher extending a window should
+    -- update the row rather than fork it.
+    active_period_end   INTEGER NOT NULL DEFAULT 0,
+    route_short_name    TEXT,
+    first_seen_utc      TEXT    NOT NULL,
+    last_seen_utc       TEXT    NOT NULL,
+    PRIMARY KEY (alert_id, route_id, direction_id, stop_id, active_period_start)
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_scope_route
+    ON alert_scopes (route_short_name, active_period_start);
+CREATE INDEX IF NOT EXISTS idx_alert_scope_alert
+    ON alert_scopes (alert_id);
+
+-- A separate log, not a `feed` column on poll_log. poll_log.poll_time_utc is a
+-- PRIMARY KEY written with INSERT OR REPLACE, so an alert poll sharing a
+-- timestamp would overwrite the trip-update row -- destroying the only signal
+-- --status and the volume checkpoint read. Widening poll_log instead would be
+-- worse: CREATE TABLE IF NOT EXISTS would leave the live collector's existing
+-- table in place and every trip-update write would then fail.
+CREATE TABLE IF NOT EXISTS alert_poll_log (
+    poll_time_utc TEXT PRIMARY KEY,
+    alerts_seen   INTEGER,
+    rows_written  INTEGER,
+    status        TEXT
+);
 """
 
 # The guard matters: polls can arrive out of order after a retry or a clock
@@ -131,7 +221,49 @@ WHERE excluded.last_seen_utc > stop_observations.last_seen_utc
 """
 
 
+# Both alert upserts carry the same monotonicity guard as _UPSERT: a retried
+# or late poll must not roll last_seen_utc backwards, because the observed
+# [first_seen, last_seen] window is the fallback for when a publisher's claimed
+# active_period is absent or wrong.
+_UPSERT_ALERT = """
+INSERT INTO service_alerts (
+    alert_id, cause, effect, severity, header_text, description_text, url,
+    first_seen_utc, last_seen_utc, observation_count
+) VALUES (?,?,?,?,?,?,?,?,?,1)
+ON CONFLICT (alert_id) DO UPDATE SET
+    cause             = excluded.cause,
+    effect            = excluded.effect,
+    severity          = excluded.severity,
+    header_text       = excluded.header_text,
+    description_text  = excluded.description_text,
+    url               = excluded.url,
+    last_seen_utc     = excluded.last_seen_utc,
+    observation_count = service_alerts.observation_count + 1
+WHERE excluded.last_seen_utc > service_alerts.last_seen_utc
+"""
+
+_UPSERT_SCOPE = """
+INSERT INTO alert_scopes (
+    alert_id, route_id, direction_id, stop_id, active_period_start,
+    active_period_end, route_short_name, first_seen_utc, last_seen_utc
+) VALUES (?,?,?,?,?,?,?,?,?)
+ON CONFLICT (alert_id, route_id, direction_id, stop_id, active_period_start) DO UPDATE SET
+    active_period_end = excluded.active_period_end,
+    route_short_name  = excluded.route_short_name,
+    last_seen_utc     = excluded.last_seen_utc
+WHERE excluded.last_seen_utc > alert_scopes.last_seen_utc
+"""
+
+
 EXPECTED_PRIMARY_KEY = ("service_date", "trip_id", "stop_id", "stop_sequence")
+ALERT_EXPECTED_PRIMARY_KEY = ("alert_id",)
+SCOPE_EXPECTED_PRIMARY_KEY = (
+    "alert_id",
+    "route_id",
+    "direction_id",
+    "stop_id",
+    "active_period_start",
+)
 
 
 class SchemaMismatchError(RuntimeError):
@@ -160,17 +292,23 @@ class SqliteObservationStore:
         until somebody reads the poll log. Fail at open, where the message can
         say what to do about it.
         """
-        columns = self._connection.execute("PRAGMA table_info(stop_observations)").fetchall()
+        self._assert_primary_key("stop_observations", EXPECTED_PRIMARY_KEY)
+        self._assert_primary_key("service_alerts", ALERT_EXPECTED_PRIMARY_KEY)
+        self._assert_primary_key("alert_scopes", SCOPE_EXPECTED_PRIMARY_KEY)
+
+    def _assert_primary_key(self, table: str, expected: tuple[str, ...]) -> None:
+        """Check one table's primary key, or return if it does not exist yet."""
+        columns = self._connection.execute(f"PRAGMA table_info({table})").fetchall()
         if not columns:
-            return  # New database; the schema below will create it.
+            return  # New table; the schema below will create it.
 
         key = tuple(
             column[1] for column in sorted((c for c in columns if c[5]), key=lambda c: c[5])
         )
-        if key != EXPECTED_PRIMARY_KEY:
+        if key != expected:
             raise SchemaMismatchError(
-                f"{self.db_path} has primary key {key}, but this version expects "
-                f"{EXPECTED_PRIMARY_KEY}. It was written by an older schema and every "
+                f"{self.db_path} has {table} primary key {key}, but this version expects "
+                f"{expected}. It was written by an older schema and every "
                 f"write against it would fail. Move it aside and start a fresh "
                 f"collection, or migrate it before continuing."
             )
@@ -217,6 +355,74 @@ class SqliteObservationStore:
             (poll_time_utc, entities_seen, rows_written, status),
         )
         self._connection.commit()
+
+    def record_alerts(self, alerts: Sequence[ServiceAlert], scopes: Sequence[AlertScope]) -> int:
+        """Upsert alerts and their scopes. Returns rows actually **applied**.
+
+        Both tables are written on one connection and committed once, so a
+        crash cannot leave scopes referring to an alert that was never stored.
+        """
+        if not alerts and not scopes:
+            return 0
+        alert_rows = [
+            (
+                a.alert_id,
+                a.cause,
+                a.effect,
+                a.severity,
+                a.header_text,
+                a.description_text,
+                a.url,
+                a.observed_at_utc,
+                a.observed_at_utc,
+            )
+            for a in alerts
+        ]
+        scope_rows = [
+            (
+                s.alert_id,
+                s.route_id,
+                s.direction_id,
+                s.stop_id,
+                s.active_period_start,
+                s.active_period_end,
+                s.route_short_name,
+                s.observed_at_utc,
+                s.observed_at_utc,
+            )
+            for s in scopes
+        ]
+        before = self._connection.total_changes
+        self._connection.executemany(_UPSERT_ALERT, alert_rows)
+        self._connection.executemany(_UPSERT_SCOPE, scope_rows)
+        self._connection.commit()
+        return self._connection.total_changes - before
+
+    def record_alert_poll(
+        self, poll_time_utc: str, alerts_seen: int, rows_written: int, status: str
+    ) -> None:
+        self._connection.execute(
+            "INSERT OR REPLACE INTO alert_poll_log "
+            "(poll_time_utc, alerts_seen, rows_written, status) VALUES (?,?,?,?)",
+            (poll_time_utc, alerts_seen, rows_written, status),
+        )
+        self._connection.commit()
+
+    def alert_count(self) -> int:
+        cursor = self._connection.execute("SELECT COUNT(*) FROM service_alerts")
+        return int(cursor.fetchone()[0])
+
+    def alert_scope_count(self) -> int:
+        cursor = self._connection.execute("SELECT COUNT(*) FROM alert_scopes")
+        return int(cursor.fetchone()[0])
+
+    def recent_alert_poll_status(self, limit: int = 10) -> list[tuple[str, int, int, str]]:
+        cursor = self._connection.execute(
+            "SELECT poll_time_utc, alerts_seen, rows_written, status "
+            "FROM alert_poll_log ORDER BY poll_time_utc DESC LIMIT ?",
+            (limit,),
+        )
+        return [(str(r[0]), int(r[1]), int(r[2]), str(r[3])) for r in cursor.fetchall()]
 
     def observation_count(self) -> int:
         cursor = self._connection.execute("SELECT COUNT(*) FROM stop_observations")
