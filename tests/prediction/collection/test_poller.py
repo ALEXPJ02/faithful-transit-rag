@@ -15,11 +15,14 @@ import pytest
 
 from transit_rag.config import CollectionConfig, ConfigError
 from transit_rag.prediction.collection.poller import (
+    _alert_sink,
     build_sink,
+    poll_alerts_once,
     poll_once,
     print_probe,
     print_status,
     run_burst,
+    should_poll_alerts,
 )
 from transit_rag.prediction.collection.store import (
     CsvSnapshotStore,
@@ -464,3 +467,104 @@ class TestBurstMode:
         assert config.burst_spacing_seconds == 90
         # Must comfortably fit inside the workflow's job timeout.
         assert (config.burst_polls - 1) * config.burst_spacing_seconds < 600
+
+
+class FakeAlertClient:
+    """Serves both feeds, with independent failure injection per feed.
+
+    Deliberately not an extension of :class:`FakeClient`. A FakeClient that can
+    also serve alerts is one somebody will eventually hand to ``poll_once``,
+    and the whole point of the design is that ``poll_once`` never sees them.
+    """
+
+    def __init__(
+        self,
+        feed: Any = None,
+        alert_feed: Any = None,
+        alert_error: Exception | None = None,
+    ) -> None:
+        self._feed = feed
+        self._alert_feed = alert_feed
+        self._alert_error = alert_error
+        self.calls = 0
+        self.alert_calls = 0
+
+    def fetch_trip_updates(self) -> Any:
+        self.calls += 1
+        return self._feed
+
+    def fetch_alerts(self) -> Any:
+        self.alert_calls += 1
+        if self._alert_error is not None:
+            raise self._alert_error
+        return self._alert_feed
+
+
+class TestShouldPollAlerts:
+    def test_polls_on_the_first_and_every_nth(self) -> None:
+        assert should_poll_alerts(0, 15) is True
+        assert should_poll_alerts(15, 15) is True
+        assert should_poll_alerts(7, 15) is False
+
+    @pytest.mark.parametrize("every_n", [0, -1])
+    def test_a_bad_interval_disables_alerts_rather_than_raising(self, every_n: int) -> None:
+        """``poll_index % 0`` would raise in run_forever's loop body.
+
+        That is outside every try/except in the module, so a mistyped
+        environment variable would kill a collector holding data that cannot be
+        re-collected.
+        """
+        assert should_poll_alerts(0, every_n) is False
+
+
+class TestAlertPolling:
+    def test_alert_poll_stores_alerts_and_logs_separately(
+        self, tmp_path: Path, make_alert_feed: Any
+    ) -> None:
+        alert_feed = make_alert_feed(
+            [{"id": "a1", "selectors": [("APS_1a", 0, "2000")], "periods": [(1, 2)]}]
+        )
+        client = FakeAlertClient(alert_feed=alert_feed)
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            assert poll_alerts_once(client, store, LOOKUP) is True  # type: ignore[arg-type]
+            assert store.alert_count() == 1
+            assert store.alert_scope_count() == 1
+            assert store.recent_alert_poll_status()[0][3] == "ok"
+
+    def test_an_alerts_failure_leaves_the_trip_update_poll_marked_ok(
+        self, tmp_path: Path, make_feed: Any
+    ) -> None:
+        """The sharp edge: a 502 on alerts must not look like a delay outage.
+
+        The operator watches poll_log for exactly this signal, so an alerts
+        failure bleeding into it would trigger a false alarm -- or worse, mask
+        a real one behind noise nobody trusts any more.
+        """
+        feed = make_feed([("trip-1", "APS_1a", [("stop-a", 1, 60, None)])])
+        client = FakeAlertClient(feed=feed, alert_error=FeedFetchError("502 Bad Gateway"))
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            assert poll_once(client, store, LOOKUP, TRACKED) is True  # type: ignore[arg-type]
+            assert poll_alerts_once(client, store, LOOKUP) is False  # type: ignore[arg-type]
+
+            assert store.recent_poll_status()[0][3] == "ok"
+            assert store.recent_alert_poll_status()[0][3].startswith("error:")
+
+    def test_an_alert_poll_does_not_write_to_the_delay_poll_log(
+        self, tmp_path: Path, make_alert_feed: Any
+    ) -> None:
+        db = tmp_path / "obs.db"
+        alert_feed = make_alert_feed([{"id": "a1", "selectors": [("APS_1a", 0, "")]}])
+        client = FakeAlertClient(alert_feed=alert_feed)
+        with SqliteObservationStore(db) as store:
+            poll_alerts_once(client, store, LOOKUP)  # type: ignore[arg-type]
+        rows = sqlite3.connect(db).execute("SELECT COUNT(*) FROM poll_log").fetchone()[0]
+        assert rows == 0
+
+    def test_a_csv_sink_is_not_offered_alerts(self, tmp_path: Path) -> None:
+        """``--sink csv`` backs the Actions burst path, which must not collect them."""
+        assert _alert_sink(CsvSnapshotStore(tmp_path)) is None
+
+    def test_a_sqlite_sink_is_offered_alerts(self, tmp_path: Path) -> None:
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            assert _alert_sink(store) is not None
