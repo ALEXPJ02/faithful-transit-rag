@@ -81,3 +81,78 @@ class TestScheduleIndex:
 
         with pytest.raises(FileNotFoundError, match=r"stop_times\.txt"):
             ScheduleIndex.for_trips(empty, ["trip-a"])
+
+
+class TestAcrossBundles:
+    """Merging timetable eras.
+
+    Measured over 3-9 September 2026, TfNSW rolled the timetable over
+    mid-window: each bundle matched about half the collected trips and neither
+    matched the whole window. These cover the merge that recovers the rest.
+    """
+
+    @pytest.fixture
+    def later_era(self, tmp_path: Path) -> Path:
+        """A bundle from after a republication — different trips entirely."""
+        path = tmp_path / "gtfs_later.zip"
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr(
+                "stop_times.txt",
+                "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                "trip-c,08:00:00,08:00:30,stop-7,1\n"
+                "trip-c,08:09:00,08:09:30,stop-8,2\n",
+            )
+        return path
+
+    def test_neither_bundle_alone_covers_a_window_that_spans_a_rollover(
+        self, bundle: Path, later_era: Path
+    ) -> None:
+        wanted = ["trip-a", "trip-c"]
+
+        assert ScheduleIndex.for_trips(bundle, wanted).coverage(wanted) == (1, 2)
+        assert ScheduleIndex.for_trips(later_era, wanted).coverage(wanted) == (1, 2)
+
+    def test_merging_the_eras_covers_all_of_it(self, bundle: Path, later_era: Path) -> None:
+        wanted = ["trip-a", "trip-c"]
+
+        index = ScheduleIndex.across_bundles([bundle, later_era], wanted)
+
+        assert index.coverage(wanted) == (2, 2)
+        assert index.lookup("trip-a", "stop-2") is not None
+        assert index.lookup("trip-c", "stop-8") is not None
+
+    def test_one_bundle_behaves_exactly_like_for_trips(self, bundle: Path) -> None:
+        wanted = ["trip-a", "trip-b"]
+
+        merged = ScheduleIndex.across_bundles([bundle], wanted)
+        single = ScheduleIndex.for_trips(bundle, wanted)
+
+        assert merged.coverage(wanted) == single.coverage(wanted)
+        assert len(merged) == len(single)
+
+    def test_no_bundles_is_an_empty_index_not_an_error(self) -> None:
+        """The caller decides whether a missing bundle is fatal; reconciliation
+        treats it as a thinner table, not a failure."""
+        index = ScheduleIndex.across_bundles([], ["trip-a"])
+
+        assert index.coverage(["trip-a"]) == (0, 1)
+        assert len(index) == 0
+
+    def test_earlier_bundles_win_when_both_describe_a_trip(
+        self, bundle: Path, tmp_path: Path
+    ) -> None:
+        """Only arises for a trip present in both eras, where the entries are
+        equivalent anyway — pinned so the precedence is not accidental."""
+        conflicting = tmp_path / "gtfs_conflict.zip"
+        with zipfile.ZipFile(conflicting, "w") as archive:
+            archive.writestr(
+                "stop_times.txt",
+                "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+                "trip-a,23:00:00,23:00:30,stop-2,99\n",
+            )
+
+        index = ScheduleIndex.across_bundles([bundle, conflicting], ["trip-a"])
+
+        scheduled = index.lookup("trip-a", "stop-2")
+        assert scheduled is not None
+        assert scheduled.stop_sequence == 2

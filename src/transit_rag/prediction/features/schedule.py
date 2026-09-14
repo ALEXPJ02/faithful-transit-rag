@@ -9,11 +9,20 @@ of scheduled arrival times.
 like ``162F.1396.159.32.A.8.90986110``, where ``1396.159.32`` encodes the
 timetable and version the trip was planned under. Trips already running when a
 new timetable is published keep the old version and will not be in the current
-bundle. Measured against live data: **89% of observed trips matched**, and every
-miss carried a superseded version (``.158.16`` against a ``.159.32`` bundle).
+bundle.
 
-That rate drifts as the bundle ages, so it is measured on every run rather than
-assumed — see :func:`ScheduleIndex.coverage`. Refreshing the bundle raises it.
+**One bundle cannot cover a window that spans a republication.** Measured over
+3-9 September 2026, TfNSW rolled the timetable over between Sunday the 6th and
+Monday the 7th. The bundle fetched on the 3rd matched 99-100% of trips before
+that boundary and 0-1% after; a bundle fetched on the 10th did the exact
+reverse. Each alone matched roughly half the window (52% and 47%); together they
+matched **100%** of it.
+
+So refreshing the bundle does not simply "raise the rate" — past a rollover it
+trades one era's coverage for the other's. Keep the superseded bundle and pass
+both to :meth:`ScheduleIndex.across_bundles`. The rate is still measured on
+every run rather than assumed (:meth:`ScheduleIndex.coverage`); a drop now means
+an era is missing a bundle, not merely that the current one has aged.
 """
 
 from __future__ import annotations
@@ -95,6 +104,33 @@ class ScheduleIndex:
                     )
         return cls(stops, known)
 
+    @classmethod
+    def across_bundles(cls, bundles: Iterable[Path], trip_ids: Iterable[str]) -> ScheduleIndex:
+        """Index the given trips across several bundles, merging the results.
+
+        A collection window that spans a timetable republication is only ever
+        *partly* covered by any single bundle, because a realtime ``trip_id``
+        embeds the version it was planned under. Measured over 3-9 September
+        2026, TfNSW rolled the timetable over between Sunday the 6th and Monday
+        the 7th: the bundle fetched on the 3rd matched 99-100% of trips before
+        the boundary and 0-1% after it, and a bundle fetched on the 10th did the
+        reverse. Each alone matched about half the window; merged, they matched
+        **all** of it.
+
+        Passing one bundle is the same as :meth:`for_trips`. Earlier bundles win
+        on conflict, which only arises for a trip both describe — the same trip,
+        so the entries are equivalent.
+        """
+        wanted = set(trip_ids)
+        stops: dict[tuple[str, str], ScheduledStop] = {}
+        known: set[str] = set()
+        for bundle in bundles:
+            era = cls.for_trips(bundle, wanted)
+            for key, scheduled in era._stops.items():
+                stops.setdefault(key, scheduled)
+            known |= era._known_trips
+        return cls(stops, known)
+
     def lookup(self, trip_id: str, stop_id: str) -> ScheduledStop | None:
         return self._stops.get((trip_id, stop_id))
 
@@ -104,8 +140,11 @@ class ScheduleIndex:
     def coverage(self, trip_ids: Iterable[str]) -> tuple[int, int]:
         """``(matched, total)`` over the given trips.
 
-        Reported on every run: a falling match rate is the signal that the
-        static bundle has aged behind the timetable and should be re-fetched.
+        Reported on every run. A falling rate has two causes and they need
+        opposite responses: the bundle has aged behind the timetable (re-fetch
+        it), or the window now spans a republication and an era has no bundle
+        at all (keep the superseded one and pass both -- re-fetching alone just
+        swaps which half matches).
         """
         requested = set(trip_ids)
         return len(requested & self._known_trips), len(requested)

@@ -5,7 +5,8 @@
 
 ## 1. Environment
 
-Python 3.11+ (3.12 recommended — see `.python-version`).
+Python 3.12 or newer (see `.python-version`). The floor is not cosmetic: mypy
+targeting 3.11 cannot parse numpy's stubs and silently skips the whole project.
 
 ```bash
 git clone <repo> && cd <repo>

@@ -8,7 +8,3 @@ never cost data that cannot be re-collected:
 * :mod:`reconcile` — collapse observations to one row per stop event, join the
   schedule, and engineer the model's features.
 """
-
-from transit_rag.prediction.features.schedule import ScheduleIndex
-
-__all__ = ["ScheduleIndex"]

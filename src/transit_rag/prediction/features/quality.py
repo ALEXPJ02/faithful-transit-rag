@@ -102,7 +102,8 @@ def report(table: pd.DataFrame) -> str:
     matched = table["schedule_matched"].sum()
     lines.append(
         f"Matched to the static timetable: {matched:,} ({matched / len(table):.0%}) — "
-        "a falling rate means the bundle has aged; re-fetch it"
+        "a falling rate means an aged bundle, or a window spanning a timetable "
+        "republication with one era's bundle missing"
     )
 
     with_prev = table["prev_stop_delay_s"].notna().sum()

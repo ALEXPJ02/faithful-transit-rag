@@ -86,9 +86,9 @@ ENV
 chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
 chmod 0400 "$APP_DIR/.env"
 
-# The route lookup is tracked in the repo, so the clone already has it. Copy
-# it where .env points; --require-routes refuses to run without it, which is
-# the behaviour we want on an unattended box.
+# The route lookup is tracked in the repo, so the clone already puts it exactly
+# where .env points — nothing to copy, only to verify. --require-routes refuses
+# to run without it, which is the behaviour we want on an unattended box.
 if [ -f "$APP_DIR/data/routes_lookup.csv" ]; then
   log "route lookup present"
 else
