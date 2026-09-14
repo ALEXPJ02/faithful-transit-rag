@@ -178,6 +178,20 @@ class CollectionConfig:
     require_routes_lookup: bool = field(
         default_factory=lambda: _env_bool("COLLECTION_REQUIRE_ROUTES_LOOKUP", False)
     )
+    # Service Alerts ride along with the delay collector rather than running as
+    # a second process: they share the client, the database and the systemd
+    # unit, and a second unit would contend on the same SQLite file for no gain.
+    collect_alerts: bool = field(default_factory=lambda: _env_bool("COLLECT_ALERTS", True))
+    # ...but on their own clock. Trackwork windows run for hours, so 30 minutes
+    # of edge resolution is already finer than the phenomenon being recorded.
+    # Note this is *not* a quota decision: trip updates burn 720 calls a day and
+    # alerts at N=15 add 48, against an allowance of 60,000. The real cost of a
+    # coarser cadence is the resolution of the observed [first_seen, last_seen]
+    # window, which is the fallback for when a publisher's claimed active_period
+    # is absent or wrong -- so do not raise this much past 15.
+    alerts_every_n_polls: int = field(
+        default_factory=lambda: _env_int("ALERTS_POLL_EVERY_N_POLLS", 15)
+    )
 
 
 @dataclass(frozen=True)

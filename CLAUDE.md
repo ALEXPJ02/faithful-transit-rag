@@ -35,6 +35,11 @@ out of evaluation.
   (`src/transit_rag/prediction/features/`). Schema and rationale in
   `docs/07-training-table.md`.
 - Realtime client and parsers (`src/transit_rag/realtime/`).
+- Service Alerts collection — the same poller, on a 30-minute clock, into
+  `service_alerts`/`alert_scopes` (`docs/09-service-alerts.md`). Alerts are
+  stored **unfiltered**: 32% of the route ids they name are absent from the
+  realtime bundle, so filtering to T1/T4 at collection would discard 28 of 41
+  alerts permanently. Filter in reconcile, which can be re-run.
 - Repo scaffolding: 151 tests passing, CI green (ruff + mypy + pytest) plus a
   SHA-pinned Trivy workflow. Tests mirror the source tree, so
   `prediction/features/quality.py` is covered by
@@ -131,6 +136,10 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
   comes from `stop_times.txt`.
 - Hand-rolled agent loop rather than a framework; Claude API rather than a local
   model.
+- **The active-alert training feature waits for an overlap window.** Alerts began
+  collecting after delays did, so adding the flag now would make it `False`
+  across the back-catalogue and put a structural break inside the chronological
+  split. Rows predating alert collection get `pd.NA`, never `False`.
 
 ## Keeping the documents honest
 

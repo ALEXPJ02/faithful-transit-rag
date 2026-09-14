@@ -241,3 +241,193 @@ def summarise_routes(feed: Any, route_lookup: Mapping[str, str]) -> list[RouteSu
     # the list is what you actually need to read.
     summaries.sort(key=lambda s: (not s.matched, -s.trip_count, s.route_id))
     return summaries
+
+
+# An alert whose ``active_period`` is empty is active whenever it is published
+# (GTFS-Realtime spec). Storing that as "no rows" would make such an alert
+# vanish entirely, so it is stored as a single unbounded window instead.
+UNBOUNDED = 0
+
+# ``direction_id`` is optional on an EntitySelector. SQLite treats NULLs in a
+# composite primary key as distinct from one another, so a nullable key column
+# silently stops deduplicating -- the same trap ``stop_sequence`` already
+# carries a sentinel for. -1 is not a valid GTFS direction.
+NO_DIRECTION = -1
+
+
+@dataclass(frozen=True)
+class ServiceAlert:
+    """One published alert, independent of what it applies to.
+
+    Split from :class:`AlertScope` because the two have very different
+    cardinalities: a single alert routinely names dozens of routes and stops,
+    and flattening them together would store a ~400 character
+    ``description_text`` once per selector per poll.
+    """
+
+    alert_id: str
+    cause: str
+    effect: str
+    severity: str
+    header_text: str
+    description_text: str
+    url: str
+    observed_at_utc: str
+
+    def as_dict(self) -> dict[str, Any]:
+        """Field name -> value. Sinks map this to their own column order."""
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class AlertScope:
+    """What one alert applies to, for one of its active windows.
+
+    The cross product of ``informed_entity`` and ``active_period``. Times are
+    POSIX seconds rather than ISO strings — unlike the rest of this module —
+    because the feed gives them that way, ``0`` is an unambiguous "unbounded"
+    sentinel (no real alert starts at the Unix epoch), and the reconcile join
+    that will eventually consume these is a numeric ``BETWEEN`` against an
+    index.
+    """
+
+    alert_id: str
+    route_id: str
+    route_short_name: str | None
+    direction_id: int
+    stop_id: str
+    active_period_start: int
+    active_period_end: int
+    observed_at_utc: str
+
+    def as_dict(self) -> dict[str, Any]:
+        """Field name -> value. Sinks map this to their own column order."""
+        return asdict(self)
+
+
+def _alert_enum_name(enum_name: str, value: int) -> str:
+    """Resolve one of ``Alert``'s enum ints to its name, or ``UNKNOWN(n)``.
+
+    Same shape and same deferred import as :func:`_schedule_relationship_name`.
+    A value the bindings do not know is recorded rather than dropped, because a
+    new TfNSW cause code should surface in the data as an unknown rather than
+    silently becoming the proto default.
+    """
+    from google.transit import gtfs_realtime_pb2
+
+    try:
+        return str(getattr(gtfs_realtime_pb2.Alert, enum_name).Name(value))
+    except ValueError:
+        return f"UNKNOWN({value})"
+
+
+def _translated_text(message: Any, language: str = "en") -> str:
+    """The plain-text translation of a ``TranslatedString``.
+
+    TfNSW sends ``description_text`` **twice**: once as prose tagged ``en``
+    and once as a ~1.3 KB HTML fragment tagged ``en/html``. Taking
+    ``translation[0]`` happens to pick the prose today, and nothing in the
+    feed guarantees that ordering — the day it flips, every stored row gains a
+    kilobyte of markup in the column the RAG layer reads as text. So: exact
+    language match first, then any translation whose language carries no
+    content-type suffix, and only then fall back to whatever came first.
+    """
+    translations = list(getattr(message, "translation", []))
+    if not translations:
+        return ""
+    for translation in translations:
+        if translation.language == language:
+            return str(translation.text)
+    for translation in translations:
+        if "/" not in translation.language:
+            return str(translation.text)
+    return str(translations[0].text)
+
+
+def _active_periods(alert: Any) -> list[tuple[int, int]]:
+    """``(start, end)`` pairs in POSIX seconds, ``0`` meaning unbounded.
+
+    An empty ``active_period`` yields one unbounded window rather than none —
+    see :data:`UNBOUNDED`.
+    """
+    periods = [
+        (
+            int(period.start) if period.HasField("start") else UNBOUNDED,
+            int(period.end) if period.HasField("end") else UNBOUNDED,
+        )
+        for period in alert.active_period
+    ]
+    return periods or [(UNBOUNDED, UNBOUNDED)]
+
+
+def extract_alerts(
+    feed: Any,
+    route_lookup: Mapping[str, str],
+    poll_time_utc: str,
+) -> tuple[list[ServiceAlert], list[AlertScope]]:
+    """Flatten a Service Alerts feed into alerts and the scopes they apply to.
+
+    Note the absence of a ``tracked_routes`` parameter, unlike
+    :func:`extract_delay_observations`. That is deliberate and not an
+    oversight: measured against the live feed, 32% of the route ids named by
+    alerts are absent from the static bundle's lookup entirely (intercity and
+    regional services the For Realtime bundle never describes), and filtering
+    to T1/T4 at collection time would discard 28 of 41 alerts permanently.
+    Collection is irreversible; reconciliation is not. ``route_lookup`` is
+    therefore used only to *annotate* — a miss records ``None`` and keeps the
+    row — and the filtering happens downstream where it can be re-run.
+    """
+    alerts: list[ServiceAlert] = []
+    scopes: list[AlertScope] = []
+
+    for entity in feed.entity:
+        if not entity.HasField("alert"):
+            continue
+        if not entity.id:
+            # Without an id there is no key, and every such alert would
+            # collapse onto a single row and overwrite the last.
+            continue
+
+        alert = entity.alert
+        alerts.append(
+            ServiceAlert(
+                alert_id=entity.id,
+                cause=_alert_enum_name("Cause", alert.cause),
+                effect=_alert_enum_name("Effect", alert.effect),
+                severity=_alert_enum_name("SeverityLevel", alert.severity_level),
+                header_text=_translated_text(alert.header_text),
+                description_text=_translated_text(alert.description_text),
+                url=_translated_text(alert.url),
+                observed_at_utc=poll_time_utc,
+            )
+        )
+
+        periods = _active_periods(alert)
+        # The live feed repeats the same (route, direction, stop) triple within
+        # a single alert, and handing duplicate keys to one executemany batch
+        # makes the upsert's row count meaningless. Dedup before emitting.
+        seen: set[tuple[str, int, str]] = set()
+        for informed in alert.informed_entity:
+            direction = (
+                int(informed.direction_id) if informed.HasField("direction_id") else NO_DIRECTION
+            )
+            selector = (informed.route_id, direction, informed.stop_id)
+            if selector in seen:
+                continue
+            seen.add(selector)
+
+            for start, end in periods:
+                scopes.append(
+                    AlertScope(
+                        alert_id=entity.id,
+                        route_id=informed.route_id,
+                        route_short_name=route_lookup.get(informed.route_id),
+                        direction_id=direction,
+                        stop_id=informed.stop_id,
+                        active_period_start=start,
+                        active_period_end=end,
+                        observed_at_utc=poll_time_utc,
+                    )
+                )
+
+    return alerts, scopes

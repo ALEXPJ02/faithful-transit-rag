@@ -23,19 +23,25 @@ import logging
 import signal
 import sys
 import threading
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import FrameType
-from typing import Any
+from typing import Any, cast
 
 from transit_rag.config import CollectionConfig, ConfigError, TfnswConfig
 from transit_rag.prediction.collection.routes import load_routes_lookup
 from transit_rag.prediction.collection.store import (
+    AlertSink,
     CsvSnapshotStore,
     ObservationSink,
     SqliteObservationStore,
 )
 from transit_rag.realtime.client import FeedFetchError, GtfsRealtimeClient
-from transit_rag.realtime.parsing import extract_delay_observations, summarise_routes
+from transit_rag.realtime.parsing import (
+    extract_alerts,
+    extract_delay_observations,
+    summarise_routes,
+)
 
 log = logging.getLogger("transit_rag.poller")
 
@@ -111,6 +117,76 @@ def poll_once(
 
     log.info("poll ok — %d entities seen, %d observations written", len(feed.entity), written)
     return True
+
+
+def _alert_sink(sink: ObservationSink) -> AlertSink | None:
+    """The sink as an :class:`AlertSink`, or None if it does not take alerts.
+
+    A duck-check rather than an isinstance, mirroring how ``print_status``
+    already handles ``service_date_range``. It means ``--sink csv`` skips
+    alerts with one log line instead of an AttributeError mid-loop.
+    """
+    if hasattr(sink, "record_alerts"):
+        return cast(AlertSink, sink)
+    return None
+
+
+def should_poll_alerts(poll_index: int, every_n_polls: int) -> bool:
+    """Whether this poll number is one of the alert polls.
+
+    Guards ``<= 0`` rather than trusting the configured integer. ``poll_index %
+    0`` raises ZeroDivisionError, and it would raise in ``run_forever``'s loop
+    body -- outside every try/except in this module -- so a mistyped
+    environment variable would kill a collector holding data that cannot be
+    re-collected.
+    """
+    if every_n_polls <= 0:
+        return False
+    return poll_index % every_n_polls == 0
+
+
+def poll_alerts_once(
+    client: GtfsRealtimeClient,
+    sink: AlertSink,
+    route_lookup: dict[str, str],
+) -> bool:
+    """Poll the Service Alerts feed. Returns True if it was fetched and stored.
+
+    Called from the loop *after* :func:`poll_once` has returned and logged,
+    never from inside it, and it writes to its own poll log. Both facts are
+    load-bearing: sharing the try/except would let an alerts 502 mark a
+    successful trip-update poll as failed, and sharing ``poll_log`` -- whose
+    key is the timestamp -- would overwrite that poll's row outright. The
+    operator watches exactly those two signals.
+
+    Like :func:`poll_once`, nothing raised in here escapes.
+    """
+    poll_time = datetime.now(UTC).isoformat()
+
+    try:
+        feed = client.fetch_alerts()
+        alerts, scopes = extract_alerts(feed, route_lookup, poll_time)
+        written = sink.record_alerts(alerts, scopes)
+        sink.record_alert_poll(poll_time, len(alerts), written, "ok")
+    except FeedFetchError as exc:
+        log.error("Alert poll failed: %s", exc)
+        _try_record_alert_failure(sink, poll_time, f"error: {exc}")
+        return False
+    except Exception as exc:
+        log.exception("Alert poll failed unexpectedly")
+        _try_record_alert_failure(sink, poll_time, f"error: {type(exc).__name__}: {exc}")
+        return False
+
+    log.info("alert poll ok — %d alerts seen, %d rows written", len(alerts), written)
+    return True
+
+
+def _try_record_alert_failure(sink: AlertSink, poll_time: str, status: str) -> None:
+    """Log an alert-poll failure, tolerating a sink that is itself broken."""
+    try:
+        sink.record_alert_poll(poll_time, 0, 0, status)
+    except Exception:
+        log.exception("Could not record the failed alert poll either")
 
 
 def _lookup_mismatch(feed: Any, route_lookup: dict[str, str]) -> str | None:
@@ -189,8 +265,16 @@ def run_forever(
         ", ".join(config.tracked_routes) or "all lines",
         config.max_upcoming_stops,
     )
+    alert_sink = _alert_sink(sink) if config.collect_alerts else None
+    if config.collect_alerts and alert_sink is None:
+        log.info("Alerts not collected: %s cannot store them.", sink.describe())
+
+    poll_index = 0
     while not _shutdown.is_set():
         poll_once(client, sink, route_lookup, config.tracked_routes, config.max_upcoming_stops)
+        if alert_sink is not None and should_poll_alerts(poll_index, config.alerts_every_n_polls):
+            poll_alerts_once(client, alert_sink, route_lookup)
+        poll_index += 1
         if _shutdown.wait(timeout=config.interval_seconds):
             break
     log.info("Stopped. %d observations collected in total.", sink.observation_count())
@@ -285,6 +369,43 @@ def print_probe(
     return True
 
 
+def print_alert_probe(client: GtfsRealtimeClient, route_lookup: dict[str, str]) -> bool:
+    """Fetch the alerts feed once and report what it contains, writing nothing.
+
+    A separate flag rather than more output on ``--probe``, whose walkthrough
+    in ``docs/05-setup-checklist.md`` is read line by line during setup.
+    """
+    try:
+        feed = client.fetch_alerts()
+    except FeedFetchError as exc:
+        print(f"Could not read the alerts feed:\n  {exc}")
+        return False
+
+    alerts, scopes = extract_alerts(feed, route_lookup, datetime.now(UTC).isoformat())
+    print(f"Alerts published: {len(alerts)}")
+    print(f"Scopes (informed entity x active period): {len(scopes)}")
+    if not alerts:
+        print("\nNo alerts published right now. That is normal, not a failure.")
+        return True
+
+    causes: dict[str, int] = {}
+    effects: dict[str, int] = {}
+    for alert in alerts:
+        causes[alert.cause] = causes.get(alert.cause, 0) + 1
+        effects[alert.effect] = effects.get(alert.effect, 0) + 1
+    print(f"  causes:  {', '.join(f'{k}={v}' for k, v in sorted(causes.items()))}")
+    print(f"  effects: {', '.join(f'{k}={v}' for k, v in sorted(effects.items()))}")
+
+    resolved = sum(1 for scope in scopes if scope.route_short_name)
+    print(f"\nScopes whose route_id the lookup knows: {resolved} of {len(scopes)}")
+    print(
+        "  The remainder are intercity and regional services the For Realtime bundle\n"
+        "  does not describe. They are stored unfiltered on purpose -- collection is\n"
+        "  irreversible, and reconciliation is not."
+    )
+    return True
+
+
 def print_status(sink: ObservationSink) -> None:
     print(f"Store: {sink.describe()}")
     print(f"Observations collected: {sink.observation_count():,}")
@@ -294,6 +415,11 @@ def print_status(sink: ObservationSink) -> None:
         span = date_range()
         if span:
             print(f"Service dates covered: {span[0]} to {span[1]}")
+
+    alert_count = getattr(sink, "alert_count", None)
+    scope_count = getattr(sink, "alert_scope_count", None)
+    if callable(alert_count) and callable(scope_count):
+        print(f"Alerts collected: {alert_count():,} ({scope_count():,} scopes)")
 
     recent = sink.recent_poll_status(limit=10)
     if not recent:
@@ -306,6 +432,14 @@ def print_status(sink: ObservationSink) -> None:
         print(f"  {poll_time}  entities={entities:<6} rows={rows:<6} {status[:80]}")
     if failures == len(recent):
         print("\nEvery recent poll failed — check the API key and the endpoint URL.")
+
+    alert_polls = getattr(sink, "recent_alert_poll_status", None)
+    if callable(alert_polls):
+        recent_alerts = alert_polls(limit=3)
+        if recent_alerts:
+            print(f"\nLast {len(recent_alerts)} alert polls:")
+            for poll_time, seen, rows, status in recent_alerts:
+                print(f"  {poll_time}  alerts={seen:<5} rows={rows:<6} {status[:80]}")
 
 
 def main() -> None:
@@ -334,6 +468,16 @@ def main() -> None:
         "--require-routes",
         action="store_true",
         help="Refuse to collect if the route lookup is missing (use for scheduled runs)",
+    )
+    parser.add_argument(
+        "--probe-alerts",
+        action="store_true",
+        help="Fetch the Service Alerts feed once, report what it contains, write nothing",
+    )
+    parser.add_argument(
+        "--no-alerts",
+        action="store_true",
+        help="Do not poll Service Alerts on this run (overrides COLLECT_ALERTS)",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Debug logging")
     args = parser.parse_args()
@@ -374,6 +518,12 @@ def main() -> None:
     if args.probe:
         sys.exit(0 if print_probe(client, route_lookup, config.tracked_routes) else 1)
 
+    if args.probe_alerts:
+        sys.exit(0 if print_alert_probe(client, route_lookup) else 1)
+
+    if args.no_alerts:
+        config = replace(config, collect_alerts=False)
+
     if not route_lookup and (args.require_routes or config.require_routes_lookup):
         log.error(
             "No route lookup at %s, and this run requires one. Without it every line is "
@@ -402,6 +552,9 @@ def main() -> None:
                     client, sink, route_lookup, config.tracked_routes, config.max_upcoming_stops
                 )
             )
+            alert_sink = _alert_sink(sink) if (config.collect_alerts and args.once) else None
+            if alert_sink is not None:
+                poll_alerts_once(client, alert_sink, route_lookup)
             print_status(sink)
             sys.exit(0 if ok else 1)
         run_forever(client, sink, route_lookup, config)

@@ -77,6 +77,7 @@ That framing is what keeps the project scoped to one semester.
 | [`06-always-on-collector.md`](./06-always-on-collector.md) | The GCP e2-micro collector, and why Actions is not enough |
 | [`07-training-table.md`](./07-training-table.md) | Reconciliation: observations to model-ready rows |
 | [`08-evaluation-plan.md`](./08-evaluation-plan.md) | The sub-RQs, metrics, baselines and experimental design |
+| [`09-service-alerts.md`](./09-service-alerts.md) | What the alerts feed sends, and how it is stored |
 
 ## Ground rules
 

@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import csv
+import sqlite3
 from dataclasses import replace
 from pathlib import Path
 
-from transit_rag.prediction.collection.store import CsvSnapshotStore, SqliteObservationStore
-from transit_rag.realtime.parsing import StopDelayObservation
+import pytest
+
+from transit_rag.prediction.collection.store import (
+    CsvSnapshotStore,
+    SchemaMismatchError,
+    SqliteObservationStore,
+)
+from transit_rag.realtime.parsing import AlertScope, ServiceAlert, StopDelayObservation
 
 
 def _observation(
@@ -303,3 +310,127 @@ class TestSequenceInstability:
 
         assert stored == -1
         assert written == "-1"
+
+
+def _alert(alert_id: str = "a1", observed: str = "2026-09-14T10:00:00+00:00") -> ServiceAlert:
+    return ServiceAlert(
+        alert_id=alert_id,
+        cause="MAINTENANCE",
+        effect="MODIFIED_SERVICE",
+        severity="UNKNOWN_SEVERITY",
+        header_text="Buses replace trains",
+        description_text="Nightly from 9:50PM",
+        url="https://transportnsw.info/alerts",
+        observed_at_utc=observed,
+    )
+
+
+def _scope(
+    alert_id: str = "a1",
+    route_id: str = "NSN_2a",
+    direction_id: int = 0,
+    stop_id: str = "2000",
+    start: int = 100,
+    end: int = 200,
+    observed: str = "2026-09-14T10:00:00+00:00",
+    route_short_name: str | None = "T1",
+) -> AlertScope:
+    return AlertScope(
+        alert_id=alert_id,
+        route_id=route_id,
+        route_short_name=route_short_name,
+        direction_id=direction_id,
+        stop_id=stop_id,
+        active_period_start=start,
+        active_period_end=end,
+        observed_at_utc=observed,
+    )
+
+
+class TestAlertStorage:
+    def test_alerts_and_scopes_are_stored(self, tmp_path: Path) -> None:
+        store = SqliteObservationStore(tmp_path / "d.db")
+        store.record_alerts([_alert()], [_scope(), _scope(stop_id="2010")])
+        assert store.alert_count() == 1
+        assert store.alert_scope_count() == 2
+
+    def test_re_recording_the_same_feed_does_not_duplicate(self, tmp_path: Path) -> None:
+        store = SqliteObservationStore(tmp_path / "d.db")
+        store.record_alerts([_alert()], [_scope()])
+        store.record_alerts(
+            [_alert(observed="2026-09-14T10:02:00+00:00")],
+            [_scope(observed="2026-09-14T10:02:00+00:00")],
+        )
+        assert store.alert_count() == 1
+        assert store.alert_scope_count() == 1
+
+    def test_a_late_poll_does_not_roll_last_seen_backwards(self, tmp_path: Path) -> None:
+        """The observed window is the fallback when a claimed period is wrong."""
+        db = tmp_path / "d.db"
+        store = SqliteObservationStore(db)
+        store.record_alerts([_alert(observed="2026-09-14T10:05:00+00:00")], [])
+        store.record_alerts([_alert(observed="2026-09-14T09:00:00+00:00")], [])
+        last_seen = (
+            sqlite3.connect(db).execute("SELECT last_seen_utc FROM service_alerts").fetchone()[0]
+        )
+        assert last_seen == "2026-09-14T10:05:00+00:00"
+
+    def test_absent_direction_and_stop_still_deduplicate(self, tmp_path: Path) -> None:
+        """SQLite treats NULLs in a composite key as distinct from each other.
+
+        The sentinels are what stop this table growing by a thousand rows a
+        poll; a nullable key column would silently never match on conflict.
+        """
+        store = SqliteObservationStore(tmp_path / "d.db")
+        scope = _scope(direction_id=-1, stop_id="")
+        store.record_alerts([_alert()], [scope])
+        store.record_alerts([_alert()], [scope])
+        assert store.alert_scope_count() == 1
+
+    def test_a_revised_end_updates_but_a_new_start_forks(self, tmp_path: Path) -> None:
+        """Extending a window updates; a second nightly window is a new scope."""
+        store = SqliteObservationStore(tmp_path / "d.db")
+        store.record_alerts([_alert()], [_scope(start=100, end=200)])
+        store.record_alerts(
+            [_alert()],
+            [_scope(start=100, end=999, observed="2026-09-14T10:02:00+00:00")],
+        )
+        assert store.alert_scope_count() == 1
+
+        store.record_alerts(
+            [_alert()],
+            [_scope(start=300, end=400, observed="2026-09-14T10:03:00+00:00")],
+        )
+        assert store.alert_scope_count() == 2
+
+    def test_alert_polls_never_touch_the_delay_poll_log(self, tmp_path: Path) -> None:
+        """poll_log's key is the timestamp, written with INSERT OR REPLACE.
+
+        An alert poll sharing that key would overwrite the trip-update row --
+        destroying the only signal --status and the volume checkpoint read.
+        """
+        db = tmp_path / "d.db"
+        store = SqliteObservationStore(db)
+        shared_timestamp = "2026-09-14T10:00:00+00:00"
+        store.record_poll(shared_timestamp, 470, 108, "ok")
+        store.record_alert_poll(shared_timestamp, 41, 1092, "ok")
+
+        connection = sqlite3.connect(db)
+        assert connection.execute("SELECT COUNT(*) FROM poll_log").fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT entities_seen, rows_written, status FROM poll_log"
+        ).fetchone() == (470, 108, "ok")
+        assert store.recent_alert_poll_status()[0] == (shared_timestamp, 41, 1092, "ok")
+
+    def test_the_schema_guard_covers_the_alert_tables(self, tmp_path: Path) -> None:
+        db = tmp_path / "d.db"
+        connection = sqlite3.connect(db)
+        connection.execute("CREATE TABLE service_alerts (wrong_key TEXT PRIMARY KEY)")
+        connection.commit()
+        connection.close()
+        with pytest.raises(SchemaMismatchError):
+            SqliteObservationStore(db)
+
+    def test_recording_nothing_is_a_no_op(self, tmp_path: Path) -> None:
+        store = SqliteObservationStore(tmp_path / "d.db")
+        assert store.record_alerts([], []) == 0

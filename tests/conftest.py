@@ -70,3 +70,78 @@ def make_feed() -> Any:
         return feed
 
     return _make
+
+
+# active_period sentinels, mirroring TIME_ONLY/NO_SEQUENCE above: a fixture
+# that can only set both ends cannot produce the half-open windows the real
+# feed sends, nor the empty active_period the spec defines as "always active".
+NO_PERIODS = object()
+UNSET = object()
+
+
+@pytest.fixture
+def make_alert_feed() -> Any:
+    """Build a Service Alerts FeedMessage from plain Python descriptions.
+
+    Each alert is a dict:
+
+    ``id``          entity id (the feed's stable UUID)
+    ``selectors``   list of ``(route_id, direction_id, stop_id)``; pass
+                    :data:`UNSET` for a direction or ``""`` for a stop to
+                    leave the field unset
+    ``periods``     list of ``(start, end)``; :data:`UNSET` for either end
+                    leaves it unset, and :data:`NO_PERIODS` omits
+                    ``active_period`` entirely
+    ``cause`` / ``effect`` / ``severity``   enum ints, optional
+    ``header`` / ``description`` / ``url``  either a string, or a list of
+                    ``(language, text)`` pairs so a test can reproduce the
+                    real feed's ``en`` + ``en/html`` pair
+    """
+
+    def _translate(message: Any, value: Any) -> None:
+        pairs = value if isinstance(value, list) else [("en", value)]
+        for language, text in pairs:
+            translation = message.translation.add()
+            translation.language = language
+            translation.text = text
+
+    def _make(alerts: list[dict[str, Any]]) -> Any:
+        feed = gtfs_realtime_pb2.FeedMessage()
+        feed.header.gtfs_realtime_version = "2.0"
+        for spec in alerts:
+            entity = feed.entity.add()
+            entity.id = spec.get("id", "")
+            alert = entity.alert
+
+            for field in ("cause", "effect", "severity_level"):
+                if field in spec:
+                    setattr(alert, field, spec[field])
+
+            for key, target in (
+                ("header", "header_text"),
+                ("description", "description_text"),
+                ("url", "url"),
+            ):
+                if key in spec:
+                    _translate(getattr(alert, target), spec[key])
+
+            periods = spec.get("periods", NO_PERIODS)
+            if periods is not NO_PERIODS:
+                for start, end in periods:
+                    time_range = alert.active_period.add()
+                    if start is not UNSET:
+                        time_range.start = start
+                    if end is not UNSET:
+                        time_range.end = end
+
+            for route_id, direction_id, stop_id in spec.get("selectors", []):
+                selector = alert.informed_entity.add()
+                if route_id:
+                    selector.route_id = route_id
+                if stop_id:
+                    selector.stop_id = stop_id
+                if direction_id is not UNSET:
+                    selector.direction_id = direction_id
+        return feed
+
+    return _make

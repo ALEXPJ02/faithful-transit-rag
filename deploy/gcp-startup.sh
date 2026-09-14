@@ -82,6 +82,8 @@ COLLECTION_ROUTES_LOOKUP=${APP_DIR}/data/routes_lookup.csv
 POLLER_INTERVAL_SECONDS=120
 POLLER_ROUTES=T1,T4
 POLLER_MAX_UPCOMING_STOPS=3
+COLLECT_ALERTS=true
+ALERTS_POLL_EVERY_N_POLLS=15
 ENV
 chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
 chmod 0400 "$APP_DIR/.env"
@@ -152,6 +154,11 @@ with destination:
     source.backup(destination)
 rows = destination.execute("SELECT COUNT(*) FROM stop_observations").fetchone()[0]
 print(f"{rows:,} stop events")
+tables = {r[0] for r in destination.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+if "service_alerts" in tables:
+    alerts = destination.execute("SELECT COUNT(*) FROM service_alerts").fetchone()[0]
+    scopes = destination.execute("SELECT COUNT(*) FROM alert_scopes").fetchone()[0]
+    print(f"{alerts:,} alerts, {scopes:,} scopes")
 destination.close()
 source.close()
 SNAPSHOT_PY

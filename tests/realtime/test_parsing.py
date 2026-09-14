@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from google.transit.gtfs_realtime_pb2 import TripUpdate
+from google.transit.gtfs_realtime_pb2 import Alert, TripUpdate
 
-from conftest import NO_SEQUENCE, TIME_ONLY
+from conftest import NO_PERIODS, NO_SEQUENCE, TIME_ONLY, UNSET
 from transit_rag.realtime.parsing import (
+    extract_alerts,
     extract_delay_observations,
     service_day,
     summarise_routes,
@@ -294,3 +295,139 @@ class TestScheduleRelationship:
         )
 
         assert [o.stop_id for o in observations] == ["b", "c"]
+
+
+class TestAlertExtraction:
+    """Service Alerts: the cross product, and the shapes the live feed sends."""
+
+    def test_one_row_per_selector_and_period(self, make_alert_feed: Any) -> None:
+        """Scopes are the cross product of informed entities and windows."""
+        feed = make_alert_feed(
+            [
+                {
+                    "id": "a1",
+                    "selectors": [("NSN_2a", 0, "2000"), ("NSN_2b", 1, "2010")],
+                    "periods": [(100, 200), (300, 400)],
+                }
+            ]
+        )
+        alerts, scopes = extract_alerts(feed, {}, POLL_TIME)
+        assert len(alerts) == 1
+        assert len(scopes) == 4  # 2 selectors x 2 periods
+
+    def test_empty_active_period_is_one_unbounded_window(self, make_alert_feed: Any) -> None:
+        """An alert with no active_period is always active, not never active.
+
+        The spec says an empty active_period means the alert applies whenever
+        it is published. Emitting zero scopes would make such an alert vanish
+        from the table entirely.
+        """
+        feed = make_alert_feed(
+            [{"id": "a1", "selectors": [("NSN_2a", 0, "2000")], "periods": NO_PERIODS}]
+        )
+        _, scopes = extract_alerts(feed, {}, POLL_TIME)
+        assert len(scopes) == 1
+        assert (scopes[0].active_period_start, scopes[0].active_period_end) == (0, 0)
+
+    def test_half_open_windows_use_the_unbounded_sentinel(self, make_alert_feed: Any) -> None:
+        feed = make_alert_feed(
+            [
+                {
+                    "id": "a1",
+                    "selectors": [("NSN_2a", 0, "2000")],
+                    "periods": [(100, UNSET), (UNSET, 400)],
+                }
+            ]
+        )
+        _, scopes = extract_alerts(feed, {}, POLL_TIME)
+        windows = {(s.active_period_start, s.active_period_end) for s in scopes}
+        assert windows == {(100, 0), (0, 400)}
+
+    def test_plain_english_is_preferred_over_the_html_translation(
+        self, make_alert_feed: Any
+    ) -> None:
+        """TfNSW sends description_text as both ``en`` and ``en/html``.
+
+        Indexing translation[0] picks the prose today and nothing guarantees
+        that ordering, so the day it flips every stored row would gain a
+        kilobyte of markup in the column the RAG layer reads as text.
+        """
+        feed = make_alert_feed(
+            [
+                {
+                    "id": "a1",
+                    "selectors": [("NSN_2a", 0, "2000")],
+                    "description": [
+                        ("en/html", "<p>Buses replace trains</p>"),
+                        ("en", "Buses replace trains"),
+                    ],
+                }
+            ]
+        )
+        alerts, _ = extract_alerts(feed, {}, POLL_TIME)
+        assert alerts[0].description_text == "Buses replace trains"
+        assert "<" not in alerts[0].description_text
+
+    def test_unknown_route_ids_are_kept_not_filtered(self, make_alert_feed: Any) -> None:
+        """A scope the lookup cannot resolve is stored with route_short_name None.
+
+        Measured against the live feed, 32% of the route ids named by alerts
+        are absent from the For Realtime bundle. Filtering them at collection
+        time would discard 28 of 41 alerts permanently, and collection is the
+        one step that cannot be re-run.
+        """
+        feed = make_alert_feed(
+            [{"id": "a1", "selectors": [("NSN_2a", 0, ""), ("BNK_1a", 0, "")], "periods": [(1, 2)]}]
+        )
+        _, scopes = extract_alerts(feed, {"NSN_2a": "T1"}, POLL_TIME)
+        by_route = {s.route_id: s.route_short_name for s in scopes}
+        assert by_route == {"NSN_2a": "T1", "BNK_1a": None}
+
+    def test_repeated_selectors_within_one_alert_are_deduped(self, make_alert_feed: Any) -> None:
+        """The live feed repeats the same triple inside a single alert."""
+        feed = make_alert_feed(
+            [
+                {
+                    "id": "a1",
+                    "selectors": [("NSN_2a", 0, "2000")] * 3,
+                    "periods": [(1, 2)],
+                }
+            ]
+        )
+        _, scopes = extract_alerts(feed, {}, POLL_TIME)
+        assert len(scopes) == 1
+
+    def test_unset_direction_uses_the_sentinel(self, make_alert_feed: Any) -> None:
+        """A NULL here would silently stop the primary key deduplicating."""
+        feed = make_alert_feed(
+            [{"id": "a1", "selectors": [("NSN_2a", UNSET, "")], "periods": [(1, 2)]}]
+        )
+        _, scopes = extract_alerts(feed, {}, POLL_TIME)
+        assert scopes[0].direction_id == -1
+        assert scopes[0].stop_id == ""
+
+    def test_enum_values_resolve_to_names(self, make_alert_feed: Any) -> None:
+        feed = make_alert_feed(
+            [
+                {
+                    "id": "a1",
+                    "selectors": [("NSN_2a", 0, "")],
+                    "cause": Alert.Cause.Value("MAINTENANCE"),
+                    "effect": Alert.Effect.Value("MODIFIED_SERVICE"),
+                }
+            ]
+        )
+        alerts, _ = extract_alerts(feed, {}, POLL_TIME)
+        assert alerts[0].cause == "MAINTENANCE"
+        assert alerts[0].effect == "MODIFIED_SERVICE"
+
+    def test_an_alert_without_an_id_is_skipped(self, make_alert_feed: Any) -> None:
+        """Without a key every such alert would overwrite the last."""
+        feed = make_alert_feed([{"id": "", "selectors": [("NSN_2a", 0, "")]}])
+        alerts, scopes = extract_alerts(feed, {}, POLL_TIME)
+        assert (alerts, scopes) == ([], [])
+
+    def test_trip_update_entities_are_ignored(self, make_feed: Any) -> None:
+        """A Trip Update feed handed to the alert parser yields nothing."""
+        feed = make_feed([("t1", "NSN_2a", [("2000", 1, 60, 60)])])
+        assert extract_alerts(feed, {}, POLL_TIME) == ([], [])
