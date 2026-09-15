@@ -46,6 +46,10 @@ data/*
 # Committed: small, derived from public CC BY data, and the scheduled
 # collector needs it in the repo to scope itself to the tracked lines.
 !data/routes_lookup.csv
+# Committed: the corpus PDFs themselves are several megabytes of binary, but
+# the manifest records which revision of each was used. That is what makes an
+# eval number reproducible -- `--fetch` rebuilds the corpus from it.
+!data/corpus_manifest.json
 *.db
 *.sqlite
 *.sqlite3

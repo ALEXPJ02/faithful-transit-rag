@@ -1,0 +1,35 @@
+{
+  "fetched_at_utc": "2026-09-14T14:48:13.568443+00:00",
+  "documents": [
+    {
+      "key": "opal-fares-business-rules",
+      "title": "Opal Fares Business Rules and Information",
+      "version": "v1.6",
+      "url": "https://opendata.transport.nsw.gov.au/data/dataset/a0f8e50d-aa28-4c5a-8aca-818d920244c9/resource/50613361-c929-4cb1-9e67-c99329281180/download/opal-fares-business-rules-and-information-v1.6-.pdf",
+      "sha256": "91edd1cbbffa30248fd22e3a215873efb86bbe9e19ad724402f6f0d54d925d0c",
+      "bytes": 1814869,
+      "pages": 17,
+      "filename": "opal-fares-business-rules.pdf"
+    },
+    {
+      "key": "opal-terms-of-use",
+      "title": "Opal Terms of Use",
+      "version": "June 2026",
+      "url": "https://transportnsw.info/document/2114/opal-terms-of-use-june-2026.pdf",
+      "sha256": "89862e742edba493daed26be75cdb279cd05bb18ecb80aae5f23e0aacee021bc",
+      "bytes": 686356,
+      "pages": 32,
+      "filename": "opal-terms-of-use.pdf"
+    },
+    {
+      "key": "fares-and-ticketing-brochure",
+      "title": "Public Transport Fares and Ticketing",
+      "version": "2026",
+      "url": "https://www.transport.nsw.gov.au/system/files/media/documents/2026/public-transport-fares-and-ticketing-brochure.pdf",
+      "sha256": "28303ec7c10e06ff0d3b745ce1caaa1c1863f030a6f8a1dcd851e6de018c96c8",
+      "bytes": 2695026,
+      "pages": 7,
+      "filename": "fares-and-ticketing-brochure.pdf"
+    }
+  ]
+}
