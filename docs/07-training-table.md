@@ -119,6 +119,15 @@ Rows per service date — min 252, median 252, max 252
   chronological split would put that structural break inside the training
   window. The flag lands once there is a usable overlap; rows predating alert
   collection must carry `pd.NA`, never `False`.
+- **2026-09-11 to 09-15 have no schedule join, permanently.** TfNSW's static API
+  serves only the era that is current; an era published and superseded inside
+  that window was never fetched, so ~77,000 stop events across five service
+  dates carry no `scheduled_arrival_s` and no `stop_sequence`. Measured cost:
+  MASE 0.934 on a schedule-blind test date against 0.823 on a matched one,
+  because `stop_sequence` is the model's second most important feature. A daily
+  archive now keeps every era (`docs/06-always-on-collector.md`), but the gap
+  itself is unrecoverable and belongs in the write-up as a stated limitation.
+  Affected rows are kept, not dropped — their delays are real.
 - **`RTTA_*` trips are excluded upstream.** Out Of Service and Non Revenue
   movements never reach the table. A service *altered* beyond what the timetable
   can express may also be filed that way and go uncollected — unmeasured, and it

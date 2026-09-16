@@ -168,6 +168,58 @@ SNAPSHOT_SCRIPT
 chmod 0755 /usr/local/bin/transit-snapshot
 log "installed /usr/local/bin/transit-snapshot"
 
+# ---------------------------------------------------------------------------
+# Timetable bundle archive.
+#
+# The static API serves only the era that is current right now. When TfNSW
+# supersedes one it is gone, and every realtime trip planned under it can never
+# be joined to a timetable again. That already cost this project five service
+# dates (2026-09-11 to 09-15, ~77k stop events with no stop_sequence), so a
+# daily fetch that keeps each distinct era is cheap insurance at ~10 MB an era.
+#
+# A separate oneshot unit, not a step inside the poller: the collector holds
+# data that cannot be re-collected and has no business sharing a process with a
+# daily download.
+# ---------------------------------------------------------------------------
+cat > /etc/systemd/system/transit-bundle-archive.service <<'BUNDLE_SERVICE'
+[Unit]
+Description=Archive the TfNSW static timetable bundle before it is superseded
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=collector
+WorkingDirectory=/opt/transit-rag
+# The API key is read by config.py from /opt/transit-rag/.env, an absolute
+# path, so no EnvironmentFile is needed here.
+ExecStart=/opt/transit-rag/.venv/bin/python -m transit_rag.prediction.collection.bundles --archive
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/transit-rag/data
+BUNDLE_SERVICE
+
+cat > /etc/systemd/system/transit-bundle-archive.timer <<'BUNDLE_TIMER'
+[Unit]
+Description=Daily archive of the TfNSW timetable bundle
+
+[Timer]
+OnCalendar=daily
+# Spread the load off midnight, and off every other GCE box doing the same.
+RandomizedDelaySec=1h
+# If the box was down at the scheduled time, run on the next boot rather than
+# skipping the day -- a missed era is unrecoverable.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+BUNDLE_TIMER
+
+systemctl daemon-reload
+systemctl enable --now transit-bundle-archive.timer
+log "installed transit-bundle-archive.timer (daily)"
+
 systemctl daemon-reload
 systemctl enable --now transit-poller.service
 log "provisioning complete; poller enabled"

@@ -179,3 +179,36 @@ gcloud compute instances delete transit-collector --zone=us-central1-a
 ```
 
 Pull the database **before** deleting. There is no other copy of it.
+
+## The timetable bundle archive
+
+`transit-bundle-archive.timer` runs daily and keeps a copy of each distinct
+static GTFS era in `data/bundles/`.
+
+It exists because **the static API serves only the era that is current right
+now.** When TfNSW supersedes one it is gone, and a realtime `trip_id` planned
+under it can never be joined to a timetable again. That is not a hypothetical:
+an era published and superseded between 2026-09-11 and 09-15 was never fetched,
+costing five service dates — about 77,000 stop events — their
+`scheduled_arrival_s` and `stop_sequence` for good.
+
+```bash
+python -m transit_rag.prediction.collection.bundles --archive   # fetch, keep if new
+python -m transit_rag.prediction.collection.bundles --list      # what is kept
+systemctl list-timers transit-bundle-archive.timer
+```
+
+Only a genuinely new era is kept: the bundle is fingerprinted by sha256 and a
+repeat download of the same era is discarded, so the archive grows by ~10 MB per
+era rather than per day. **Nothing here is ever deleted** — a superseded era
+cannot be re-fetched, which makes these files exactly as irreplaceable as the
+observations.
+
+A separate oneshot unit rather than a step inside the poller: the collector
+holds data that cannot be re-collected, and a daily hundred-megabyte download
+has no business sharing a process with it. A failed fetch exits non-zero, the
+timer tries again tomorrow, and the poller never notices.
+
+**Pass every era to `transit-reconcile`**, not just the newest — one `--bundle`
+argument per era the collection window spans. A falling match rate in the
+reconcile report means an era is missing.
