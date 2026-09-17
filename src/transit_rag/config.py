@@ -194,9 +194,46 @@ class CollectionConfig:
     )
 
 
+#: Named once, because VoyageConfig and ModelConfig both default to it.
+DEFAULT_EMBEDDING_MODEL = "voyage-4-lite"
+
+
+def configured_embedding_model() -> str:
+    """The embedding model in play, without requiring any key.
+
+    ``transit-index status`` reports what is already on disk, so it must run on
+    a machine that has an index and no credentials at all.
+    """
+    return _env("VOYAGE_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
+
+
+@dataclass(frozen=True)
+class VoyageConfig:
+    """Embeddings access on its own, deliberately not part of ModelConfig.
+
+    Retrieval needs Voyage and nothing else. Requiring an Anthropic key to
+    build or query an index couples two layers that never call each other, and
+    makes ``transit-index`` unusable on a machine set up for only the retrieval
+    half of the system.
+    """
+
+    api_key: str
+    embedding_model: str
+
+    @classmethod
+    def from_env(cls) -> VoyageConfig:
+        api_key = os.environ.get("VOYAGE_API_KEY", "").strip()
+        if not api_key:
+            raise ConfigError(
+                "VOYAGE_API_KEY is not set. Copy .env.example to .env and add the key "
+                "from your Voyage AI dashboard (docs/05-setup-checklist.md)."
+            )
+        return cls(api_key=api_key, embedding_model=configured_embedding_model())
+
+
 @dataclass(frozen=True)
 class ModelConfig:
-    """Anthropic + Voyage model selection."""
+    """Anthropic + Voyage model selection, for callers that need both."""
 
     anthropic_api_key: str
     voyage_api_key: str
@@ -223,7 +260,7 @@ class ModelConfig:
             voyage_api_key=voyage_key,
             generation_model=_env("ANTHROPIC_GENERATION_MODEL", "claude-sonnet-5"),
             judge_model=_env("ANTHROPIC_JUDGE_MODEL", "claude-haiku-4-5"),
-            embedding_model=_env("VOYAGE_EMBEDDING_MODEL", "voyage-4-lite"),
+            embedding_model=configured_embedding_model(),
         )
 
 

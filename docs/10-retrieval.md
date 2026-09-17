@@ -72,6 +72,13 @@ Every collection carries an `IndexFingerprint` in its Chroma metadata:
 configuration and **exits non-zero** when they disagree, so it works as a
 pre-eval check rather than only as a thing to read.
 
+`build` verifies the files on disk against the pins before it chunks anything,
+and refuses on any mismatch. The fingerprint stamps the *pinned* hashes, so
+without that check the one failure it exists to catch is the one it cannot
+see — an index built from replaced or half-downloaded files, stamped as pinned,
+reporting "up to date" forever. `ingestion/corpus.py`'s contract applies here
+too: a hash mismatch is a failure, not a warning.
+
 **Why the corpus hash is in there.** `ingestion/corpus.py` pins each document to
 a content hash because TfNSW revises these PDFs without notice — three versions
 of the Business Rules are live simultaneously. That pin protects the *files*; it
@@ -134,6 +141,11 @@ transit-index query "how does a daily cap work" --k 5
 the chunker many times and looking at what comes out, and only the winning
 configuration needs to be embedded. `status` likewise runs without a key —
 reporting what is already on disk is the whole point of it.
+
+None of these need an **Anthropic** key. Retrieval reads `VoyageConfig`, not
+`ModelConfig`: nothing in `transit-index` talks to Anthropic, and coupling the
+two would make the command unusable on a machine set up for only the retrieval
+half of the system.
 
 The index lives at `$CHROMA_PERSIST_DIR` (default `.chroma`, gitignored). For
 Phase 2 it is built into the Docker image at build time rather than created at

@@ -23,14 +23,19 @@ import logging
 import sys
 from pathlib import Path
 
-from transit_rag.config import ConfigError, ModelConfig, chroma_persist_dir
+from transit_rag.config import (
+    ConfigError,
+    VoyageConfig,
+    chroma_persist_dir,
+    configured_embedding_model,
+)
 from transit_rag.ingestion.chunks import (
     DEFAULT_OVERLAP_CHARS,
     DEFAULT_TARGET_CHARS,
     Chunk,
     chunk_corpus,
 )
-from transit_rag.ingestion.corpus import DEFAULT_CORPUS_DIR
+from transit_rag.ingestion.corpus import DEFAULT_CORPUS_DIR, verify
 from transit_rag.retrieval.embeddings import Embedder, VoyageEmbedder, embed_chunks
 from transit_rag.retrieval.index import (
     DEFAULT_COLLECTION,
@@ -60,28 +65,39 @@ def _summarise(chunks: list[Chunk]) -> str:
 
 
 def _embedder(args: argparse.Namespace) -> Embedder:
-    config = ModelConfig.from_env()
-    model = args.embedding_model or config.embedding_model
-    return VoyageEmbedder(api_key=config.voyage_api_key, model=model)
+    """Build the embedder from the Voyage settings alone.
+
+    Deliberately not ``ModelConfig``, which also demands ``ANTHROPIC_API_KEY``:
+    nothing in this command talks to Anthropic, and coupling the two makes
+    ``transit-index`` unusable on a machine set up for only the retrieval half.
+    """
+    config = VoyageConfig.from_env()
+    return VoyageEmbedder(
+        api_key=config.api_key,
+        model=args.embedding_model or config.embedding_model,
+    )
 
 
 def _configured_model(args: argparse.Namespace) -> str:
-    """The embedding model in play, without requiring an API key.
-
-    ``status`` must work on a machine that has an index but no Voyage key --
-    the point of it is to report what is on disk.
-    """
-    if args.embedding_model:
-        return args.embedding_model
-    try:
-        return ModelConfig.from_env().embedding_model
-    except ConfigError:
-        import os
-
-        return os.environ.get("VOYAGE_EMBEDDING_MODEL", "voyage-4-lite").strip() or "voyage-4-lite"
+    """The embedding model in play, without requiring an API key."""
+    return args.embedding_model or configured_embedding_model()
 
 
 def command_build(args: argparse.Namespace) -> int:
+    # The fingerprint stamps the *pinned* hashes, so the bytes being chunked
+    # have to be the bytes those pins name. Without this the one failure the
+    # fingerprint exists to catch is the one it cannot see: an index built from
+    # replaced or half-downloaded files, stamped as pinned, reporting "up to
+    # date" forever. corpus.py's contract applies here too -- a hash mismatch
+    # is a failure, not a warning.
+    problems = verify(args.corpus_dir)
+    if problems:
+        raise ValueError(
+            "the corpus on disk does not match the pins in ingestion/corpus.py:\n  "
+            + "\n  ".join(problems)
+            + "\n\nFetch it: `python -m transit_rag.ingestion.corpus --fetch`."
+        )
+
     chunks = chunk_corpus(
         corpus_dir=args.corpus_dir,
         target_chars=args.target_chars,
