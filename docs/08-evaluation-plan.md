@@ -48,6 +48,15 @@ Reproduced independently on 2026-09-14: MAE 17.915 s, matching to three decimals
 | Naive persistence | 19.09 s | 53.73 s | 90.0% | |
 | | | | | **MASE 0.938** |
 
+> **These figures are the 7-day run of 2026-09-10.** On 14 service dates to
+> 2026-09-16 the model scores test MAE **16.02 s** against a baseline of
+> **18.17 s** (**MASE 0.881**). The table and the conditional-coverage analysis
+> in §6.2 are left on the earlier run deliberately: §6.2's segment MAEs and
+> coverage percentages are derived from the same fit, and updating the headline
+> without re-deriving those would make this document disagree with itself.
+> Both need re-running together, against whichever split is settled on for the
+> schedule-join gap.
+
 **The honest reading.** The model beats persistence by 6%. That is a weak margin and
 it will be reported as one. It is not a failure of method: on a network where the
 median delay is zero, persistence is a genuinely strong baseline, and `baseline.py`

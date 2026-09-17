@@ -143,7 +143,7 @@ Research preparation is complete and the build is in the Weeks 4–7 band.
 - **Collection** — live since 3 September 2026 on the always-on collector, plus the
   scheduled-Action backup. Reconciliation into the training table is built and tested.
 - **Prediction** — `transit-train` fits the delay model against a naive-persistence
-  baseline written first. Test MAE 17.92 s vs 19.09 s, MASE 0.938.
+  baseline written first. Test MAE 16.02 s vs 18.17 s, MASE 0.881, over 14 service dates.
 - **Retrieval** — the three Opal PDFs are pinned, chunked into 144 cited passages and
   indexed by `transit-index` into a persisted Chroma collection
   ([`docs/10-retrieval.md`](./docs/10-retrieval.md)). Not yet built against the real

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from transit_rag.prediction.features.quality import Split, report, time_based_split
+from transit_rag.prediction.features.quality import (
+    MAX_PLAUSIBLE_DELAY_S,
+    Split,
+    report,
+    time_based_split,
+)
 
 
 def table(service_dates: list[str], rows_per_date: int = 2) -> pd.DataFrame:
@@ -101,3 +106,20 @@ class TestReport:
 
     def test_an_empty_table_says_so_plainly(self) -> None:
         assert "empty" in report(pd.DataFrame()).lower()
+
+
+class TestPlausibilityBound:
+    """The bound is a claim about the network, not about the tail."""
+
+    def test_it_sits_far_above_any_delay_a_real_train_produces(self) -> None:
+        """Largest plausible delay measured in the corpus is 4,394 s (73 min).
+
+        If this ever fails, someone has tightened the bound to where it could
+        start discarding genuinely late trains rather than feed artifacts.
+        """
+        assert MAX_PLAUSIBLE_DELAY_S > 4394
+
+    def test_it_sits_far_below_the_rollover_artifact(self) -> None:
+        """The artifact lands at 79,422-86,142 s. Nothing falls in between, so
+        the exact value does not change which rows are removed."""
+        assert MAX_PLAUSIBLE_DELAY_S < 79422

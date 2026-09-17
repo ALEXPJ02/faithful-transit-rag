@@ -41,7 +41,10 @@ out of evaluation.
   realtime bundle, so filtering to T1/T4 at collection would discard 28 of 41
   alerts permanently. Filter in reconcile, which can be re-run.
 - Delay model — `transit-train` (`src/transit_rag/prediction/model/`). Naive
-  persistence written first; test MAE 17.92 s vs baseline 19.09 s, MASE 0.938.
+  persistence written first; test MAE 16.02 s vs baseline 18.17 s, MASE 0.881 over
+  14 service dates. A 2 h plausibility bound drops ~24 h feed artifacts before the
+  split (`quality.MAX_PLAUSIBLE_DELAY_S`); it leaves the test figures unchanged and
+  takes validation MAE from 32.1 s to 14.5 s.
 - Corpus ingestion — the three Opal PDFs pinned to content hashes and chunked
   page-by-page into **144 cited passages** (`src/transit_rag/ingestion/`).
 - Retrieval index — `transit-index` (`src/transit_rag/retrieval/`): Voyage

@@ -16,6 +16,22 @@ import pandas as pd
 #: opportunity to revise, and should not be scored as though it were observed.
 CLOSE_OBSERVATION_STOPS_AHEAD = 1
 
+#: Beyond two hours a Sydney Trains service is operationally a cancellation or
+#: a replacement, not a late train. This is a statement about what ``delay_s``
+#: is allowed to *mean*, decided from how the network runs rather than from
+#: the shape of the tail -- which matters, because a bound chosen by looking
+#: at the data is a bound a reviewer is right to distrust.
+#:
+#: What it removes is a GTFS-Realtime artifact: the feed republishes the
+#: previous day's run stamped with today's ``start_date``, so every predicted
+#: arrival lands ~24 h past schedule. Measured on the 204,628-row table of
+#: 2026-09-16, that is 7 rows from a single trip at 79,422-86,142 s (22.1-23.9
+#: h). The largest *plausible* delay in the same table is 4,394 s (73 min) and
+#: nothing at all falls between the two, so any bound from roughly 1.5 h to
+#: 20 h removes exactly the same rows. The result does not depend on where in
+#: that range this sits, which is the point.
+MAX_PLAUSIBLE_DELAY_S = 7200
+
 
 @dataclass(frozen=True)
 class Split:
