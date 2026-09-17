@@ -18,6 +18,7 @@ from transit_rag.prediction.model.dataset import (
     build_dataset,
     build_features,
     category_dtypes,
+    filter_plausible,
     filter_reliable,
 )
 
@@ -150,6 +151,93 @@ class TestFilterReliable:
 
         assert set(kept["stops_ahead_final"]) <= {0, 1}
         assert len(kept) == 4
+
+
+class TestFilterPlausible:
+    """The ghost trip: the feed republishing yesterday's run as today's.
+
+    These rows are not slow trains. A ~24 h "delay" is an artifact, and one of
+    them carries more error than thousands of real rows combined -- on the
+    2026-09-16 table seven of them held 55% of validation MAE.
+    """
+
+    def ghost_table(self) -> pd.DataFrame:
+        table = make_table(6)
+        table.loc[2, "delay_s"] = 86142  # 23.93 h -- the signature of a rollover
+        table.loc[2, "prev_stop_delay_s"] = 86142
+        return table
+
+    def test_a_twenty_four_hour_delay_is_dropped(self) -> None:
+        kept = filter_plausible(self.ghost_table())
+
+        assert len(kept) == 5
+        assert 86142 not in set(kept["delay_s"])
+
+    def test_real_delays_are_kept(self) -> None:
+        """The bound must not reach anywhere near a genuinely late train."""
+        table = make_table(6)
+        table.loc[1, "delay_s"] = 4394  # the largest real delay in the corpus, 73 min
+
+        assert len(filter_plausible(table)) == 6
+
+    def test_an_implausible_previous_stop_delay_is_dropped_too(self) -> None:
+        """The baseline predicts from this column, so a junk value there is a
+        junk *baseline*, and the model would be beating a strawman."""
+        table = make_table(6)
+        table.loc[3, "prev_stop_delay_s"] = 90000
+
+        kept = filter_plausible(table)
+
+        assert len(kept) == 5
+        assert 90000 not in set(kept["prev_stop_delay_s"].dropna())
+
+    def test_a_missing_previous_stop_delay_is_not_implausible(self) -> None:
+        """Absent is a different claim from impossible -- and the first stop of
+        every trip has no previous-stop delay by construction."""
+        table = make_table(6)
+        assert table["prev_stop_delay_s"].isna().any()
+
+        assert len(filter_plausible(table)) == 6
+
+    def test_a_large_negative_delay_is_dropped(self) -> None:
+        """A train running 24 h early is the same artifact with the sign flipped."""
+        table = make_table(6)
+        table.loc[4, "delay_s"] = -86142
+
+        assert len(filter_plausible(table)) == 5
+
+    def test_the_bound_is_configurable_for_sensitivity_checks(self) -> None:
+        table = make_table(6)
+        table.loc[1, "delay_s"] = 4394
+
+        assert len(filter_plausible(table, max_delay_s=1800)) == 5
+
+    def test_it_returns_a_clean_index(self) -> None:
+        """Downstream code aligns predictions to targets positionally."""
+        kept = filter_plausible(self.ghost_table())
+
+        assert list(kept.index) == list(range(len(kept)))
+
+    def test_filtering_before_the_split_leaves_every_partition_clean(self) -> None:
+        """The ordering invariant, and the reason the filter is not optional.
+
+        Filter then split, and all three partitions are on the same footing.
+        Split then filter -- or filter only test -- silently changes what each
+        partition means, and is indistinguishable from keeping the rows that
+        flatter the result.
+        """
+        from transit_rag.prediction.features.quality import time_based_split
+
+        rows = 12
+        table = make_table(6)
+        table = pd.concat([table] * (rows // 6), ignore_index=True)
+        table["service_date"] = [f"2026-09-{3 + i:02d}" for i in range(len(table))]
+        table.loc[len(table) - 1, "delay_s"] = 86142  # lands in the test partition
+
+        split = time_based_split(filter_plausible(table))
+
+        for partition in (split.train, split.validation, split.test):
+            assert (partition["delay_s"].abs() <= 7200).all()
 
 
 class TestBuildDataset:

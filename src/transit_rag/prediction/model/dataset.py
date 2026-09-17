@@ -18,7 +18,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from transit_rag.prediction.features.quality import CLOSE_OBSERVATION_STOPS_AHEAD
+from transit_rag.prediction.features.quality import (
+    CLOSE_OBSERVATION_STOPS_AHEAD,
+    MAX_PLAUSIBLE_DELAY_S,
+)
 
 #: What the model predicts: arrival delay in seconds, departure as a fallback.
 #: Built in ``reconcile.build_training_table``.
@@ -110,6 +113,33 @@ def filter_reliable(
     September 2026 they are 90% of it, so the filter is nearly free.
     """
     return table[table["stops_ahead_final"] <= max_stops_ahead].reset_index(drop=True)
+
+
+def filter_plausible(table: pd.DataFrame, max_delay_s: int = MAX_PLAUSIBLE_DELAY_S) -> pd.DataFrame:
+    """Drop stop events whose delay could not have happened.
+
+    See :data:`~transit_rag.prediction.features.quality.MAX_PLAUSIBLE_DELAY_S`
+    for why the bound is where it is. Two things about *how* it is applied
+    matter more than the number:
+
+    **``prev_stop_delay_s`` is bounded too, not just the target.** The naive
+    baseline predicts straight from that column, so an implausible value there
+    is an implausible *baseline* prediction -- the model would be compared
+    against a strawman on those rows rather than beating a fair one. On the
+    2026-09-16 table no row has a poisoned feature and a clean target, so this
+    costs nothing today; it is here for the ghost trip whose first stop is
+    corrupt and whose second is not.
+
+    **It runs before the split, never after.** Filtering a partition after the
+    boundary is drawn -- or worse, filtering only test -- changes what each
+    partition means and is indistinguishable from choosing the rows that
+    flatter the result.
+    """
+    within = table["delay_s"].abs() <= max_delay_s
+    # NaN is left alone: absent is a different claim from implausible, and the
+    # first stop of every trip has no previous-stop delay by construction.
+    previous = table["prev_stop_delay_s"].abs() <= max_delay_s
+    return table[within & (previous | table["prev_stop_delay_s"].isna())].reset_index(drop=True)
 
 
 def category_dtypes(table: pd.DataFrame) -> dict[str, pd.CategoricalDtype]:
