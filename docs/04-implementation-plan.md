@@ -3,7 +3,7 @@
 > One semester, one engineer, 41029 + 41030 concurrently. The plan is written around
 > what can be cut, because something will be.
 
-## Status — 14 September 2026
+## Status — 17 September 2026
 
 | Workstream | State |
 | --- | --- |
@@ -19,7 +19,8 @@
 | Service Alerts collection | **Done** — `transit-poller` polls alerts every 30 min into `service_alerts`/`alert_scopes` ([`09-service-alerts.md`](./09-service-alerts.md)). The training-table flag waits for an overlap window |
 | Reconciliation → training table | **Done** — `transit-reconcile`, schema in [`07-training-table.md`](./07-training-table.md) |
 | Prediction: baseline + model training | **Done** — `transit-train`; naive persistence written first. Test MAE 17.92 s vs baseline 19.09 s, **MASE 0.938** ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §3) |
-| Corpus ingestion + retrieval | Not started |
+| Corpus ingestion | **Done** — the three Opal PDFs pinned to content hashes and chunked page-by-page into 144 cited passages |
+| Retrieval index | **Done** — `transit-index`, Voyage embeddings into a persisted Chroma collection, fingerprinted so a number can be traced to the configuration that produced it ([`10-retrieval.md`](./10-retrieval.md)). Not yet built against the real embedding model: `VOYAGE_API_KEY` is unset |
 | Agent loop + MCP tools | Not started |
 | Evaluation plan (supervisor items 4–6) | **Done** — [`08-evaluation-plan.md`](./08-evaluation-plan.md): five sub-RQs, each with criterion, metric and method. Pending sign-off |
 | Evaluation harness | Not started |
@@ -51,10 +52,12 @@ Ordered by what unblocks what:
 
 1. **Collection.** ✅ Done — key, endpoint confirmation, route lookup, live polling and
    always-on scheduling. Keep checking it; do not let it stop.
-2. **Ingestion + retrieval.** The three Opal PDFs into chunks that carry document and
-   page, embedded into a persisted Chroma collection. Chunks without citations are
-   useless to the judge, so citation metadata is part of the ingestion contract, not
-   an afterthought.
+2. **Ingestion + retrieval.** ✅ Done — the three Opal PDFs into 144 chunks that carry
+   document and page, embedded into a persisted Chroma collection. Citation metadata is
+   an ingestion contract rather than an afterthought, and the retriever re-checks it on
+   the way out because an untyped database sits in between. Remaining: set
+   `VOYAGE_API_KEY` and build against the real embedding model, then run the chunk-size
+   and k sweep ([`10-retrieval.md`](./10-retrieval.md)).
 3. **Realtime tools.** Trip Update and Alerts wrapped as MCP tools over the existing
    `realtime/` client, joined against the static bundle for human-readable stop and
    route names.

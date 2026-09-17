@@ -23,7 +23,7 @@ the delay model state an error margin, and is that margin consistent with the
 model's measured MAE? If build work overruns, scope comes out of the *system*, not
 out of evaluation.
 
-## State as of 2026-09-09 (verified against the repo, not recalled)
+## State as of 2026-09-17 (verified against the repo, not recalled)
 
 **Built, tested, running:**
 
@@ -40,20 +40,29 @@ out of evaluation.
   stored **unfiltered**: 32% of the route ids they name are absent from the
   realtime bundle, so filtering to T1/T4 at collection would discard 28 of 41
   alerts permanently. Filter in reconcile, which can be re-run.
-- Repo scaffolding: 151 tests passing, CI green (ruff + mypy + pytest) plus a
+- Delay model — `transit-train` (`src/transit_rag/prediction/model/`). Naive
+  persistence written first; test MAE 17.92 s vs baseline 19.09 s, MASE 0.938.
+- Corpus ingestion — the three Opal PDFs pinned to content hashes and chunked
+  page-by-page into **144 cited passages** (`src/transit_rag/ingestion/`).
+- Retrieval index — `transit-index` (`src/transit_rag/retrieval/`): Voyage
+  embeddings into a persisted Chroma collection, carrying an `IndexFingerprint`
+  so a retrieval number can be traced to the configuration that produced it
+  (`docs/10-retrieval.md`). **No index has been built against the real
+  embedding model — `VOYAGE_API_KEY` is unset in `.env`.** Everything up to the
+  Voyage call has been run end-to-end over the real 144 chunks; the call itself
+  is unit-tested against a substituted client.
+- Repo scaffolding: 341 tests passing, CI green (ruff + mypy + pytest) plus a
   SHA-pinned Trivy workflow. Tests mirror the source tree, so
   `prediction/features/quality.py` is covered by
   `tests/prediction/features/test_quality.py`.
 
 **Not started — these packages contain only an empty `__init__.py`:**
 
-- `ingestion/` — Opal PDFs into cited chunks
-- `retrieval/` — Voyage embeddings into a persisted Chroma collection
 - `agent/` — hand-rolled Anthropic tool-use loop
 - `mcp_server/` — MCP tool interface + FastAPI
 - `evaluation/` — Ragas + custom LLM-as-judge harness
-- The XGBoost training script and the naive-persistence baseline (nothing under
-  `prediction/` trains a model yet; `models/` is empty)
+- The chunk-size and k sweep (`docs/08` §4). The knobs and the `--dry-run` path
+  exist; the QA set to sweep against does not.
 
 **`data/delay_observations.db` is a frozen snapshot from 2026-09-04T07:30Z**
 (18,100 stop events, 734 polls, 0 failures). It is not live. Re-pull from the VM
@@ -89,7 +98,7 @@ To reproduce CI exactly (a venv missing the extras will pass locally and fail in
 CI):
 
 ```bash
-uv sync --frozen --extra dev --extra realtime --extra prediction
+uv sync --frozen --extra dev --extra realtime --extra prediction --extra rag
 uv run ruff check . && uv run mypy && uv run pytest
 ```
 
@@ -136,6 +145,20 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
   comes from `stop_times.txt`.
 - Hand-rolled agent loop rather than a framework; Claude API rather than a local
   model.
+- **Retrieval is cosine, and the index is fingerprinted.** Chroma's default is
+  L2, which would rank partly by vector magnitude; `hnsw:space` cannot be
+  changed after creation. Every collection stores the embedding model, chunk
+  size, overlap and corpus content hash, because `docs/08` §4 freezes chunk size
+  and k before scoring and a number that cannot be traced to its configuration
+  is not reproducible. `transit-index status` exits non-zero when they disagree.
+- **Documents and queries use different Voyage `input_type` values**, and
+  `search` returns cosine *similarity*, never distance. Both are silent
+  failures: the first costs retrieval quality invisibly, the second returns the
+  worst passages first while still looking correct.
+- **A rebuild of the index is destructive, not incremental.** The corpus is 144
+  chunks and ~26.6k tokens, so a full re-embed is ~0.013% of the Voyage free
+  tier — cheap enough that guaranteeing no passages survive from a previous
+  chunk size is worth more than any saving.
 - **The active-alert training feature waits for an overlap window.** Alerts began
   collecting after delays did, so adding the flag now would make it `False`
   across the back-catalogue and put a structural break inside the chronological
@@ -146,4 +169,4 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
 `docs/04-implementation-plan.md`'s status table and the README's status section
 both make dated claims, so they go stale silently. When you change what the system
 does, update them in the same pass rather than leaving a later reader to be misled.
-Both were last reconciled against the repo on 2026-09-09.
+Both were last reconciled against the repo on 2026-09-17.
