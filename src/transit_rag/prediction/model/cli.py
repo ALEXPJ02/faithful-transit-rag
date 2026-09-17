@@ -5,6 +5,15 @@
     transit-train --curve              # MAE against training days, in one sweep
     transit-train --max-dates 14       # truncate to the first 14 service dates
     transit-train --all-rows           # sensitivity check: skip the reliability filter
+    transit-train --keep-implausible   # audit what the plausibility bound excludes
+
+**Rows the feed could not have meant.** GTFS-Realtime sometimes republishes the
+previous day's run under today's ``start_date``, which reconciles to a delay of
+roughly 24 hours. Those rows are dropped before the split -- see
+``quality.MAX_PLAUSIBLE_DELAY_S`` -- so every partition and the naive baseline
+see the same data. On the 2026-09-16 table it is 7 rows of 204,628, it moves
+test MAE, RMSE and MASE not at all, and it takes validation MAE from 32.1 s to
+14.5 s, because all seven landed in validation.
 
 **How the comparison is kept fair.** The model trains on every available row --
 XGBoost handles a missing ``prev_stop_delay_s`` natively -- but both predictors
@@ -28,13 +37,18 @@ from pathlib import Path
 import pandas as pd
 
 from transit_rag.config import PROJECT_ROOT
-from transit_rag.prediction.features.quality import CLOSE_OBSERVATION_STOPS_AHEAD, time_based_split
+from transit_rag.prediction.features.quality import (
+    CLOSE_OBSERVATION_STOPS_AHEAD,
+    MAX_PLAUSIBLE_DELAY_S,
+    time_based_split,
+)
 from transit_rag.prediction.model import baseline, metrics
 from transit_rag.prediction.model.dataset import (
     CATEGORICAL_COLUMNS,
     FEATURE_COLUMNS,
     build_dataset,
     category_dtypes,
+    filter_plausible,
     filter_reliable,
     load_training_table,
 )
@@ -248,6 +262,14 @@ def main() -> None:
         help=f"Skip the stops_ahead_final <= {CLOSE_OBSERVATION_STOPS_AHEAD} reliability filter",
     )
     parser.add_argument(
+        "--keep-implausible",
+        action="store_true",
+        help=(
+            f"Keep rows with |delay| over {MAX_PLAUSIBLE_DELAY_S}s. Only for auditing what the "
+            f"bound excludes -- these are feed artifacts, not slow trains"
+        ),
+    )
+    parser.add_argument(
         "--curve", action="store_true", help="Sweep training-set size and report MAE against days"
     )
     parser.add_argument("--report-only", action="store_true", help="Print, write nothing")
@@ -281,6 +303,22 @@ def main() -> None:
             100 * len(table) / before,
             f"{before:,}",
         )
+
+    # Before the split, so train, validation and test are filtered identically
+    # and the naive baseline is scored on the same rows the model is. Applied
+    # even under --all-rows: that flag exists to test sensitivity to the
+    # reliability *heuristic*, not to train on a 24-hour delay nobody believes.
+    if not args.keep_implausible:
+        before = len(table)
+        table = filter_plausible(table)
+        removed = before - len(table)
+        if removed:
+            log.info(
+                "dropped %s row(s) with |delay| over %ds (%.4f%%) -- see quality.MAX_PLAUSIBLE_DELAY_S",
+                f"{removed:,}",
+                MAX_PLAUSIBLE_DELAY_S,
+                100 * removed / before,
+            )
 
     if args.max_dates is not None:
         table = truncate_to_dates(table, args.max_dates)
@@ -325,6 +363,7 @@ def main() -> None:
     serialisable["trained_at_utc"] = datetime.now(UTC).isoformat()
     serialisable["table"] = str(args.table)
     serialisable["reliability_filtered"] = not args.all_rows
+    serialisable["plausibility_bound_s"] = None if args.keep_implausible else MAX_PLAUSIBLE_DELAY_S
     args.metrics_out.write_text(json.dumps(serialisable, indent=2, default=str))
     log.info("wrote %s", args.metrics_out)
 
