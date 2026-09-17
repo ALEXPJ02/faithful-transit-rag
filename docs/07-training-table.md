@@ -49,7 +49,7 @@ rerun, rewritten and got wrong as many times as necessary. Collection cannot.
 | `hour_local`, `day_of_week`, `is_weekend`, `is_peak` | Sydney local time features |
 | `schedule_matched` | Whether the static bundle knew this trip |
 
-## Three things that are not obvious
+## Four things that are not obvious
 
 ### `stop_sequence` comes from the timetable, not the feed
 
@@ -75,6 +75,54 @@ feed later, which recovers visit order well enough to preserve
 
 The rate is reported on every run. **A falling number means the bundle has aged
 — re-fetch it** with `python -m transit_rag.prediction.collection.routes --fetch`.
+
+### A 24-hour delay is the feed, not a train
+
+GTFS-Realtime sometimes republishes the previous day's run stamped with today's
+`start_date`. Reconciliation then compares yesterday's stop times against
+today's schedule and records a delay of roughly a full day. These are not slow
+trains and they are not rare disruptions — they are an artifact of how the feed
+identifies a trip.
+
+`transit-train` drops them before the split, at
+`quality.MAX_PLAUSIBLE_DELAY_S` = **7,200 s (2 hours)**. Past two hours a Sydney
+Trains service is operationally a cancellation or a replacement, not a late
+train, so the bound is a statement about what `delay_s` is allowed to *mean* —
+decided from how the network runs, not from the shape of the tail. That
+distinction matters: a threshold reverse-engineered from the data is one a
+reviewer is right to distrust.
+
+The data is nowhere near it. On the 204,628-row table of 2026-09-16:
+
+| | |
+| --- | --- |
+| p99.99 of `delay_s` | 3,354 s (56 min) |
+| Largest **plausible** delay | 4,394 s (73 min) |
+| Next value above it | **79,422 s (22.1 h)** |
+| Rows excluded | **7** (0.003%), all one trip |
+
+Nothing falls between 73 minutes and 22 hours, so any bound from ~1.5 h to ~20 h
+removes exactly the same rows — the result does not depend on where in that
+range the number sits.
+
+Two properties of *how* it is applied matter more than the number:
+
+- **`prev_stop_delay_s` is bounded too.** The naive baseline predicts straight
+  from that column, so an implausible value there is an implausible *baseline*
+  prediction, and the model would be beating a strawman on those rows. No row
+  currently has a poisoned feature and a clean target; the guard is there for
+  the ghost trip whose first stop is corrupt and whose second is not.
+- **It runs before the split.** Filtering after the boundary is drawn — or
+  filtering only test — changes what each partition means and is
+  indistinguishable from keeping the rows that flatter the result.
+
+**It does not improve the reported result, and that is the point.** All seven
+rows landed in validation, so the bound takes validation MAE from **32.1 s to
+14.5 s** while leaving test MAE (16.02 s), RMSE (45.11 s), baseline MAE
+(18.17 s), MASE (0.881) and the selected hyperparameters bit-for-bit unchanged.
+What it fixes is interpretability: without it, validation looks twice as hard as
+test for no stated reason, and the true reason is six rows. `--keep-implausible`
+reproduces the unfiltered figures so the exclusion stays auditable.
 
 ### The split is chronological, and splits whole days
 
