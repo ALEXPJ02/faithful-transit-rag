@@ -73,6 +73,27 @@ polling every 120 s into SQLite — see
 GitHub Action (`.github/workflows/collect.yml`) backs it up, writing immutable
 per-poll CSV snapshots to a dedicated `collected-data` branch.
 
+## Policy retrieval
+
+The static half of the system: three Opal policy PDFs, pinned to content hashes
+because TfNSW revises them without notice, chunked so that **every passage carries
+its document title and page** — a passage that cannot be cited is unusable to the
+faithfulness judge, so ingestion rejects it rather than storing it.
+
+```bash
+python -m transit_rag.ingestion.corpus --fetch   # download and verify the three PDFs
+transit-index build --dry-run                    # 144 chunks; no API calls, nothing written
+transit-index build                              # embed with Voyage, persist to Chroma
+transit-index status                             # what is on disk, and whether it is stale
+transit-index query "how does a daily cap work"
+```
+
+`status` exits non-zero when the stored index no longer matches the pinned corpus or
+the configured chunking, so it works as a pre-eval check. That matters because a
+stale index does not fail — it answers confidently, with citations, from a document
+revision the write-up no longer names.
+[`docs/10-retrieval.md`](./docs/10-retrieval.md) has the rest.
+
 ## Development
 
 ```bash
@@ -113,6 +134,7 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 - [`docs/07-training-table.md`](./docs/07-training-table.md) — reconciliation and the training-table schema
 - [`docs/08-evaluation-plan.md`](./docs/08-evaluation-plan.md) — the research questions and how each one gets measured
 - [`docs/09-service-alerts.md`](./docs/09-service-alerts.md) — the Service Alerts feed and the alert tables
+- [`docs/10-retrieval.md`](./docs/10-retrieval.md) — chunking, the index fingerprint, and the retrieval decisions
 
 ## Status
 
@@ -120,8 +142,14 @@ Research preparation is complete and the build is in the Weeks 4–7 band.
 
 - **Collection** — live since 3 September 2026 on the always-on collector, plus the
   scheduled-Action backup. Reconciliation into the training table is built and tested.
-- **Next** — the delay model (naive-persistence baseline, then XGBoost), then the
-  retrieval, agent and evaluation layers, which are still empty packages.
+- **Prediction** — `transit-train` fits the delay model against a naive-persistence
+  baseline written first. Test MAE 17.92 s vs 19.09 s, MASE 0.938.
+- **Retrieval** — the three Opal PDFs are pinned, chunked into 144 cited passages and
+  indexed by `transit-index` into a persisted Chroma collection
+  ([`docs/10-retrieval.md`](./docs/10-retrieval.md)). Not yet built against the real
+  embedding model — `VOYAGE_API_KEY` is unset.
+- **Next** — the agent loop and MCP tools, then the evaluation harness, which are
+  still empty packages.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.
