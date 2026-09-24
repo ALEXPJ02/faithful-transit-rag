@@ -129,6 +129,23 @@ gcloud compute ssh transit-collector --zone=us-central1-a --command='sudo transi
 gcloud compute scp transit-collector:/tmp/delay_observations.db ./data/ --zone=us-central1-a
 ```
 
+**Pull the bundle archive in the same pass.** The instance archives a timetable
+era daily and nothing else does; leaving them there is how the local match rate
+sat at 49% for three weeks while every era needed was already on the disk. The
+directory is owned by `collector`, so stage it before copying:
+
+```bash
+gcloud compute ssh transit-collector --zone=us-central1-a --command='
+sudo mkdir -p /tmp/bundles_stage
+sudo bash -c "cp /opt/transit-rag/data/bundles/*.zip /tmp/bundles_stage/"
+sudo chmod -R a+rX /tmp/bundles_stage'
+```
+
+```bash
+mkdir -p data/bundles
+gcloud compute scp 'transit-collector:/tmp/bundles_stage/*.zip' ./data/bundles/ --zone=us-central1-a
+```
+
 `transit-snapshot` is installed on the instance by the startup script. It exists
 because a direct `scp` of the live database fails twice over:
 
@@ -209,6 +226,9 @@ holds data that cannot be re-collected, and a daily hundred-megabyte download
 has no business sharing a process with it. A failed fetch exits non-zero, the
 timer tries again tomorrow, and the poller never notices.
 
-**Pass every era to `transit-reconcile`**, not just the newest — one `--bundle`
-argument per era the collection window spans. A falling match rate in the
-reconcile report means an era is missing.
+**`transit-reconcile` finds every era by default.** `bundles.discover()` globs
+`data/` and `data/bundles/` and deduplicates by filename, so no flag has to be
+remembered — the earlier default looked only in `data/`, which is why an archive
+that was working went unread. `--bundle` still overrides it. A falling match rate
+in the reconcile report means an era is genuinely missing, not merely unpulled;
+check `data/bundles/` against the instance before concluding it is lost.

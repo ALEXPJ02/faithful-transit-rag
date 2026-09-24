@@ -13,6 +13,7 @@ import pytest
 from transit_rag.prediction.collection.bundles import (
     archive_current,
     archived,
+    discover,
     fingerprint,
 )
 
@@ -117,3 +118,65 @@ class TestArchiveCurrent:
 
 def test_archived_is_empty_for_a_missing_directory(tmp_path: Path) -> None:
     assert archived(tmp_path / "nothing-here") == []
+
+
+class TestDiscover:
+    """Finding every era on disk, from both places a bundle lands.
+
+    Regression cover for the gap that cost five service dates: the archiver
+    wrote to ``data/bundles/`` while reconciliation globbed only ``data/``, so
+    nine archived eras were never read and the trip match rate sat at 49%.
+    """
+
+    def test_finds_bundles_in_both_directories(self, tmp_path: Path) -> None:
+        data = tmp_path / "data"
+        archive = data / "bundles"
+        archive.mkdir(parents=True)
+        (data / "gtfs_schedule.zip").write_bytes(ERA_ONE)
+        (archive / "gtfs_schedule_20260916_abcdef123456.zip").write_bytes(ERA_TWO)
+
+        found = discover(data_dir=data, archive_dir=archive)
+
+        assert [path.name for path in found] == [
+            "gtfs_schedule.zip",
+            "gtfs_schedule_20260916_abcdef123456.zip",
+        ]
+
+    def test_deduplicates_the_same_bundle_in_both_places(self, tmp_path: Path) -> None:
+        # The archive is pulled down beside the database often enough that the
+        # same file sits in both. Indexing it twice is wasted work, and the
+        # duplicate would shadow the across_bundles conflict tie-break.
+        data = tmp_path / "data"
+        archive = data / "bundles"
+        archive.mkdir(parents=True)
+        name = "gtfs_schedule_20260917_bf36c40dee72.zip"
+        (data / name).write_bytes(ERA_ONE)
+        (archive / name).write_bytes(ERA_ONE)
+
+        found = discover(data_dir=data, archive_dir=archive)
+
+        assert len(found) == 1
+        # The archive directory is the canonical home, so it wins.
+        assert found[0].parent == archive
+
+    def test_sorted_by_name_not_by_directory(self, tmp_path: Path) -> None:
+        # Names are chronological, and across_bundles resolves a conflict in
+        # favour of the earlier bundle -- so the order must not depend on
+        # which directory a file happens to sit in.
+        data = tmp_path / "data"
+        archive = data / "bundles"
+        archive.mkdir(parents=True)
+        (archive / "gtfs_schedule_20260916_aaaaaaaaaaaa.zip").write_bytes(ERA_ONE)
+        (data / "gtfs_schedule_20260903.zip").write_bytes(ERA_TWO)
+
+        found = discover(data_dir=data, archive_dir=archive)
+
+        assert [path.name for path in found] == [
+            "gtfs_schedule_20260903.zip",
+            "gtfs_schedule_20260916_aaaaaaaaaaaa.zip",
+        ]
+
+    def test_missing_directories_are_not_an_error(self, tmp_path: Path) -> None:
+        # A fresh clone has neither directory; reconcile should report no
+        # bundles rather than crash before it can say so.
+        assert discover(data_dir=tmp_path / "nope", archive_dir=tmp_path / "gone") == []

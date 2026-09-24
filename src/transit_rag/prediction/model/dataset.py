@@ -21,6 +21,7 @@ import pandas as pd
 from transit_rag.prediction.features.quality import (
     CLOSE_OBSERVATION_STOPS_AHEAD,
     MAX_PLAUSIBLE_DELAY_S,
+    MIN_SCHEDULE_COVERAGE,
 )
 
 #: What the model predicts: arrival delay in seconds, departure as a fallback.
@@ -140,6 +141,48 @@ def filter_plausible(table: pd.DataFrame, max_delay_s: int = MAX_PLAUSIBLE_DELAY
     # first stop of every trip has no previous-stop delay by construction.
     previous = table["prev_stop_delay_s"].abs() <= max_delay_s
     return table[within & (previous | table["prev_stop_delay_s"].isna())].reset_index(drop=True)
+
+
+def schedule_coverage(table: pd.DataFrame) -> pd.Series:
+    """Share of each service date's rows that joined to the static timetable."""
+    return table.groupby("service_date")["scheduled_arrival_s"].apply(lambda s: s.notna().mean())
+
+
+def filter_schedule_covered(
+    table: pd.DataFrame, min_coverage: float = MIN_SCHEDULE_COVERAGE
+) -> pd.DataFrame:
+    """Drop whole service dates the static timetable can no longer describe.
+
+    See :data:`~transit_rag.prediction.features.quality.MIN_SCHEDULE_COVERAGE`
+    for why the threshold is where it is and why it is date-level. What matters
+    about *how* it is applied is the same as for the plausibility bound:
+
+    **It runs before the split.** A schedule-blind date is missing
+    ``scheduled_arrival_s`` and ``stop_sequence``, so leaving one in changes
+    what its partition *measures* rather than merely enlarging it. Not
+    hypothetical: the 14-date run of 2026-09-16
+    (``models/delay_model_14d_metrics.json``) took its whole validation split
+    from 09-13 and 09-14 and half its test split from 09-15 -- all three blind
+    -- so early stopping and the hyperparameter search were both decided on
+    rows missing those two columns.
+
+    Where the blind window lands depends on how many dates exist: on the
+    22-date table of 2026-09-24 it falls wholly inside train and both other
+    partitions are clean. That it happens to be harmless at one table size is
+    the reason to filter rather than to trust the split boundaries.
+
+    **It is not what makes the model look good.** The filter cannot reach the
+    test split -- on the 2026-09-24 table both settings score the identical
+    43,800 test rows against the identical baseline -- and excluding the blind
+    dates moves MASE from 0.834 to 0.828. It buys 0.8%, not the headline.
+
+    **Whole dates leave, not rows.** Keeping the ~0.1% of a blind date that
+    happens to join would put a handful of unrepresentative rows in the split
+    and leave the date's boundaries in place.
+    """
+    coverage = schedule_coverage(table)
+    keep = set(coverage[coverage >= min_coverage].index)
+    return table[table["service_date"].isin(keep)].reset_index(drop=True)
 
 
 def category_dtypes(table: pd.DataFrame) -> dict[str, pd.CategoricalDtype]:
