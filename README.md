@@ -1,18 +1,28 @@
 # Sydney Transit RAG
 
-An agentic RAG system that answers Sydney public transport questions from three
-sources with very different trust properties — static Opal policy documents, live
-TfNSW GTFS-Realtime conditions, and a bounded-accuracy delay-prediction model — and
-an evaluation harness that measures whether its answers stay honest about which is
-which.
+An agentic AI workflow that **predicts and explains train service disruptions on
+Sydney Trains' T1 and T4 lines** from real-time GTFS data, and the evaluation that
+says which models do it better.
+
+Three stages, each with its own tool or agent:
+
+    retrieve  ->  predict  ->  explain
+    GTFS-RT       ML model      reasons grounded in
+    feed tool     + margin      retrieved past alerts
 
 UTS Capstone (41029 + 41030), 2026.
 
-**Research question.** How can automated faithfulness and hallucination evaluation be
-adapted to an agentic RAG system that answers transport queries using static policy
-retrieval, real-time GTFS-Realtime conditions, and a bounded-accuracy delay-prediction
-model — and how does this combined system perform against a static-retrieval-only
-baseline?
+**RQ1 — Feasibility.** Investigate the feasibility of running machine learning-based
+prediction models on real-time GTFS data to predict or determine service disruptions,
+delays, and other transport events on Sydney Trains' T1 and T4 lines.
+
+**RQ2 — Evaluation.** Develop a comprehensive evaluation plan — datasets, performance
+metrics, baseline methods, experimental design — to determine which model detects the
+disruptions and their reasons better.
+
+Scope was narrowed to T1/T4 service disruptions on 2026-09-22, and Opal fare policy
+dropped. Retrieval stays: the corpus becomes past service alerts rather than fare
+documents. See [`docs/08-evaluation-plan.md`](./docs/08-evaluation-plan.md).
 
 ## Prerequisites
 
@@ -73,12 +83,17 @@ polling every 120 s into SQLite — see
 GitHub Action (`.github/workflows/collect.yml`) backs it up, writing immutable
 per-poll CSV snapshots to a dedicated `collected-data` branch.
 
-## Policy retrieval
+## Retrieval
 
-The static half of the system: three Opal policy PDFs, pinned to content hashes
-because TfNSW revises them without notice, chunked so that **every passage carries
-its document title and page** — a passage that cannot be cited is unusable to the
-faithfulness judge, so ingestion rejects it rather than storing it.
+The evidence half of the workflow. **Every passage carries its source and a locator**
+— a passage that cannot be cited is unusable to the faithfulness judge, so ingestion
+rejects it rather than storing it.
+
+> **The corpus is changing.** Retrieval was built against three Opal fare-policy PDFs,
+> pinned to content hashes because TfNSW revises them without notice. Opal went out of
+> scope on 2026-09-22; RQ1 Objective 3 retrieves **past T1/T4 service alerts** instead,
+> to explain a disruption's cause. The PDF path is retained and still passes its tests
+> — the machinery is unchanged, only the corpus moves.
 
 ```bash
 python -m transit_rag.ingestion.corpus --fetch   # download and verify the three PDFs
@@ -111,7 +126,7 @@ sets it. CI runs all four on every push and PR.
 ```
 src/transit_rag/
   config.py        environment-driven settings (stdlib only)
-  ingestion/       Opal PDFs -> cited chunks
+  ingestion/       documents -> cited chunks (Opal PDFs; alerts next)
   retrieval/       Voyage embeddings -> Chroma
   realtime/        TfNSW GTFS-Realtime client + parsers
   prediction/      delay collection, reconciliation, XGBoost model
@@ -124,7 +139,7 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 
 ## Documentation
 
-- [`docs/00-overview.md`](./docs/00-overview.md) — problem, research question, glossary, scope
+- [`docs/00-overview.md`](./docs/00-overview.md) — problem, research questions, glossary, scope
 - [`docs/01-architecture.md`](./docs/01-architecture.md) — system diagram, components, repo layout, conventions
 - [`docs/02-tech-stack.md`](./docs/02-tech-stack.md) — technology choices, rationale, cost
 - [`docs/03-data-sources.md`](./docs/03-data-sources.md) — TfNSW dataset selection and access
@@ -138,18 +153,22 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 
 ## Status
 
-Research preparation is complete and the build is in the Weeks 4–7 band.
+Reconciled against the repo and the live collector on 2026-09-24.
 
-- **Collection** — live since 3 September 2026 on the always-on collector, plus the
-  scheduled-Action backup. Reconciliation into the training table is built and tested.
-- **Prediction** — `transit-train` fits the delay model against a naive-persistence
-  baseline written first. Test MAE 16.02 s vs 18.17 s, MASE 0.881, over 14 service dates.
-- **Retrieval** — the three Opal PDFs are pinned, chunked into 144 cited passages and
-  indexed by `transit-index` into a persisted Chroma collection
-  ([`docs/10-retrieval.md`](./docs/10-retrieval.md)). Not yet built against the real
-  embedding model — `VOYAGE_API_KEY` is unset.
-- **Next** — the agent loop and MCP tools, then the evaluation harness, which are
-  still empty packages.
+- **Collection (RQ1 O1)** — live since 3 September 2026, plus the scheduled-Action
+  backup. **321,634 stop events over 22 service dates**, T1 192,114 · T4 129,520;
+  134 service alerts, 40 of which touch T1 or T4. 15,038 of 15,039 polls successful.
+- **Prediction (RQ1 O2)** — `transit-train` fits the delay model against a
+  naive-persistence baseline written first. On the 17 schedule-covered dates:
+  **test MAE 15.45 s vs 18.67 s, MASE 0.828**. The disruption classifier that RQ2
+  compares does not exist yet — it is gated on the disruption definition in
+  [`docs/08`](./docs/08-evaluation-plan.md) §3.2.
+- **Retrieval (RQ1 O3)** — the stack is proven end to end against real Voyage
+  embeddings: collection `opal_policy`, 144 chunks, `voyage-4-lite`, cosine
+  ([`docs/10-retrieval.md`](./docs/10-retrieval.md)). It indexes the **wrong corpus**
+  for the current scope; repointing it at past T1/T4 alerts is the next build step.
+- **Next** — alert ingestion and its index, then the agent loop and MCP tools, then
+  the evaluation harness. All still empty packages.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.

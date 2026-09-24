@@ -1,6 +1,23 @@
 # Dataset & API Selection — TfNSW Open Data Hub
 
-Capstone: Agentic RAG system for Sydney public transport Q&A with a real-time disruption layer and eval harness.
+Capstone: an agentic AI workflow predicting and explaining T1/T4 service disruptions.
+
+> **§4's recommendation is superseded (2026-09-22).** This file is the record of how
+> the datasets were surveyed and chosen, and is kept as that record rather than
+> rewritten. What changed: **Opal fare policy is out of scope**, so the three Opal
+> PDFs are no longer the RAG corpus. The corpus is now **past T1/T4 Service Alerts**,
+> retrieved to explain a disruption's cause.
+>
+> §5 anticipated this without meaning to — *"the Alerts v2 `description_text` field is
+> a secondary, smaller source of real natural-language text you could optionally fold
+> into the RAG index alongside the PDFs"*. It is now the primary one. What that bullet
+> underestimated is the volume: ~290 characters per alert, so **one alert is one
+> chunk** and no page-splitting is needed. See
+> [`09-service-alerts.md`](./09-service-alerts.md) for the feed and
+> [`08-evaluation-plan.md`](./08-evaluation-plan.md) for what it is evaluated against.
+>
+> The PDFs and their ingestion code are **retained, not deleted** — they still pass
+> their tests and still prove the chunking contract is not alert-specific.
 
 ## 1. Access basics
 

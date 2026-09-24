@@ -284,7 +284,10 @@ def main() -> None:
         "--keep-schedule-blind",
         action="store_true",
         help=(
-            f"Keep service dates with under {MIN_SCHEDULE_COVERAGE:.0%} of rows joined to the "
+            # %% not %: argparse runs help through %-formatting, so a bare
+            # "50%" makes it read "%o" as a format spec and raise.
+            f"Keep service dates with under {100 * MIN_SCHEDULE_COVERAGE:.0f}%% of rows joined "
+            f"to the "
             f"timetable. Only for auditing what the filter excludes -- these dates are missing "
             f"scheduled_arrival_s and stop_sequence entirely"
         ),

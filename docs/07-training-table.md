@@ -116,10 +116,12 @@ Two properties of *how* it is applied matter more than the number:
   filtering only test — changes what each partition means and is
   indistinguishable from keeping the rows that flatter the result.
 
-**It does not improve the reported result, and that is the point.** All seven
-rows landed in validation, so the bound takes validation MAE from **32.1 s to
-14.5 s** while leaving test MAE (16.02 s), RMSE (45.11 s), baseline MAE
-(18.17 s), MASE (0.881) and the selected hyperparameters bit-for-bit unchanged.
+**It does not improve the reported result, and that is the point.** Measured on
+the 14-date run of 2026-09-16 — not the current model, whose figures are in
+`08-evaluation-plan.md` §2 — all seven rows landed in validation, so the bound
+took validation MAE from **32.1 s to 14.5 s** while leaving that run's test MAE
+(16.02 s), RMSE (45.11 s), baseline MAE (18.17 s), MASE (0.881) and the selected
+hyperparameters bit-for-bit unchanged.
 What it fixes is interpretability: without it, validation looks twice as hard as
 test for no stated reason, and the true reason is six rows. `--keep-implausible`
 reproduces the unfiltered figures so the exclusion stays auditable.

@@ -11,7 +11,7 @@ first. The conversion happens once, here.
 **A passage without a citation cannot be returned.** ``ingestion.chunks``
 enforces this when a chunk is built; :class:`RetrievedPassage` enforces it
 again on the way out, because between the two sits a database whose metadata
-is untyped and separately writable. The judge in ``docs/08`` §5a scores claims
+is untyped and separately writable. The judge in ``docs/08`` §3.4 scores claims
 against the passage they came from, so a passage that cannot be attributed is
 not weak evidence -- it is unusable, and quietly returning one would put an
 uncitable passage into the answers the whole evaluation rests on.
@@ -30,8 +30,8 @@ from transit_rag.retrieval.index import DEFAULT_COLLECTION, open_collection
 
 log = logging.getLogger("transit_rag.search")
 
-#: Starting point for the k sweep in ``docs/08`` §4, which reports at
-#: k ∈ {3, 5, 10}. Not a settled value.
+#: Starting point for the k sweep in ``docs/08`` §3.5, which freezes k on a
+#: development subset before scoring. The plan's retrieval metric is recall@5.
 DEFAULT_K = 5
 
 

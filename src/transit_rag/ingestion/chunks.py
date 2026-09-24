@@ -1,6 +1,6 @@
 """PDFs into chunks that can be cited.
 
-The contract, from ``docs/04-implementation-plan.md`` §2 and ``docs/08`` §4:
+The contract, from ``docs/04-implementation-plan.md`` §2 and ``docs/08`` §3.5:
 **a chunk carries its document title and page number, or it does not exist.**
 The faithfulness judge scores each claim against the passage it came from, so a
 chunk that cannot be attributed is not weak evidence -- it is unusable, and
@@ -14,9 +14,9 @@ judge cannot tell which. Splitting within the page keeps every citation exact.
 It costs a little size uniformity -- the corpus runs 1,400-2,100 characters per
 page -- and buys attribution that is right by construction.
 
-**Chunk size is a swept parameter, not a decision.** ``docs/08`` §4 fixes chunk
+**Chunk size is a swept parameter, not a decision.** ``docs/08`` §3.5 fixes chunk
 size and k by sweeping them once on a development subset and freezing them
-before the test QA set is scored, so nothing here hardcodes a preference.
+before the test set is scored, so nothing here hardcodes a preference.
 """
 
 from __future__ import annotations

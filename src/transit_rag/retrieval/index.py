@@ -1,7 +1,7 @@
 """Chunks into a persisted Chroma collection, and the record of what built it.
 
-**Why an index carries a fingerprint.** ``docs/08`` §4 sweeps chunk size and k
-on a development subset, then freezes both before the test QA set is scored. A
+**Why an index carries a fingerprint.** ``docs/08`` §3.5 sweeps chunk size and k
+on a development subset, then freezes both before the test set is scored. A
 retrieval number is therefore only meaningful next to the configuration that
 produced it -- and the index on disk is the one artefact that outlives the
 command that built it. Without a fingerprint, "Hit Rate@5 = 0.82" is a number

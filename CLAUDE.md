@@ -5,25 +5,38 @@ Guidance for Claude Code working in this repository. Read this before writing co
 ## What this project is
 
 A UTS Capstone (41029 + 41030 taken concurrently in one semester, 13 weeks from
-August 2026, one engineer). It is an **agentic RAG system for Sydney public
-transport** that answers questions from three sources with deliberately different
-trust properties — static Opal policy PDFs, live TfNSW GTFS-Realtime conditions,
-and a self-trained delay-prediction model — plus an **evaluation harness** that
-measures whether answers stay honest about which source they came from.
+August 2026, one engineer). It is an **agentic AI workflow that predicts and
+explains train service disruptions on Sydney Trains' T1 and T4 lines** from
+real-time GTFS data, plus the **evaluation** that says which models do it better.
 
-**Research question.** How can automated faithfulness and hallucination evaluation
-be adapted to an agentic RAG system that answers transport queries using static
-policy retrieval, real-time GTFS-Realtime conditions, and a bounded-accuracy
-delay-prediction model — and how does this combined system perform against a
-static-retrieval-only baseline?
+The workflow is three stages, and each names its tool or agent:
 
-The evaluation harness is the point of the project, not a final step. The novel
-measurement is the **prediction-faithfulness metric**: does an answer grounded in
-the delay model state an error margin, and is that margin consistent with the
-model's measured MAE? If build work overruns, scope comes out of the *system*, not
-out of evaluation.
+    retrieve  ->  predict  ->  explain
+    GTFS-RT       ML model      reasons grounded in
+    feed tool     + margin      retrieved past alerts
 
-## State as of 2026-09-17 (verified against the repo, not recalled)
+**RQ1 — Feasibility.** Investigate the feasibility of running machine
+learning-based prediction models on real-time GTFS data to predict or determine
+service disruptions, delays, and other transport events on Sydney Trains' T1 and
+T4 lines. Its objectives are the three stages above: (1) data retrieval, (2)
+prediction stating its error margin, (3) reasons grounded in retrieved evidence.
+
+**RQ2 — Evaluation.** Develop a comprehensive evaluation plan — datasets,
+performance metrics, baseline methods, experimental design — to determine which
+model detects the disruptions and their reasons better.
+
+Both are Dr Ramezani's wording, with the T1/T4 scope added. The decomposition
+lives in `docs/08-evaluation-plan.md`; the authoritative source is
+`RQ_List_and_Evaluation_Methods_v2.docx`, one level up in `Capstone/`.
+
+**Scope, set 2026-09-22.** Trains only, service disruptions only, T1 and T4 only.
+**Opal fare policy is out** — see "Design decisions" below for what that means for
+the code, which is less than it sounds: RAG stays, and the retrieval stack is
+reused as-is. Only the corpus changes, from fare PDFs to past service alerts.
+
+If build work overruns, scope comes out of the *system*, not out of evaluation.
+
+## State as of 2026-09-24 (verified against the repo and the live VM, not recalled)
 
 **Built, tested, running:**
 
@@ -37,39 +50,57 @@ out of evaluation.
 - Realtime client and parsers (`src/transit_rag/realtime/`).
 - Service Alerts collection — the same poller, on a 30-minute clock, into
   `service_alerts`/`alert_scopes` (`docs/09-service-alerts.md`). Alerts are
-  stored **unfiltered**: 32% of the route ids they name are absent from the
-  realtime bundle, so filtering to T1/T4 at collection would discard 28 of 41
-  alerts permanently. Filter in reconcile, which can be re-run.
+  stored **unfiltered**: on the 2026-09-24 snapshot 1,626 of 4,272 scopes (38%)
+  name a route absent from the realtime bundle, and only **40 of 134** alerts
+  touch T1 or T4 — so filtering at collection would have discarded 94 of them
+  permanently. Filter at ingestion, which can be re-run.
+- Timetable bundle archive — `transit-bundle-archive.timer` on the VM keeps one
+  copy of each distinct static GTFS era, daily. `bundles.discover()` finds them in
+  `data/` and `data/bundles/` and dedupes by content, so `transit-reconcile` needs
+  no `--bundle` flag.
 - Delay model — `transit-train` (`src/transit_rag/prediction/model/`). Naive
-  persistence written first; test MAE 16.02 s vs baseline 18.17 s, MASE 0.881 over
-  14 service dates. A 2 h plausibility bound drops ~24 h feed artifacts before the
-  split (`quality.MAX_PLAUSIBLE_DELAY_S`); it leaves the test figures unchanged and
-  takes validation MAE from 32.1 s to 14.5 s.
+  persistence written first. On the 17 schedule-covered dates to 2026-09-24:
+  **test MAE 15.45 s vs baseline 18.67 s, MASE 0.828**
+  (`models/delay_model_20260924_metrics.json`). Two filters run before the split —
+  a 2 h plausibility bound (`quality.MAX_PLAUSIBLE_DELAY_S`) and a whole-date
+  schedule-coverage filter (`quality.MIN_SCHEDULE_COVERAGE`) that drops
+  2026-09-11..09-15, whose timetable era was never archived. Neither flatters the
+  result; see `docs/07-training-table.md`.
 - Corpus ingestion — the three Opal PDFs pinned to content hashes and chunked
   page-by-page into **144 cited passages** (`src/transit_rag/ingestion/`).
+  **Retired from the research questions, retained as code** (see "Design
+  decisions"); the PDF path still works and still passes its tests.
 - Retrieval index — `transit-index` (`src/transit_rag/retrieval/`): Voyage
   embeddings into a persisted Chroma collection, carrying an `IndexFingerprint`
   so a retrieval number can be traced to the configuration that produced it
-  (`docs/10-retrieval.md`). **No index has been built against the real
-  embedding model — `VOYAGE_API_KEY` is unset in `.env`.** Everything up to the
-  Voyage call has been run end-to-end over the real 144 chunks; the call itself
-  is unit-tested against a substituted client.
-- Repo scaffolding: 341 tests passing, CI green (ruff + mypy + pytest) plus a
-  SHA-pinned Trivy workflow. Tests mirror the source tree, so
+  (`docs/10-retrieval.md`). `VOYAGE_API_KEY` **is** set, and the collection
+  `opal_policy` is built and real — 144 chunks, `voyage-4-lite`, 1024-dim,
+  cosine, built 2026-09-17T14:01Z. The stack is proven end to end; what has to
+  change for RQ1 Objective 3 is the corpus, not the machinery.
+- Repo scaffolding: 371 tests passing, CI green (ruff + mypy + pytest) plus
+  CodeQL and a SHA-pinned Trivy workflow. Tests mirror the source tree, so
   `prediction/features/quality.py` is covered by
-  `tests/prediction/features/test_quality.py`.
+  `tests/prediction/features/test_quality.py` — but basenames must be globally
+  unique, because the suite has no `__init__.py` files and pytest imports each
+  module by bare basename.
 
 **Not started — these packages contain only an empty `__init__.py`:**
 
-- `agent/` — hand-rolled Anthropic tool-use loop
+- `agent/` — hand-rolled Anthropic tool-use loop, the RQ1 orchestrator
 - `mcp_server/` — MCP tool interface + FastAPI
-- `evaluation/` — Ragas + custom LLM-as-judge harness
-- The chunk-size and k sweep (`docs/08` §4). The knobs and the `--dry-run` path
-  exist; the QA set to sweep against does not.
+- `evaluation/` — the RQ2 harness
+- **The alert corpus** — nothing reads `service_alerts` back out yet.
+  `reconcile.py` does not mention alerts, so the T1/T4 filter `docs/09` promised
+  does not exist. This is RQ1 Objective 3's blocker.
+- **The disruption classifier** — RQ2 compares detectors, and none exists. Gated
+  on the §3.2 disruption definition being agreed.
 
-**`data/delay_observations.db` is a frozen snapshot from 2026-09-04T07:30Z**
-(18,100 stop events, 734 polls, 0 failures). It is not live. Re-pull from the VM
-before quoting any number from it.
+**Snapshots in `data/` are frozen, never live.** The newest is
+`delay_observations_20260924.db` — 321,634 stop events over 22 service dates
+(2026-09-03..24), T1 192,114 · T4 129,520, 134 alerts, 4,272 scopes, integrity
+`ok`. Re-pull from the VM before quoting any number, **and pull
+`data/bundles/` in the same pass** — the instance archives a timetable era daily
+and nothing else does.
 
 ## Hard constraints — breaking these costs real work
 
@@ -134,16 +165,37 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
 
 ## Design decisions already settled — do not relitigate
 
-- **Delay regression, not disruption classification** (disruptions are too rare in
-  a short collection window). **XGBoost**, baseline naive persistence, scope T1 and
-  T4 only. Metrics MAE / RMSE / MAPE.
+- **Delay regression *and* disruption classification.** Changed 2026-09-22 by the
+  supervisor; the old entry here read "delay regression, **not** classification
+  (disruptions are too rare in a short collection window)" and a later session
+  reading only that rationale would revert this. Regression survives as RQ1
+  Objective 2's supporting output (XGBoost, baseline naive persistence, MAE /
+  RMSE / MAPE). Classification is added for RQ2 and is **not yet built**: it is
+  gated on the disruption definition in `docs/08` §3.2 being agreed.
+
+  The rarity concern was correct and has not gone away. Ten unplanned alerts touch
+  T1/T4 in the whole alert history to 2026-09-24, and they fall on **three Sydney
+  dates**, not one a day. On the current test dates the reasons set holds 2 alerts
+  of a single cause group, so cause macro-F1 is not yet computable. That is a
+  scheduling constraint on RQ2, not a reason to avoid the question — but do not
+  quote "about one a day", which is wrong.
+- **Opal fare policy is out of scope**, set 2026-09-22. RAG stays; the corpus
+  becomes past T1/T4 service alerts. The Opal PDFs, `ingestion/corpus.py` and the
+  built `opal_policy` collection are **retained, not deleted** — they are working,
+  tested, reviewed code and the PDF path is the second source that proves the
+  ingestion contract is not alert-specific. Do not index them for the RQs.
 - **Chronological split by whole service date, 70/15/15.** Never random — a shuffle
   puts the same afternoon on both sides and invalidates the baseline comparison.
 - **The last observation naming a stop event is the outcome proxy**, because
   GTFS-Realtime stops reporting a stop once the train reaches it.
   `stops_ahead_final` records how close that final prediction was.
-- **Unmatched trips are kept, not dropped.** Their delays are real; dropping them
-  biases toward whichever timetable was current.
+- **Unmatched *trips* are kept; schedule-blind *dates* are dropped.** A trip the
+  current bundle does not describe still has a real delay, so reconciliation keeps
+  it. A whole service date whose timetable era was never archived is different:
+  every row lacks `scheduled_arrival_s` and `stop_sequence`, so a partition built
+  from it measures a nine-feature model on seven. `transit-train` drops those
+  dates before the split (`quality.MIN_SCHEDULE_COVERAGE`), and
+  `--keep-schedule-blind` audits what that removes.
 - `stop_sequence` is absent from the feed (always the `-1` sentinel) — stop order
   comes from `stop_times.txt`.
 - Hand-rolled agent loop rather than a framework; Claude API rather than a local
@@ -151,7 +203,7 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
 - **Retrieval is cosine, and the index is fingerprinted.** Chroma's default is
   L2, which would rank partly by vector magnitude; `hnsw:space` cannot be
   changed after creation. Every collection stores the embedding model, chunk
-  size, overlap and corpus content hash, because `docs/08` §4 freezes chunk size
+  size, overlap and corpus content hash, because `docs/08` §3.5 freezes chunk size
   and k before scoring and a number that cannot be traced to its configuration
   is not reproducible. `transit-index status` exits non-zero when they disagree.
 - **Documents and queries use different Voyage `input_type` values**, and

@@ -41,7 +41,7 @@ costs precision at every k.
 `ingestion/chunks.py` enforces this when a chunk is built. `search.py` enforces
 it *again* on the way out, and the duplication is deliberate: between those two
 points sits a database whose metadata is untyped and separately writable. The
-faithfulness judge ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §5a)
+faithfulness judge ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §3.4)
 scores each claim against the passage it came from, so a passage that cannot be
 attributed is not weak evidence — it is unusable, and returning one quietly
 would put an uncitable passage into the answers the whole evaluation rests on.
@@ -52,8 +52,8 @@ rather than requiring a second lookup that could silently fail to match.
 
 ### The index says what built it
 
-[`08-evaluation-plan.md`](./08-evaluation-plan.md) §4 sweeps chunk size and k on
-a development subset and freezes both before the test QA set is scored. A
+[`08-evaluation-plan.md`](./08-evaluation-plan.md) §3.5 sweeps chunk size and k on
+a development subset and freezes both before the test set is scored. A
 retrieval number is therefore only meaningful alongside the configuration that
 produced it — and the index on disk is the one artefact that outlives the
 command that built it.
@@ -132,7 +132,7 @@ behaviour rather than on mocks returning canned neighbours.
 ```bash
 transit-index build --dry-run          # chunk and report; no API calls, nothing written
 transit-index build                    # chunk, embed, persist
-transit-index build --target-chars 600 # one point in the docs/08 §4 sweep
+transit-index build --target-chars 600 # one point in the docs/08 §3.5 sweep
 transit-index status                   # what is on disk, and whether it is stale
 transit-index query "how does a daily cap work" --k 5
 ```
@@ -159,6 +159,8 @@ runtime, which is legitimate precisely because the corpus is static
   over the real 144 chunks — persistence, reopening from disk, the fingerprint
   round trip, staleness detection and ranked retrieval with correct citations.
   The Voyage call itself is covered by unit tests against a substituted client.
-- **The chunk-size and k sweep** ([`08`](./08-evaluation-plan.md) §4). The knobs
-  and the dry-run path exist; the QA set it would be swept against does not yet.
+- **The chunk-size and k sweep** ([`08`](./08-evaluation-plan.md) §3.5). The knobs
+  and the dry-run path exist; the labelled query set it would be swept against
+  does not — it needs the disruption definition in [`08`](./08-evaluation-plan.md)
+  §3.2 first.
 - **Retrieval as an agent tool** — `mcp_server/`, once the agent loop exists.

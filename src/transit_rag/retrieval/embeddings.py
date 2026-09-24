@@ -11,7 +11,7 @@ can forget.
 
 **Why a Protocol rather than just the Voyage client.** Every retrieval test in
 this suite needs vectors and none of them should need an API key or a network.
-The sweep in ``docs/08`` §4 also re-embeds the corpus once per chunk size, so
+The sweep in ``docs/08`` §3.5 also re-embeds the corpus once per chunk size, so
 the thing being swept has to be substitutable. :class:`Embedder` is the seam;
 :class:`VoyageEmbedder` is the only production implementation.
 
