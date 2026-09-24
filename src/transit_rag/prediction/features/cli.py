@@ -20,6 +20,7 @@ from pathlib import Path
 import pandas as pd
 
 from transit_rag.config import PROJECT_ROOT, CollectionConfig
+from transit_rag.prediction.collection.bundles import discover
 from transit_rag.prediction.features.quality import Split, report, time_based_split
 from transit_rag.prediction.features.reconcile import (
     build_training_table,
@@ -60,14 +61,15 @@ def main() -> None:
     )
     # Several bundles, not one. A collection window spanning a timetable
     # republication needs a bundle per era or half the trips lose their
-    # schedule — see ScheduleIndex.across_bundles. The default glob picks up
-    # archived era bundles (gtfs_schedule_YYYYMMDD.zip) alongside the current
-    # one, so the correct behaviour does not depend on remembering a flag.
+    # schedule — see ScheduleIndex.across_bundles. bundles.discover looks in
+    # data/ *and* data/bundles/, which is where the daily archiver writes:
+    # globbing only the former left nine archived eras unused and the match
+    # rate at 49%, so the correct behaviour does not depend on a flag.
     parser.add_argument(
         "--bundle",
         type=Path,
         nargs="+",
-        default=sorted((PROJECT_ROOT / "data").glob("gtfs_schedule*.zip")),
+        default=discover(),
         help="Static GTFS bundle(s), for stop order and scheduled times. Pass one per "
         "timetable era the collection window spans",
     )

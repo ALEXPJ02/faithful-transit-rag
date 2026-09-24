@@ -20,6 +20,8 @@ from transit_rag.prediction.model.dataset import (
     category_dtypes,
     filter_plausible,
     filter_reliable,
+    filter_schedule_covered,
+    schedule_coverage,
 )
 
 
@@ -254,3 +256,102 @@ class TestBuildDataset:
         dataset = build_dataset(table)
 
         assert list(dataset.target) == [float(v) for v in table[TARGET]]
+
+
+class TestFilterScheduleCovered:
+    """Dropping service dates the static timetable can no longer describe.
+
+    The failure this guards against is not a crash. A schedule-blind date
+    trains and scores perfectly happily while missing two of nine features --
+    it just measures something other than what the write-up claims. The
+    previous model drew its whole validation split from such a window.
+    """
+
+    def _dated(self, dates_to_coverage: dict[str, float], per_date: int = 10) -> pd.DataFrame:
+        """A table where each date has a known schedule-join coverage.
+
+        Built directly rather than via ``make_table``, which caps several
+        columns at six rows; only the two columns the filter reads matter.
+        """
+        rows = []
+        for date, coverage in dates_to_coverage.items():
+            joined = round(coverage * per_date)
+            for i in range(per_date):
+                rows.append(
+                    {
+                        "service_date": date,
+                        "scheduled_arrival_s": float(i) if i < joined else None,
+                    }
+                )
+        return pd.DataFrame(rows)
+
+    def test_drops_the_blind_dates_and_keeps_the_rest(self) -> None:
+        table = self._dated({"2026-09-10": 0.9, "2026-09-11": 0.0, "2026-09-16": 1.0})
+
+        kept = filter_schedule_covered(table)
+
+        assert sorted(kept["service_date"].unique()) == ["2026-09-10", "2026-09-16"]
+
+    def test_a_whole_date_leaves_even_when_a_few_rows_join(self) -> None:
+        # 2026-09-11 really does join 0.1% of its rows. Keeping those would put
+        # a handful of unrepresentative rows into the split and leave the
+        # date's boundary in place, which is the thing being removed.
+        table = self._dated({"2026-09-11": 0.1, "2026-09-16": 1.0}, per_date=10)
+
+        kept = filter_schedule_covered(table)
+
+        assert "2026-09-11" not in set(kept["service_date"])
+        assert len(kept) == 10
+
+    def test_threshold_sits_in_the_empty_band(self) -> None:
+        # The measured distribution is bimodal, so any threshold between the
+        # two modes removes the same dates. If that ever stops being true the
+        # constant has become a fitted parameter and needs re-justifying.
+        table = self._dated({"blind": 0.0, "covered": 0.96}, per_date=100)
+
+        for threshold in (0.01, 0.5, 0.95):
+            kept = filter_schedule_covered(table, min_coverage=threshold)
+            assert sorted(kept["service_date"].unique()) == ["covered"], threshold
+
+    def test_coverage_is_reported_per_date(self) -> None:
+        table = self._dated({"2026-09-11": 0.0, "2026-09-16": 1.0}, per_date=10)
+
+        coverage = schedule_coverage(table)
+
+        assert coverage["2026-09-11"] == pytest.approx(0.0)
+        assert coverage["2026-09-16"] == pytest.approx(1.0)
+
+    def test_everything_covered_is_a_no_op(self) -> None:
+        table = self._dated({"2026-09-16": 1.0, "2026-09-17": 0.9})
+
+        assert len(filter_schedule_covered(table)) == len(table)
+
+    def test_it_returns_a_clean_index(self) -> None:
+        """Downstream code aligns predictions to targets positionally."""
+        kept = filter_schedule_covered(
+            self._dated({"2026-09-11": 0.0, "2026-09-16": 1.0}, per_date=10)
+        )
+
+        assert list(kept.index) == list(range(len(kept)))
+
+    def test_a_date_exactly_at_the_threshold_is_kept(self) -> None:
+        # The comparison is >=, so a date sitting on the boundary stays. The
+        # real distribution is nowhere near it, but the direction should be a
+        # decision rather than an accident of which operator was typed.
+        table = self._dated({"exactly-half": 0.5, "just-under": 0.49}, per_date=100)
+
+        kept = filter_schedule_covered(table, min_coverage=0.5)
+
+        assert sorted(kept["service_date"].unique()) == ["exactly-half"]
+
+    def test_every_other_column_survives(self) -> None:
+        # The filter selects rows; it must not reshape the table. A dropped
+        # column here would surface much later as a missing feature.
+        table = self._dated({"2026-09-11": 0.0, "2026-09-16": 1.0})
+        table["delay_s"] = 42.0
+        table["route_short_name"] = "T1"
+
+        kept = filter_schedule_covered(table)
+
+        assert list(kept.columns) == list(table.columns)
+        assert set(kept["delay_s"]) == {42.0}

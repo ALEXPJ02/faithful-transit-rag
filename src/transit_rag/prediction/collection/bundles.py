@@ -79,6 +79,59 @@ def archived(archive_dir: Path) -> list[ArchivedBundle]:
     ]
 
 
+def discover(
+    data_dir: Path = PROJECT_ROOT / "data",
+    archive_dir: Path = DEFAULT_ARCHIVE_DIR,
+) -> list[Path]:
+    """Every distinct timetable era on disk, from both places a bundle lands.
+
+    :func:`archive_current` writes to ``archive_dir``; a hand-fetched bundle
+    lands in ``data_dir`` beside the database. Reconciliation globbed only the
+    second for the first three weeks of collection, so nine archived eras sat
+    unused and the trip match rate fell to 49% -- the eras existed and nothing
+    looked at them. Missing an era is unrecoverable, so the default has to find
+    them all rather than rely on remembering a flag.
+
+    **Deduplicated by content, not by name.** Filename alone is not enough:
+    ``data/gtfs_schedule_20260917.zip`` and
+    ``data/bundles/gtfs_schedule_20260916_17f09b0539f6.zip`` are byte-identical
+    and named differently, so a name-keyed dict indexes the same 11 MB bundle
+    twice. Sizes are compared first and :func:`fingerprint` runs only within a
+    size group, so the common case costs a ``stat`` per file and no reads.
+
+    Ordered by name for determinism, not for chronology -- ``.`` sorts before
+    ``_``, so an undated ``gtfs_schedule.zip`` leads regardless of when it was
+    fetched. :meth:`ScheduleIndex.across_bundles` resolves a conflict in favour
+    of the earlier entry, but a conflict only arises for a trip two bundles both
+    describe, and then they describe it identically -- so the order decides
+    nothing beyond reproducibility.
+    """
+    candidates: dict[str, Path] = {}
+    for directory in (archive_dir, data_dir):
+        if not directory.exists():
+            continue
+        for path in sorted(directory.glob("gtfs_schedule*.zip")):
+            candidates.setdefault(path.name, path)
+
+    by_size: dict[int, list[Path]] = {}
+    for name in sorted(candidates):
+        path = candidates[name]
+        by_size.setdefault(path.stat().st_size, []).append(path)
+
+    kept: list[Path] = []
+    for group in by_size.values():
+        if len(group) == 1:
+            kept.append(group[0])
+            continue
+        seen: set[str] = set()
+        for path in group:
+            digest = fingerprint(path)
+            if digest not in seen:
+                seen.add(digest)
+                kept.append(path)
+    return sorted(kept, key=lambda path: path.name)
+
+
 def archive_current(archive_dir: Path = DEFAULT_ARCHIVE_DIR) -> tuple[Path | None, str]:
     """Fetch the current bundle; keep it only if it is an era we do not have.
 

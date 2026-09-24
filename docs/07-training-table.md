@@ -170,12 +170,29 @@ Rows per service date — min 252, median 252, max 252
 - **2026-09-11 to 09-15 have no schedule join, permanently.** TfNSW's static API
   serves only the era that is current; an era published and superseded inside
   that window was never fetched, so ~77,000 stop events across five service
-  dates carry no `scheduled_arrival_s` and no `stop_sequence`. Measured cost:
-  MASE 0.934 on a schedule-blind test date against 0.823 on a matched one,
-  because `stop_sequence` is the model's second most important feature. A daily
-  archive now keeps every era (`docs/06-always-on-collector.md`), but the gap
-  itself is unrecoverable and belongs in the write-up as a stated limitation.
-  Affected rows are kept, not dropped — their delays are real.
+  dates carry no `scheduled_arrival_s` and no `stop_sequence`. A daily archive
+  now keeps every era (`docs/06-always-on-collector.md`), but the gap itself is
+  unrecoverable and belongs in the write-up as a stated limitation.
+
+  **`transit-train` drops these whole dates before the split**, at
+  `quality.MIN_SCHEDULE_COVERAGE`; `--keep-schedule-blind` reproduces the
+  unfiltered figures so the exclusion stays auditable. The rows remain in the
+  table — their delays are real and reconciliation keeps them — but a partition
+  built from them measures a nine-feature model on seven features.
+
+  The exclusion does **not** flatter the result, and the check matters more than
+  the claim. On the 22-date table of 2026-09-24 the filter cannot reach the test
+  split at all: both settings score the identical 43,800 test rows against the
+  identical baseline, and MASE moves **0.834 → 0.828**. What it fixes is which
+  rows *select* the model, not which rows score it.
+
+  Two caveats to state rather than bury. `stop_sequence` carries 3.1% of gain
+  with the blind dates kept and 7.7% with them dropped, so citing its importance
+  as the reason to drop them argues in a circle; `scheduled_arrival_s` is the
+  least important feature in the model either way (0.4–0.5%). And the filter
+  halves validation, from four dates to 09-20 and 09-21, one of which is a
+  disruption day — so hyperparameter selection now rests on a two-day set whose
+  mean delay is well above test.
 - **`RTTA_*` trips are excluded upstream.** Out Of Service and Non Revenue
   movements never reach the table. A service *altered* beyond what the timetable
   can express may also be filed that way and go uncollected — unmeasured, and it

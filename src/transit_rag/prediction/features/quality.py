@@ -32,6 +32,24 @@ CLOSE_OBSERVATION_STOPS_AHEAD = 1
 #: that range this sits, which is the point.
 MAX_PLAUSIBLE_DELAY_S = 7200
 
+#: A service date needs at least this share of its rows joined to the static
+#: timetable to be trained on. Below it the date is *schedule-blind*: TfNSW
+#: superseded the timetable era those trips were planned under before the
+#: archiver kept a copy, and the static API serves only the current era, so
+#: the join can never be made (``docs/07-training-table.md``).
+#:
+#: It is a date-level filter, not a row-level one, because the loss is
+#: date-level: an era covers whole service days. Dropping the individual null
+#: rows would keep the 0.1% of 2026-09-11 that happens to join and leave a
+#: date that is 99.9% absent sitting inside the chronological split.
+#:
+#: Like :data:`MAX_PLAUSIBLE_DELAY_S`, the number is not fitted to the data.
+#: Coverage is bimodal -- measured on the 22-date table of 2026-09-24, dates
+#: run either 0.0-0.2% or 96.0-99.6%, with nothing between -- so any threshold
+#: from roughly 1% to 95% removes exactly the same five dates. The result does
+#: not depend on where in that range this sits.
+MIN_SCHEDULE_COVERAGE = 0.5
+
 
 @dataclass(frozen=True)
 class Split:

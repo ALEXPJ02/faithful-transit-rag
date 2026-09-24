@@ -6,6 +6,7 @@
     transit-train --max-dates 14       # truncate to the first 14 service dates
     transit-train --all-rows           # sensitivity check: skip the reliability filter
     transit-train --keep-implausible   # audit what the plausibility bound excludes
+    transit-train --keep-schedule-blind  # audit the dates with no timetable join
 
 **Rows the feed could not have meant.** GTFS-Realtime sometimes republishes the
 previous day's run under today's ``start_date``, which reconciles to a delay of
@@ -14,6 +15,14 @@ roughly 24 hours. Those rows are dropped before the split -- see
 see the same data. On the 2026-09-16 table it is 7 rows of 204,628, it moves
 test MAE, RMSE and MASE not at all, and it takes validation MAE from 32.1 s to
 14.5 s, because all seven landed in validation.
+
+**Dates the timetable can no longer describe.** An era superseded before the
+archiver kept a copy leaves its service dates without ``scheduled_arrival_s`` or
+``stop_sequence``. Those dates are dropped before the split too, by
+``quality.MIN_SCHEDULE_COVERAGE``. 2026-09-11 to 09-15 are blind, and the 14-date
+run of 2026-09-16 took its whole validation split and half its test split from
+that window. It does not flatter the result: on the 22-date table of 2026-09-24
+the test split is identical either way and MASE moves 0.834 -> 0.828.
 
 **How the comparison is kept fair.** The model trains on every available row --
 XGBoost handles a missing ``prev_stop_delay_s`` natively -- but both predictors
@@ -40,6 +49,7 @@ from transit_rag.config import PROJECT_ROOT
 from transit_rag.prediction.features.quality import (
     CLOSE_OBSERVATION_STOPS_AHEAD,
     MAX_PLAUSIBLE_DELAY_S,
+    MIN_SCHEDULE_COVERAGE,
     time_based_split,
 )
 from transit_rag.prediction.model import baseline, metrics
@@ -50,6 +60,7 @@ from transit_rag.prediction.model.dataset import (
     category_dtypes,
     filter_plausible,
     filter_reliable,
+    filter_schedule_covered,
     load_training_table,
 )
 from transit_rag.prediction.model.train import FittedModel, train
@@ -270,6 +281,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--keep-schedule-blind",
+        action="store_true",
+        help=(
+            f"Keep service dates with under {MIN_SCHEDULE_COVERAGE:.0%} of rows joined to the "
+            f"timetable. Only for auditing what the filter excludes -- these dates are missing "
+            f"scheduled_arrival_s and stop_sequence entirely"
+        ),
+    )
+    parser.add_argument(
         "--curve", action="store_true", help="Sweep training-set size and report MAE against days"
     )
     parser.add_argument("--report-only", action="store_true", help="Print, write nothing")
@@ -320,6 +340,34 @@ def main() -> None:
                 100 * removed / before,
             )
 
+    # Also before the split, and for a stronger reason than the bound above: a
+    # schedule-blind date is missing two of the nine features, so leaving one in
+    # changes what its partition measures rather than merely enlarging it.
+    if not args.keep_schedule_blind:
+        before_dates = set(table["service_date"].unique())
+        table = filter_schedule_covered(table)
+        dropped = sorted(before_dates - set(table["service_date"].unique()))
+        if dropped:
+            log.info(
+                "dropped %d schedule-blind service date(s) below %.0f%% join coverage: %s "
+                "-- see quality.MIN_SCHEDULE_COVERAGE",
+                len(dropped),
+                100 * MIN_SCHEDULE_COVERAGE,
+                ", ".join(dropped),
+            )
+        if table.empty:
+            # Distinguishable from "not enough data": reconcile will build a
+            # table with no schedule join at all if it is run without a bundle,
+            # and it only warns. Sending the user off to collect more days
+            # would be advice for the wrong problem.
+            raise SystemExit(
+                "Every service date is schedule-blind, so nothing is left to train on. "
+                "This usually means transit-reconcile ran without a timetable bundle -- "
+                "check data/ and data/bundles/, then re-run it. "
+                "Use --keep-schedule-blind to train anyway, without "
+                "scheduled_arrival_s or stop_sequence."
+            )
+
     if args.max_dates is not None:
         table = truncate_to_dates(table, args.max_dates)
         log.info(
@@ -364,6 +412,9 @@ def main() -> None:
     serialisable["table"] = str(args.table)
     serialisable["reliability_filtered"] = not args.all_rows
     serialisable["plausibility_bound_s"] = None if args.keep_implausible else MAX_PLAUSIBLE_DELAY_S
+    serialisable["min_schedule_coverage"] = (
+        None if args.keep_schedule_blind else MIN_SCHEDULE_COVERAGE
+    )
     args.metrics_out.write_text(json.dumps(serialisable, indent=2, default=str))
     log.info("wrote %s", args.metrics_out)
 
