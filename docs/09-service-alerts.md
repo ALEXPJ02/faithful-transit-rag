@@ -20,7 +20,7 @@ spec would let you assume, and each difference changed a design decision.
 | --- | --- |
 | `entity.id` | UUIDv5, 41 distinct. **A stable key already exists** — do not synthesise one |
 | `informed_entity` | `agency_id` + `route_id` + `direction_id` on all 908; `stop_id` on 590. `trip` never set |
-| `active_period` | Always explicit `start` **and** `end` — these are nightly trackwork windows |
+| `active_period` | Explicit `start` **and** `end` *on this sample, which was entirely trackwork*. **It does not generalise:** measured on 134 alerts to 2026-09-24, every one of the 30 unplanned alerts has `active_period_end = 0` (unbounded) across all 2,681 of their scopes, against 361 of 1,591 scopes for `MAINTENANCE`. A disruption labeller therefore cannot bound an incident from `active_period` and must derive an end from feed presence — see [`08-evaluation-plan.md`](./08-evaluation-plan.md) §3.2 |
 | `cause` / `effect` | 38 MAINTENANCE / MODIFIED_SERVICE, 3 UNKNOWN |
 | `severity_level` | **`UNKNOWN_SEVERITY` on all 41.** TfNSW never populates it |
 | `header_text` | One `en` translation, 53–76 characters |

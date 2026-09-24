@@ -2,7 +2,7 @@
 
     transit-index build                     # chunk, embed, persist
     transit-index build --dry-run           # chunk and report; no API calls
-    transit-index build --target-chars 600  # one point in the docs/08 §4 sweep
+    transit-index build --target-chars 600  # one point in the docs/08 §3.5 sweep
     transit-index status                    # what is on disk, and is it stale
     transit-index query "how does a daily cap work" --k 5
 

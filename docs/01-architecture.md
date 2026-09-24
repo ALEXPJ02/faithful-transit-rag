@@ -1,63 +1,73 @@
 # Architecture
 
-> One agent, three evidence sources with different trust properties, and a harness
-> that scores whether the agent's answers stay honest about which is which.
+> One orchestrator, three workflow stages — retrieve, predict, explain — and the
+> evaluation that scores each of them separately.
 
 ## 1. The big picture
 
+> **Built vs planned.** Solid boxes with a `*` are **not built yet** as of
+> 2026-09-24: the orchestrator, the MCP tools, the alert corpus and its ingestion,
+> the disruption flag, the 90% interval, and the evaluation harness. What exists is
+> collection, reconciliation, the delay regressor, and a retrieval stack currently
+> indexing the Opal PDFs. [`04-implementation-plan.md`](./04-implementation-plan.md)
+> has the status table.
+
 ```mermaid
 flowchart TB
-    U["Rider question"] --> AG
+    U["Question / * monitoring tick"] --> AG
 
-    subgraph AGENT["Agent — hand-rolled Anthropic tool-use loop"]
-        AG["Claude Sonnet<br/>plans, calls tools, composes the answer"]
+    subgraph AGENT["Orchestrator — hand-rolled Anthropic tool-use loop"]
+        AG["* Claude<br/>calls each stage as an MCP tool, writes the answer"]
     end
 
-    AG -->|"policy question"| RET
-    AG -->|"right now?"| RT
-    AG -->|"will it be late?"| PRED
+    AG -->|"O1: what is happening?"| RT
+    AG -->|"O2: is T1/T4 disrupted?"| PRED
+    AG -->|"O3: why?"| RET
 
-    subgraph STATIC["Retrieval — stable, citable"]
-        RET["Chroma vector store"] --> COR["Opal fare + policy PDFs<br/>chunked with page citations"]
+    subgraph LIVE["O1 Retrieval — observed, volatile"]
+        RT["* Feed tool (MCP) over the built client"] --> TF["TfNSW GTFS-Realtime<br/>Trip Updates · Service Alerts"]
     end
 
-    subgraph LIVE["Realtime — observed, volatile"]
-        RT["MCP tools"] --> TF["TfNSW GTFS-Realtime<br/>Trip Updates · Alerts"]
+    subgraph MODEL["O2 Prediction — probabilistic, error-bound"]
+        PRED["XGBoost delay regressor<br/>* disruption flag, * 90% interval"] --> TRAIN["Training table<br/>reconciled from collected observations"]
     end
 
-    subgraph MODEL["Prediction — probabilistic, error-bound"]
-        PRED["XGBoost delay regressor<br/>T1 / T4"] --> TRAIN["Training table<br/>reconciled from collected observations"]
+    subgraph STATIC["O3 Reasons — evidence-grounded"]
+        RET["Chroma vector store"] --> COR["* Past T1/T4 service alerts<br/>chunked, each citing its alert id and date"]
     end
 
-    TF -.->|"polled every few minutes"| COLL["Delay collector<br/>stop_observations"]
+    TF -.->|"trip updates every 120 s"| COLL["Collector<br/>stop_observations"]
+    TF -.->|"alerts every 30 min"| ALERTS["service_alerts<br/>alert_scopes"]
     COLL -.->|"offline reconciliation"| TRAIN
+    ALERTS -.->|"* ingestion, T1/T4 only"| COR
 
-    AG --> ANS["Answer + evidence<br/>+ error margin when predicted"]
+    AG --> ANS["* Disruption + expected delay with its interval<br/>+ a cause, citing the alerts it used"]
     ANS --> EVAL
 
-    subgraph HARNESS["Evaluation harness — the object of study"]
-        EVAL["Ragas + LLM-as-judge (Haiku)"]
-        EVAL --> M["Retrieval precision/recall<br/>Faithfulness · Hallucination rate<br/>vs. static-retrieval-only baseline"]
+    subgraph HARNESS["Evaluation — RQ2"]
+        EVAL["* Metrics + LLM-as-judge (Haiku)"]
+        EVAL --> M["Detection: average precision · lead time<br/>Reasons: cause macro-F1 · recall@5<br/>Explanation: faithfulness · citation coverage"]
     end
 ```
 
-## 2. Why three components and not one
+## 2. Why three stages and not one
 
-The three sources are not interchangeable, and the distinction is the whole point
-of the research question:
+The stages make different *kinds* of claim, and conflating them is the failure the
+evaluation is built to catch:
 
-| Component | Claim type | What "faithful" means | Failure mode it introduces |
+| Stage | Claim type | What "correct" means | Failure mode it introduces |
 | --- | --- | --- | --- |
-| Retrieval | "The policy says X" | The claim appears in a retrieved passage | Classic hallucination — an unsupported claim |
-| Realtime | "The T1 is 6 minutes late" | The claim matches what the feed returned at call time | Staleness — a true-then, false-now answer |
-| Prediction | "It'll likely be ~5 minutes late" | The claim carries an error margin consistent with the model's measured MAE | **Overclaiming** — stating a forecast as fact |
+| O1 Retrieval | "The T1 is 6 minutes late" | Matches what the feed returned at call time | Staleness — a true-then, false-now answer |
+| O2 Prediction | "T1 is likely disrupted; ~5 min late" | Carries an interval that holds at its nominal rate | **Overclaiming** — stating a forecast as fact |
+| O3 Reasons | "Probably a signalling fault" | Every statement traces to a retrieved alert | Classic hallucination — an invented cause |
 
-Existing faithfulness frameworks only handle the first row. The third row is the
-contribution: an answer that says "your train will be 5 minutes late" when the
-model's MAE is ±4 minutes is *unfaithful* even if the number happens to be right.
+This is why each stage is scored separately rather than the workflow being scored
+end to end: a correct answer reached through a fabricated reason is not a success,
+and an end-to-end score cannot tell the two apart.
 
-**Hard requirement on the agent:** any answer resting on the prediction model must
-state the error margin. This is an evaluated property, not a nicety.
+**Hard requirement on the orchestrator:** any answer resting on the prediction model
+must state the interval the tool returned, unnarrowed. This is an evaluated property,
+not a nicety.
 
 ## 3. Repository layout
 
@@ -65,7 +75,7 @@ state the error margin. This is an evaluated property, not a nicety.
 src/transit_rag/
   config.py                    Environment-driven settings. Stdlib only — the
                                collector must not need the model stack to run.
-  ingestion/                   Opal PDFs -> chunks carrying document + page
+  ingestion/                   documents -> chunks carrying source + locator
   retrieval/                   Voyage embeddings -> persisted Chroma collection
   realtime/
     client.py                  HTTP access to the TfNSW GTFS-R endpoints

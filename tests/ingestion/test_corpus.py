@@ -39,7 +39,7 @@ class TestThePins:
         """Titles end up in citations, so they must be attributable.
 
         A chunk whose provenance reads "doc3.pdf" is unusable evidence for the
-        faithfulness judge (docs/08 §5a).
+        faithfulness judge (docs/08 §3.4).
         """
         for document in DOCUMENTS:
             assert len(document.title) > 10

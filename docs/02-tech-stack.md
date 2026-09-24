@@ -10,14 +10,14 @@
 | --- | --- | --- |
 | Language | **Python 3.12** (hard floor) | The whole RAG/eval/ML ecosystem lives here; below 3.12 mypy silently stops checking |
 | Generation | **Claude Sonnet** via the Anthropic API | Strong tool-use; the judge is a *different, cheaper* model to avoid self-grading |
-| Eval judge | **Claude Haiku** | Judge calls dominate eval volume; a cheap judge is what makes a large QA set affordable |
+| Eval judge | **Claude Haiku** | Judge calls dominate eval volume; a cheap judge is what makes per-statement faithfulness scoring affordable |
 | Embeddings | **Voyage `voyage-4-lite`** | Anthropic has no first-party embeddings API; 200M free tokens covers a 3-PDF corpus many times over |
 | Agent | **Hand-rolled tool-use loop** (Anthropic SDK) | See §2 |
 | Vector store | **Chroma**, embedded | The corpus is 3 static PDFs — a server-based store would be ceremony |
 | Realtime | `gtfs-realtime-bindings` + TfNSW Open Data Hub | The feeds are protobuf; there is no JSON alternative |
-| Prediction | **XGBoost** regressor | See §3 |
+| Prediction | **XGBoost** — regressor, classifier to follow | See §3 |
 | Tool interface | **Anthropic MCP Python SDK** + FastAPI | Makes the tools callable from any MCP client, not just this agent |
-| Evaluation | **Ragas** + a custom LLM-as-judge | Ragas covers standard RAG metrics; the prediction-faithfulness metric is novel and has to be hand-written |
+| Evaluation | **Ragas** + a custom LLM-as-judge | Ragas covers statement-level faithfulness over retrieved alerts; detection metrics (average precision, lead time), cause macro-F1 and interval coverage are hand-written |
 | Lint/format | **Ruff** | One tool replacing flake8 + isort + black |
 | Types | **mypy**, `disallow_untyped_defs` | Catches feed-parsing mistakes that unit tests miss |
 | CI | **GitHub Actions** | Free and unmetered on public repos |
@@ -68,8 +68,13 @@ Consequences, in order:
 
 1. **Train on self-collected data.** The collector has to be running before anything
    else can be built. Its uptime is the project's critical path.
-2. **Regression, not classification.** Disruptions are rare; in a multi-week window
-   there would be too few positive cases. Delay regression uses every trip as signal.
+2. **Regression first, classification added 2026-09-22.** Delay regression uses every
+   trip as signal, which is why it was built first and why it still carries RQ1
+   Objective 2. Disruption classification was then added for RQ2 on the supervisor's
+   direction. The original concern was right and has not gone away — 10 unplanned
+   alerts touch T1/T4 across the whole alert history, on 3 dates — so RQ2 groups
+   causes and reports intervals rather than assuming the positives are there. See
+   [`08-evaluation-plan.md`](./08-evaluation-plan.md) §3.2.
 3. **XGBoost, not an LSTM.** Sarhani & Voß (2024) found classical ML best for rail
    delay prediction *using open data alone* — this project's exact constraint.
    Boudabbous et al. (2026) get strong LSTM results, but on a city-scale feature
@@ -89,12 +94,16 @@ distinct stop events, which is what actually bounds the training set — is clos
 25k/day. The two are different measurements of the same collection and
 [`01-architecture.md`](./01-architecture.md) §5 has the table.
 
-**Model spec:** delay regression (minutes late at next stop), T1 and T4 only.
-Features: scheduled-vs-actual delta, hour, day-of-week, peak flag, delay at the
-previous stop of the same trip, active-alert flag. Baseline: naive persistence.
-Metrics: MAE, RMSE, MAPE against that baseline. Split: **time-based** 70/15/15 by
-collection week — a random shuffle would leak future information into the training
-set, which is the standard way time-series results get silently inflated.
+**Model spec:** delay regression (seconds late at next stop), T1 and T4 only, with
+disruption classification to follow. Features are the nine in
+`dataset.FEATURE_COLUMNS` — scheduled arrival, stop sequence, previous-stop delay,
+hour, day of week, weekend, peak, line, stop — plus an active-alert flag once the
+alert history overlaps the delay history. `dataset.FORBIDDEN_COLUMNS` is the
+authoritative list of what may *not* become a feature, and why.
+Baseline: naive persistence, written first. Metrics: MAE, RMSE, MAPE and MASE against
+it. Split: **time-based 70/15/15 by whole service date** — not by week, and never a
+random shuffle, which would put the same afternoon on both sides and leak future
+information, the standard way time-series results get silently inflated.
 Serving: a `joblib` artefact loaded in-process inside the MCP tool handler; a
 separate model service would be infrastructure with no research payoff.
 

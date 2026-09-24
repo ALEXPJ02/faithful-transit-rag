@@ -36,10 +36,11 @@ Three separate things, used at different times. Rationale for each choice is in
 | --- | --- | --- | --- | --- |
 | 1 | **Realtime Trip Update** (Sydney Trains) | API (protobuf) | Delay collection + the agent's live tools | **Now** |
 | 2 | **Timetables — For Realtime — v2 API** | Static zip | `routes.txt` → the T1/T4 route lookup; later, human-readable stop and route names | **Now** |
-| 3 | Opal **Fares Business Rules**, Opal **Terms of Use**, **Fares & Ticketing brochure** | 3 PDFs | The retrieval corpus | Weeks 4–7 |
+| 3 | **Realtime Service Alerts** (Sydney Trains) | API (protobuf) | The retrieval corpus, and the ground truth for a disruption's cause | **Now** |
+| — | Opal **Fares Business Rules**, **Terms of Use**, **Fares & Ticketing brochure** | 3 PDFs | *Retired 2026-09-22.* Was the retrieval corpus; retained but not indexed | — |
 
-Also worth adding to the same API key while you are there, since it costs nothing
-and the agent needs it later: **Realtime Service Alerts** (Sydney Trains).
+Service Alerts moved from "nice to have later" to the corpus itself when Opal fare
+policy left scope on 2026-09-22. It is on the same key and costs nothing extra.
 
 **You do not have to download this by hand.** The bundle is served from the same
 API as the feeds, so one command fetches it with the key already in `.env`:
@@ -65,10 +66,10 @@ Timetables – For Realtime** to your application on the Open Data Hub and retry
 The browser download from the [dataset page](https://opendata.transport.nsw.gov.au/dataset/public-transport-timetables-realtime)
 also works if you would rather.
 
-**Not using:** the Trip Planner API (it would outsource the trip logic the agent is
-supposed to reason through), the structured Opal Fares CSVs (tabular, not the prose
-a faithfulness judge can cite), and anything roads or parking related. See
-[`03-data-sources.md`](./03-data-sources.md) §4.
+**Not using:** the Trip Planner API (it would outsource the reasoning the agent is
+supposed to do), anything Opal or fare related (out of scope since 2026-09-22), and
+anything roads or parking. See [`03-data-sources.md`](./03-data-sources.md) — its §4
+recommendation is superseded, and the note at the top of that file says how.
 
 ## 3. API keys
 

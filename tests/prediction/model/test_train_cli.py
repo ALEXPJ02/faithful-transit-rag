@@ -127,3 +127,23 @@ class TestEverythingBlind:
         assert "schedule-blind" in message
         assert "bundle" in message
         assert "collect more days" not in message.lower()
+
+
+class TestHelpRenders:
+    def test_help_does_not_raise(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """argparse %-formats every help string when --help is asked for.
+
+        A literal ``%`` in one of them -- from an f-string like ``{x:.0%}`` --
+        makes argparse read the next character as a format spec and raise
+        ``TypeError`` instead of printing help. Nothing else in the suite calls
+        ``--help``, so it shipped once already.
+        """
+        monkeypatch.setattr("sys.argv", ["transit-train", "--help"])
+
+        with pytest.raises(SystemExit) as raised:
+            cli.main()
+
+        assert raised.value.code == 0
+        assert "--keep-schedule-blind" in capsys.readouterr().out
