@@ -221,5 +221,11 @@ systemctl enable --now transit-bundle-archive.timer
 log "installed transit-bundle-archive.timer (daily)"
 
 systemctl daemon-reload
-systemctl enable --now transit-poller.service
-log "provisioning complete; poller enabled"
+systemctl enable transit-poller.service
+# restart, not `enable --now`. At boot the enabled unit is already running the
+# checkout from *before* the update above, and `--now` leaves a running service
+# alone -- so a reset "to pick up new code" kept running the old code until
+# someone restarted it by hand (found deploying trip-status collection,
+# 2026-09-28). A restart costs at most one poll.
+systemctl restart transit-poller.service
+log "provisioning complete; poller running $(git -C "$APP_DIR" rev-parse --short HEAD)"
