@@ -199,6 +199,15 @@ Rows per service date — min 252, median 252, max 252
   movements never reach the table. A service *altered* beyond what the timetable
   can express may also be filed that way and go uncollected — unmeasured, and it
   belongs in the write-up as a stated limitation.
+- **Cancellations are invisible to this table, and were uncollected before
+  2026-09-29.** TfNSW publishes a cancelled trip with no stop updates, so it can
+  never produce a stop event. From 2026-09-29 the collector records them in
+  `trip_statuses` ([`01-architecture.md`](./01-architecture.md) §5); nothing
+  recovers the dates before.
+- **`REPLACEMENT` trips are collected as ordinary stop events.** Seven ran on T4
+  at 00:30 on 2026-09-29. Whether their delays are measured against the original
+  timetable or the replacement one is **unverified** — check before they are
+  trusted in the target.
 - **Peak boundaries are a modelling choice**, not a fact: weekdays 06:00–09:59
   and 15:00–18:59, set in `reconcile.py` as named constants so the write-up can
   state them. They match the peak periods TfNSW's punctuality measure uses, 6–10 am

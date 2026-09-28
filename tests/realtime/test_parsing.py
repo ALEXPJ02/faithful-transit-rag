@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from google.transit.gtfs_realtime_pb2 import Alert, TripUpdate
+from google.transit.gtfs_realtime_pb2 import Alert, TripDescriptor, TripUpdate
 
 from conftest import NO_PERIODS, NO_SEQUENCE, TIME_ONLY, UNSET
 from transit_rag.realtime.parsing import (
     extract_alerts,
     extract_delay_observations,
+    extract_trip_statuses,
     service_day,
     summarise_routes,
 )
@@ -21,6 +22,8 @@ TRACKED = ("T1", "T4")
 # not expose the enum members as attributes, so mypy rejects the dotted form.
 SKIPPED = TripUpdate.StopTimeUpdate.ScheduleRelationship.Value("SKIPPED")
 NO_DATA = TripUpdate.StopTimeUpdate.ScheduleRelationship.Value("NO_DATA")
+CANCELED = TripDescriptor.ScheduleRelationship.Value("CANCELED")
+REPLACEMENT = TripDescriptor.ScheduleRelationship.Value("REPLACEMENT")
 
 
 def test_extracts_one_observation_per_stop_with_a_delay(make_feed: Any) -> None:
@@ -431,3 +434,68 @@ class TestAlertExtraction:
         """A Trip Update feed handed to the alert parser yields nothing."""
         feed = make_feed([("t1", "NSN_2a", [("2000", 1, 60, 60)])])
         assert extract_alerts(feed, {}, POLL_TIME) == ([], [])
+
+
+class TestTripStatuses:
+    """Cancelled and altered trips, which the stop-level parser cannot see."""
+
+    def test_a_cancelled_trip_with_no_stop_updates_is_recorded(self, make_feed: Any) -> None:
+        """How TfNSW actually publishes a cancellation: trip-level CANCELED and
+        zero stop updates, so the delay parser yields nothing for it."""
+        feed = make_feed([("trip-x", "APS_4a", [])])
+        feed.entity[0].trip_update.trip.schedule_relationship = CANCELED
+
+        assert extract_delay_observations(feed, LOOKUP, TRACKED, POLL_TIME) == []
+        [status] = extract_trip_statuses(feed, LOOKUP, TRACKED, POLL_TIME)
+        assert status.trip_id == "trip-x"
+        assert status.trip_relationship == "CANCELED"
+        assert status.route_short_name == "T4"
+        assert status.skipped_stop_ids == ""
+        assert status.observed_at_utc == POLL_TIME
+
+    def test_skipped_stops_on_a_running_trip_are_recorded(self, make_feed: Any) -> None:
+        feed = make_feed(
+            [("t", "APS_1a", [("a", 1, 60, None), ("b", 2, 60, None), ("c", 3, 60, None)])]
+        )
+        for index in (0, 2):
+            feed.entity[0].trip_update.stop_time_update[index].schedule_relationship = SKIPPED
+
+        [status] = extract_trip_statuses(feed, LOOKUP, TRACKED, POLL_TIME)
+        assert status.trip_relationship == "SCHEDULED"
+        assert status.skipped_stop_ids == "a,c"
+
+    def test_a_replacement_trip_is_recorded(self, make_feed: Any) -> None:
+        feed = make_feed([("t", "APS_4a", [("a", 1, 0, None)])])
+        feed.entity[0].trip_update.trip.schedule_relationship = REPLACEMENT
+
+        [status] = extract_trip_statuses(feed, LOOKUP, TRACKED, POLL_TIME)
+        assert status.trip_relationship == "REPLACEMENT"
+
+    def test_a_normally_running_trip_yields_nothing(self, make_feed: Any) -> None:
+        """Its stop observations already describe it completely."""
+        feed = make_feed([("t", "APS_1a", [("a", 1, 60, None)])])
+
+        assert extract_trip_statuses(feed, LOOKUP, TRACKED, POLL_TIME) == []
+
+    def test_untracked_lines_are_filtered_like_observations(self, make_feed: Any) -> None:
+        feed = make_feed([("t8", "APS_8a", []), ("t1", "APS_1a", [])])
+        for entity in feed.entity:
+            entity.trip_update.trip.schedule_relationship = CANCELED
+
+        statuses = extract_trip_statuses(feed, LOOKUP, TRACKED, POLL_TIME)
+        assert [s.trip_id for s in statuses] == ["t1"]
+
+    def test_a_trip_without_an_id_is_skipped(self, make_feed: Any) -> None:
+        feed = make_feed([("", "APS_1a", [])])
+        feed.entity[0].trip_update.trip.schedule_relationship = CANCELED
+
+        assert extract_trip_statuses(feed, LOOKUP, TRACKED, POLL_TIME) == []
+
+    def test_without_a_start_date_the_poll_service_day_is_used(self, make_feed: Any) -> None:
+        """TfNSW leaves start_date empty on cancelled trips. 09:00 UTC on
+        2026-09-02 is 19:00 in Sydney, so the service day is 2026-09-02."""
+        feed = make_feed([("t", "APS_1a", [])])
+        feed.entity[0].trip_update.trip.schedule_relationship = CANCELED
+
+        [status] = extract_trip_statuses(feed, LOOKUP, TRACKED, POLL_TIME)
+        assert status.service_date == service_day(POLL_TIME) == "2026-09-02"

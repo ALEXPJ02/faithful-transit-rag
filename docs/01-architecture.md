@@ -207,6 +207,28 @@ the boundary in the service gap, so the derived date and the reported one agree.
 CSV snapshots are partitioned by that same service day, so one service date never
 scatters across two directories.
 
+### `trip_statuses` — the trips `stop_observations` cannot hold
+
+Collected from **2026-09-29**. TfNSW publishes a cancellation as a trip-level
+`CANCELED` with **no stop updates** — measured on the live feed that night, all
+eight cancelled T1/T4 trips had zero — so a collector that walks stop updates
+drops cancellations without trace. Skipped stops were dropped deliberately at the
+stop level (a `SKIPPED` stop's "delay" predicts an event that never happened), and
+that left them unrecorded too.
+
+`trip_statuses` holds one row per `(service_date, trip_id, trip_relationship)` for
+every tracked trip that is `CANCELED`, `ADDED` or `REPLACEMENT`, or that skips stops
+(`skipped_stop_ids`). `first_seen_utc` is when the change was first published,
+which matters: a cancellation posted before a disruption is lead time the operator
+had. The relationship is in the key so a trip that goes from `REPLACEMENT` to
+`CANCELED` keeps both publication times.
+
+It reads the feed the delay poll already fetched — no extra API call — and writes
+after the observations are committed, inside its own `try`, so a fault there cannot
+fail a poll or reach the delay data. TfNSW leaves `start_date` empty on these trips,
+so `service_date` is the poll's service day; reconciliation places the trip in time
+from the timetable, by `trip_id`.
+
 ### `poll_log`
 
 One row per poll attempt: entities seen, rows written, and status (`ok`, or

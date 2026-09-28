@@ -160,6 +160,8 @@ updated 2026-09-28.
 - **Collection (RQ1 O1)** — live since 3 September 2026, plus the scheduled-Action
   backup. **321,634 stop events over 22 service dates**, T1 192,114 · T4 129,520;
   134 service alerts, 40 of which touch T1 or T4. 15,038 of 15,039 polls successful.
+  Cancelled and altered trips are collected from 2026-09-29 (`trip_statuses`);
+  TfNSW publishes a cancellation with no stop updates, so before then none were.
 - **Prediction (RQ1 O2)** — `transit-train` fits the delay model against a
   naive-persistence baseline written first. On the 17 schedule-covered dates:
   **test MAE 15.45 s vs 18.67 s, MASE 0.828**. The disruption classifier that RQ2
