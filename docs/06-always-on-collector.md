@@ -180,13 +180,45 @@ The unit is `Restart=always` with `StartLimitIntervalSec=0`, so a crash loop can
 never leave systemd in a stopped state — on a window that cannot be re-run, a
 retrying collector beats a cleanly-failed one.
 
-The startup script is idempotent and re-runs on every boot, so a reboot re-clones
-the latest `main`, reinstalls, and restarts. To pick up new code, just reset the
-instance:
+### Deploying new code
+
+The startup script is idempotent and re-runs on every boot: it updates the checkout
+to the latest `main`, reinstalls, and restarts the poller. The last step matters.
+Until 2026-09-28 it ran `systemctl enable --now`, which leaves an already-running
+service alone — and at boot the poller is already running the *old* checkout, so a
+reset silently kept the old code. That was found deploying trip-status collection,
+when the log lines after a reboot were still in the old format.
+
+**The VM runs its own copy of the script**, stored in instance metadata at creation,
+not the file in the repo. After changing `deploy/gcp-startup.sh`, push it to the
+instance first:
 
 ```bash
-gcloud compute instances reset transit-collector --zone=us-central1-a
+gcloud compute instances add-metadata transit-collector --zone=us-central1-a \
+  --metadata-from-file=startup-script=deploy/gcp-startup.sh
 ```
+
+Then deploy with a graceful reboot, which lets the poller finish its current poll
+(a `reset` is a power cut):
+
+```bash
+gcloud compute ssh transit-collector --zone=us-central1-a --tunnel-through-iap \
+  --command='sudo systemctl reboot'
+```
+
+**Confirm the new code is the one running**, not merely on disk — the checkout's
+commit and the poller's start time, which must be later than the startup script's
+"poller running" line:
+
+```bash
+gcloud compute ssh transit-collector --zone=us-central1-a --tunnel-through-iap --command='
+sudo git -C /opt/transit-rag log --oneline -1
+systemctl show transit-poller -p ActiveEnterTimestamp --value
+sudo journalctl -u google-startup-scripts -b --no-pager | grep "poller running"'
+```
+
+If the start time is earlier, restart it by hand:
+`sudo systemctl restart transit-poller`.
 
 ## When collection ends
 
