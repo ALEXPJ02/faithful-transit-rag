@@ -229,6 +229,9 @@ CREATE TABLE IF NOT EXISTS trip_statuses (
     trip_relationship TEXT    NOT NULL,
     route_id          TEXT,
     route_short_name  TEXT,
+    -- Every stop seen skipped, accumulated across polls: the feed drops a
+    -- stop update once its time has passed, so each poll sees only the
+    -- skips still ahead. The store merges; see record_trip_statuses.
     skipped_stop_ids  TEXT    NOT NULL DEFAULT '',
     first_seen_utc    TEXT    NOT NULL,
     last_seen_utc     TEXT    NOT NULL,
@@ -311,6 +314,15 @@ ON CONFLICT (service_date, trip_id, trip_relationship) DO UPDATE SET
     observation_count = trip_statuses.observation_count + 1
 WHERE excluded.last_seen_utc > trip_statuses.last_seen_utc
 """
+
+
+def merge_stop_ids(stored: str, new: str) -> str:
+    """Union of two comma-joined stop id lists, stored order first, no repeats."""
+    merged = [stop for stop in stored.split(",") if stop]
+    for stop in new.split(","):
+        if stop and stop not in merged:
+            merged.append(stop)
+    return ",".join(merged)
 
 
 EXPECTED_PRIMARY_KEY = ("service_date", "trip_id", "stop_id", "stop_sequence")
@@ -469,7 +481,13 @@ class SqliteObservationStore:
         self._connection.commit()
 
     def record_trip_statuses(self, statuses: Sequence[TripStatus]) -> int:
-        """Upsert trip statuses. Returns rows actually **applied**."""
+        """Upsert trip statuses. Returns rows actually **applied**.
+
+        ``skipped_stop_ids`` **accumulates** rather than being overwritten.
+        The feed drops a stop update once its time has passed, so a poll
+        sees only the skips still ahead of the train; storing each poll's
+        list as-is would erase every earlier skip, unrecoverably.
+        """
         if not statuses:
             return 0
         rows = [
@@ -479,7 +497,7 @@ class SqliteObservationStore:
                 s.trip_relationship,
                 s.route_id,
                 s.route_short_name,
-                s.skipped_stop_ids,
+                merge_stop_ids(self._stored_skips(s), s.skipped_stop_ids),
                 s.observed_at_utc,
                 s.observed_at_utc,
             )
@@ -489,6 +507,14 @@ class SqliteObservationStore:
         self._connection.executemany(_UPSERT_TRIP_STATUS, rows)
         self._connection.commit()
         return self._connection.total_changes - before
+
+    def _stored_skips(self, status: TripStatus) -> str:
+        row = self._connection.execute(
+            "SELECT skipped_stop_ids FROM trip_statuses "
+            "WHERE service_date = ? AND trip_id = ? AND trip_relationship = ?",
+            (status.service_date, status.trip_id, status.trip_relationship),
+        ).fetchone()
+        return str(row[0]) if row else ""
 
     def trip_status_count(self) -> int:
         cursor = self._connection.execute("SELECT COUNT(*) FROM trip_statuses")

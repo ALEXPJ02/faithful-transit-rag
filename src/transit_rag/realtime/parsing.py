@@ -227,7 +227,8 @@ class TripStatus:
     #: ``CANCELED``, ``ADDED``, ``REPLACEMENT`` ... or ``SCHEDULED`` when the
     #: trip runs but skips stops.
     trip_relationship: str
-    #: Comma-joined, in feed order; empty when no stop is skipped.
+    #: Comma-joined, in feed order; empty when no stop is skipped. Only the
+    #: skips still ahead of the train in *this* poll -- the store accumulates.
     skipped_stop_ids: str
     observed_at_utc: str
 

@@ -13,6 +13,7 @@ from transit_rag.prediction.collection.store import (
     CsvSnapshotStore,
     SchemaMismatchError,
     SqliteObservationStore,
+    merge_stop_ids,
 )
 from transit_rag.realtime.parsing import (
     AlertScope,
@@ -527,3 +528,34 @@ class TestTripStatusStorage:
         with SqliteObservationStore(tmp_path / "d.db") as store:
             assert store.record_trip_statuses([]) == 0
             assert store.trip_status_breakdown() == {}
+
+
+class TestSkippedStopAccumulation:
+    """The feed drops a stop update once its time has passed, so a later poll
+    sees only the skips still ahead of the train."""
+
+    def test_an_earlier_skip_survives_a_later_poll_that_no_longer_shows_it(
+        self, tmp_path: Path
+    ) -> None:
+        with SqliteObservationStore(tmp_path / "d.db") as store:
+            store.record_trip_statuses(
+                [_trip_status(relationship="SCHEDULED", skipped="stop-a,stop-b")]
+            )
+            store.record_trip_statuses(
+                [
+                    _trip_status(
+                        relationship="SCHEDULED",
+                        skipped="stop-b,stop-c",
+                        observed_at="2026-09-29T09:02:00+00:00",
+                    )
+                ]
+            )
+            stored = store._connection.execute(
+                "SELECT skipped_stop_ids FROM trip_statuses"
+            ).fetchone()[0]
+        assert stored == "stop-a,stop-b,stop-c"
+
+    def test_merging_keeps_stored_order_and_drops_repeats(self) -> None:
+        assert merge_stop_ids("a,b", "b,c,a") == "a,b,c"
+        assert merge_stop_ids("", "x") == "x"
+        assert merge_stop_ids("x", "") == "x"
