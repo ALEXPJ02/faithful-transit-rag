@@ -14,7 +14,12 @@ from transit_rag.prediction.collection.store import (
     SchemaMismatchError,
     SqliteObservationStore,
 )
-from transit_rag.realtime.parsing import AlertScope, ServiceAlert, StopDelayObservation
+from transit_rag.realtime.parsing import (
+    AlertScope,
+    ServiceAlert,
+    StopDelayObservation,
+    TripStatus,
+)
 
 
 def _observation(
@@ -434,3 +439,91 @@ class TestAlertStorage:
     def test_recording_nothing_is_a_no_op(self, tmp_path: Path) -> None:
         store = SqliteObservationStore(tmp_path / "d.db")
         assert store.record_alerts([], []) == 0
+
+
+def _trip_status(
+    *,
+    relationship: str = "CANCELED",
+    observed_at: str = "2026-09-29T09:00:00+00:00",
+    skipped: str = "",
+) -> TripStatus:
+    return TripStatus(
+        service_date="2026-09-29",
+        trip_id="622C.1309.164.124.T.8.91240346",
+        route_id="ESI_1a",
+        route_short_name="T4",
+        trip_relationship=relationship,
+        skipped_stop_ids=skipped,
+        observed_at_utc=observed_at,
+    )
+
+
+class TestTripStatusStorage:
+    def test_statuses_are_stored_and_counted(self, tmp_path: Path) -> None:
+        with SqliteObservationStore(tmp_path / "d.db") as store:
+            assert store.record_trip_statuses([_trip_status()]) == 1
+            assert store.trip_status_count() == 1
+            assert store.trip_status_breakdown() == {"CANCELED": 1}
+
+    def test_the_same_trip_seen_again_is_one_row_with_a_wider_window(self, tmp_path: Path) -> None:
+        """first_seen stays at when the change was first published."""
+        with SqliteObservationStore(tmp_path / "d.db") as store:
+            store.record_trip_statuses([_trip_status(observed_at="2026-09-29T09:00:00+00:00")])
+            store.record_trip_statuses([_trip_status(observed_at="2026-09-29T09:02:00+00:00")])
+            row = store._connection.execute(
+                "SELECT first_seen_utc, last_seen_utc, observation_count FROM trip_statuses"
+            ).fetchall()
+        assert row == [("2026-09-29T09:00:00+00:00", "2026-09-29T09:02:00+00:00", 2)]
+
+    def test_a_late_poll_does_not_roll_last_seen_backwards(self, tmp_path: Path) -> None:
+        with SqliteObservationStore(tmp_path / "d.db") as store:
+            store.record_trip_statuses([_trip_status(observed_at="2026-09-29T09:04:00+00:00")])
+            applied = store.record_trip_statuses(
+                [_trip_status(observed_at="2026-09-29T09:02:00+00:00")]
+            )
+            last_seen = store._connection.execute(
+                "SELECT last_seen_utc FROM trip_statuses"
+            ).fetchone()[0]
+        assert applied == 0
+        assert last_seen == "2026-09-29T09:04:00+00:00"
+
+    def test_a_change_of_relationship_keeps_both_rows(self, tmp_path: Path) -> None:
+        """A trip published as REPLACEMENT and later CANCELED: when each was
+        first published is part of what the table records."""
+        with SqliteObservationStore(tmp_path / "d.db") as store:
+            store.record_trip_statuses([_trip_status(relationship="REPLACEMENT")])
+            store.record_trip_statuses(
+                [_trip_status(relationship="CANCELED", observed_at="2026-09-29T09:10:00+00:00")]
+            )
+            assert store.trip_status_breakdown() == {"CANCELED": 1, "REPLACEMENT": 1}
+
+    def test_an_existing_collection_database_gains_the_table_untouched(
+        self, tmp_path: Path
+    ) -> None:
+        """The deployment path: the live collector's database predates this
+        table. Opening it must add the table and leave every row alone."""
+        db = tmp_path / "live.db"
+        with SqliteObservationStore(db) as store:
+            store.record_observations([_observation()])
+        connection = sqlite3.connect(db)
+        connection.execute("DROP TABLE trip_statuses")
+        connection.commit()
+        connection.close()
+
+        with SqliteObservationStore(db) as store:
+            assert store.observation_count() == 1
+            assert store.record_trip_statuses([_trip_status()]) == 1
+
+    def test_the_schema_guard_covers_the_trip_status_table(self, tmp_path: Path) -> None:
+        db = tmp_path / "d.db"
+        connection = sqlite3.connect(db)
+        connection.execute("CREATE TABLE trip_statuses (trip_id TEXT PRIMARY KEY)")
+        connection.commit()
+        connection.close()
+        with pytest.raises(SchemaMismatchError):
+            SqliteObservationStore(db)
+
+    def test_recording_nothing_is_a_no_op(self, tmp_path: Path) -> None:
+        with SqliteObservationStore(tmp_path / "d.db") as store:
+            assert store.record_trip_statuses([]) == 0
+            assert store.trip_status_breakdown() == {}

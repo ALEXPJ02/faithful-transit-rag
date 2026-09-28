@@ -40,11 +40,11 @@ Both are the supervisor's wording with the T1/T4 scope added.
 **"Other transport events" become future work** *(decided 2026-09-28, pending the
 supervisor's confirmation)*. The phrase is hers and was never defined. On this data it
 could mean planned trackwork (collected, but scheduled rather than predicted),
-cancellations and skipped stops (**not collected**: the collector keeps only
-`SCHEDULED` stop calls, `realtime/parsing.py`), station and accessibility notices
-(collected as alerts), or crowding and special-event services (not collected). RQ1
-covers service disruptions and delays; the write-up names these and says which the
-collected data could support.
+cancellations and skipped stops (collected **from 2026-09-29 only**, in
+`trip_statuses`, and used as a check on the disruption label — §3.2), station and
+accessibility notices (collected as alerts), or crowding and special-event services
+(not collected). RQ1 covers service disruptions and delays; the write-up names these
+and says which the collected data could support.
 
 ## 2. RQ1 — the workflow, stage by stage
 
@@ -156,8 +156,13 @@ counts as late in a window if its **latest observed delay in that window** is ab
   alert lands near it. If a genuine incident ever exceeds it, that is reported as a
   known misclassification, not quietly relabelled.
 - **Rule (b) undercounts against TfNSW's own measure.** TfNSW counts cancelled and
-  skipped-stop trains as late; the collector keeps only `SCHEDULED` stop calls
-  (`realtime/parsing.py`), so those trains never enter the share.
+  skipped-stop trains as late. TfNSW publishes a cancellation as a trip-level
+  `CANCELED` with no stop updates, which the delay collector cannot see, so
+  cancellations were not collected at all until **2026-09-29**; since then they go
+  to `trip_statuses`. The main label still leaves them out, so that it means the same
+  thing on every date. A **check** re-runs rule (b) counting cancelled and
+  skipped-stop services as late, on the dates that have them, and reports how many
+  windows change label *(decided 2026-09-29, pending the supervisor's confirmation)*.
 
 > **Rule (a) as written is degenerate, and this is measured.** Applied over 15-minute
 > windows from 2026-09-15 to 09-24, "an unplanned alert is active" labels **100% of T1
@@ -258,8 +263,9 @@ Baselines are written **before** the models they are compared against, as
 one train at one stop; a detector sees one line over a 15-minute window. Its features
 are aggregates over the windows up to the prediction time — for example the share of
 services more than 5 minutes late, mean and maximum delay, services observed against
-services timetabled, hour and peak, and the active-alert flag (`pd.NA` before alert
-collection began, never `False`). The label comes from the next 30 minutes, never from
+services timetabled, cancelled services, hour and peak, and the active-alert flag.
+The cancelled-services count and the alert flag are `pd.NA` before their collection
+began (2026-09-29 and 2026-09-15), never `0` or `False`. The label comes from the next 30 minutes, never from
 the windows the features were built from. That matters because share-late is also
 rule (b)'s input: computed over the same window as the label, it would *be* the label.
 
@@ -297,7 +303,9 @@ signals to learn a policy from. RL for disruption response is recorded as future
   reasons, each with a 95% confidence interval from resampling **whole service dates**
   — not rows, which are correlated within a day.
 - **Ablations:** reasons with and without retrieval; detection with and without the
-  active-alert feature.
+  active-alert feature and the cancelled-services feature. **Label check:** rule (b)
+  with and without cancelled and skipped-stop services counted as late, on the dates
+  collected from 2026-09-29.
 - **Leakage guards.** The incident's own alert is never shown to the reasons model —
   its `cause` *is* the answer — so retrieval must be **time-aware**: explaining an
   incident at time *T* may only see alerts first seen before *T*. Dates before alert
@@ -390,7 +398,7 @@ class-conditional binning mitigates but does not remove this. State it.
 | ~10 unplanned incidents is a very small reasons set | Group causes; report confidence intervals from resampling whole dates; fixed cut-off, with any shortfall reported with its consequences; state it as the headline limitation |
 | Republished alerts look like separate incidents | Group alerts into events; exclude and score by event (§3.5) |
 | Rule (b) cannot see a full closure | Stated; closures rest on rule (a) |
-| Rule (b) omits cancelled and skipped-stop trains, which TfNSW counts as late | Stated; the share is a lower bound on TfNSW's own lateness |
+| Rule (b) omits cancelled and skipped-stop trains, which TfNSW counts as late | Collected from 2026-09-29; a check re-runs rule (b) counting them, on the dates covered. Before that the share is a lower bound on TfNSW's own lateness |
 | TfNSW's threshold is judged at the destination; rule (b) judges each window | Stated as an adaptation (§3.2) |
 | The 24-hour cap would misfile a closure longer than a day | Cap sits in a wide empty gap on current data; any incident exceeding it is reported, not relabelled |
 | Lead time is only known to within the 30-minute alert poll | Reported at that resolution |

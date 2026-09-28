@@ -56,6 +56,11 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   name a route absent from the realtime bundle, and only **40 of 134** alerts
   touch T1 or T4 — so filtering at collection would have discarded 94 of them
   permanently. Filter at ingestion, which can be re-run.
+- Trip-status collection — cancelled, added, replacement and stop-skipping trips on
+  T1/T4 into `trip_statuses`, **from 2026-09-29 only** (`docs/01` §5). TfNSW
+  publishes a cancellation with no stop updates, so `stop_observations` can never
+  hold one. Used as a check on rule (b) and as a detector feature (`pd.NA` before
+  2026-09-29), **not** in the main label, which must mean the same on every date.
 - Timetable bundle archive — `transit-bundle-archive.timer` on the VM keeps one
   copy of each distinct static GTFS era, daily. `bundles.discover()` finds them in
   `data/` and `data/bundles/` and dedupes by content, so `transit-reconcile` needs

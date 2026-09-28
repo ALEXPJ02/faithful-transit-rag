@@ -35,11 +35,13 @@ from transit_rag.prediction.collection.store import (
     CsvSnapshotStore,
     ObservationSink,
     SqliteObservationStore,
+    TripStatusSink,
 )
 from transit_rag.realtime.client import FeedFetchError, GtfsRealtimeClient
 from transit_rag.realtime.parsing import (
     extract_alerts,
     extract_delay_observations,
+    extract_trip_statuses,
     summarise_routes,
 )
 
@@ -90,6 +92,7 @@ def poll_once(
             feed, route_lookup, tracked_routes, poll_time, max_upcoming_stops
         )
         written = sink.record_observations(observations)
+        statuses = _record_trip_statuses(sink, feed, route_lookup, tracked_routes, poll_time)
 
         mismatch = _lookup_mismatch(feed, route_lookup)
         if mismatch is not None:
@@ -115,8 +118,37 @@ def poll_once(
         _try_record_failure(sink, poll_time, f"error: {type(exc).__name__}: {exc}")
         return False
 
-    log.info("poll ok — %d entities seen, %d observations written", len(feed.entity), written)
+    log.info(
+        "poll ok — %d entities seen, %d observations written, %d trip statuses",
+        len(feed.entity),
+        written,
+        statuses,
+    )
     return True
+
+
+def _record_trip_statuses(
+    sink: ObservationSink,
+    feed: Any,
+    route_lookup: dict[str, str],
+    tracked_routes: tuple[str, ...],
+    poll_time: str,
+) -> int:
+    """Store the poll's cancelled and altered trips. Returns rows applied.
+
+    Reads the feed :func:`poll_once` already fetched, so it costs no API call,
+    and runs after the observations are committed. It catches everything
+    itself: a fault here must never fail the poll or reach the delay data,
+    which has been collecting for weeks longer than this table has.
+    """
+    if not hasattr(sink, "record_trip_statuses"):
+        return 0
+    try:
+        statuses = extract_trip_statuses(feed, route_lookup, tracked_routes, poll_time)
+        return cast(TripStatusSink, sink).record_trip_statuses(statuses)
+    except Exception:
+        log.exception("Trip statuses not recorded this poll; delay observations are unaffected")
+        return 0
 
 
 def _alert_sink(sink: ObservationSink) -> AlertSink | None:
@@ -361,6 +393,15 @@ def print_probe(
 
     for line, count in sorted(tracked_present.items()):
         print(f"{line}: {count} active trip{'' if count == 1 else 's'}")
+    altered: dict[str, int] = {}
+    # A real instant, not a placeholder: TfNSW omits start_date on these trips,
+    # so the service date falls back to parsing this time.
+    now = datetime.now(UTC).isoformat()
+    for status in extract_trip_statuses(feed, route_lookup, tracked_routes, now):
+        altered[status.trip_relationship] = altered.get(status.trip_relationship, 0) + 1
+    if altered:
+        detail = ", ".join(f"{name} {count}" for name, count in sorted(altered.items()))
+        print(f"Not running as timetabled: {detail}")
     if unnamed_trips:
         print(f"({unnamed_trips} out-of-service / non-revenue trips, excluded by design.)")
     if unmatched:
@@ -420,6 +461,15 @@ def print_status(sink: ObservationSink) -> None:
     scope_count = getattr(sink, "alert_scope_count", None)
     if callable(alert_count) and callable(scope_count):
         print(f"Alerts collected: {alert_count():,} ({scope_count():,} scopes)")
+
+    breakdown = getattr(sink, "trip_status_breakdown", None)
+    if callable(breakdown):
+        counts = breakdown()
+        detail = ", ".join(f"{name} {count:,}" for name, count in counts.items())
+        print(
+            f"Trip statuses collected: {sum(counts.values()):,}"
+            + (f" ({detail})" if detail else "")
+        )
 
     recent = sink.recent_poll_status(limit=10)
     if not recent:

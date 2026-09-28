@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from google.transit.gtfs_realtime_pb2 import TripDescriptor
 
 from transit_rag.config import CollectionConfig, ConfigError
 from transit_rag.prediction.collection.poller import (
@@ -33,6 +34,7 @@ from transit_rag.realtime.client import FeedFetchError
 
 LOOKUP = {"APS_1a": "T1"}
 TRACKED = ("T1", "T4")
+CANCELED = TripDescriptor.ScheduleRelationship.Value("CANCELED")
 
 
 class FakeClient:
@@ -568,3 +570,70 @@ class TestAlertPolling:
     def test_a_sqlite_sink_is_offered_alerts(self, tmp_path: Path) -> None:
         with SqliteObservationStore(tmp_path / "obs.db") as store:
             assert _alert_sink(store) is not None
+
+
+def _feed_with_a_cancellation(make_feed: Any) -> Any:
+    """One running trip and one cancelled one, as TfNSW publishes it."""
+    feed = make_feed([("running", "APS_1a", [("s", 1, 60, None)]), ("gone", "APS_1a", [])])
+    feed.entity[1].trip_update.trip.schedule_relationship = CANCELED
+    return feed
+
+
+class TestTripStatusCollection:
+    def test_a_poll_records_cancellations_beside_observations(
+        self, tmp_path: Path, make_feed: Any
+    ) -> None:
+        client = FakeClient(feed=_feed_with_a_cancellation(make_feed))
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            assert poll_once(client, store, LOOKUP, TRACKED) is True  # type: ignore[arg-type]
+            assert store.observation_count() == 1
+            assert store.trip_status_breakdown() == {"CANCELED": 1}
+            # rows_written stays the observation count: it is what the
+            # collection-volume checkpoint reads.
+            assert store.recent_poll_status()[0][2:] == (1, "ok")
+
+    def test_a_trip_status_failure_leaves_the_poll_and_its_data_intact(
+        self, tmp_path: Path, make_feed: Any
+    ) -> None:
+        """The new table must never cost the delay collection anything."""
+
+        class TripStatusesBroken(SqliteObservationStore):
+            def record_trip_statuses(self, statuses: Any) -> int:
+                raise sqlite3.OperationalError("disk I/O error")
+
+        client = FakeClient(feed=_feed_with_a_cancellation(make_feed))
+
+        with TripStatusesBroken(tmp_path / "obs.db") as store:
+            assert poll_once(client, store, LOOKUP, TRACKED) is True  # type: ignore[arg-type]
+            assert store.observation_count() == 1
+            assert store.recent_poll_status()[0][3] == "ok"
+
+    def test_the_csv_sink_skips_trip_statuses_without_failing(
+        self, tmp_path: Path, make_feed: Any
+    ) -> None:
+        client = FakeClient(feed=_feed_with_a_cancellation(make_feed))
+
+        with CsvSnapshotStore(tmp_path / "snapshots") as store:
+            assert poll_once(client, store, LOOKUP, TRACKED) is True  # type: ignore[arg-type]
+            assert store.observation_count() == 1
+
+    def test_status_reports_trip_statuses(
+        self, tmp_path: Path, make_feed: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        client = FakeClient(feed=_feed_with_a_cancellation(make_feed))
+
+        with SqliteObservationStore(tmp_path / "obs.db") as store:
+            poll_once(client, store, LOOKUP, TRACKED)  # type: ignore[arg-type]
+            print_status(store)
+
+        assert "Trip statuses collected: 1 (CANCELED 1)" in capsys.readouterr().out
+
+    def test_probe_names_trips_not_running_as_timetabled(
+        self, make_feed: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        feed = _feed_with_a_cancellation(make_feed)
+
+        print_probe(FakeClient(feed=feed), LOOKUP, TRACKED)  # type: ignore[arg-type]
+
+        assert "Not running as timetabled: CANCELED 1" in capsys.readouterr().out

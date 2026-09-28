@@ -32,6 +32,7 @@ from transit_rag.realtime.parsing import (
     AlertScope,
     ServiceAlert,
     StopDelayObservation,
+    TripStatus,
     service_day,
 )
 
@@ -85,6 +86,21 @@ class AlertSink(Protocol):
     ) -> None: ...
 
     def alert_count(self) -> int: ...
+
+
+class TripStatusSink(Protocol):
+    """What the poller needs from a place to put cancelled and altered trips.
+
+    Separate from :class:`ObservationSink` for the reason :class:`AlertSink`
+    is: the call sits inside the trip-update poll, and a Protocol of its own
+    keeps "this sink cannot store trip statuses" a skipped write rather than
+    an AttributeError that fails the poll. ``CsvSnapshotStore`` does not
+    implement it; the always-on collector covers the feed completely.
+    """
+
+    def record_trip_statuses(self, statuses: Sequence[TripStatus]) -> int: ...
+
+    def trip_status_count(self) -> int: ...
 
 
 class ObservationSink(Protocol):
@@ -197,6 +213,31 @@ CREATE TABLE IF NOT EXISTS alert_poll_log (
     rows_written  INTEGER,
     status        TEXT
 );
+
+-- Cancelled, added, replaced and stop-skipping trips on the tracked lines,
+-- which stop_observations cannot hold: a cancelled trip carries no stop
+-- updates at all. A new table rather than new columns, because CREATE TABLE
+-- IF NOT EXISTS is the only schema change that is safe against the live
+-- collector's existing database.
+--
+-- trip_relationship is in the key so a trip first published as REPLACEMENT
+-- and later CANCELED keeps both rows, each with its own first_seen_utc --
+-- when a change was published is part of what the table is for.
+CREATE TABLE IF NOT EXISTS trip_statuses (
+    service_date      TEXT    NOT NULL,
+    trip_id           TEXT    NOT NULL,
+    trip_relationship TEXT    NOT NULL,
+    route_id          TEXT,
+    route_short_name  TEXT,
+    skipped_stop_ids  TEXT    NOT NULL DEFAULT '',
+    first_seen_utc    TEXT    NOT NULL,
+    last_seen_utc     TEXT    NOT NULL,
+    observation_count INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (service_date, trip_id, trip_relationship)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trip_status_route_date
+    ON trip_statuses (route_short_name, service_date);
 """
 
 # The guard matters: polls can arrive out of order after a retry or a clock
@@ -255,7 +296,25 @@ WHERE excluded.last_seen_utc > alert_scopes.last_seen_utc
 """
 
 
+# Same monotonicity guard as the others: a late poll must not roll
+# last_seen_utc back, because [first_seen, last_seen] is how long the change
+# was published for.
+_UPSERT_TRIP_STATUS = """
+INSERT INTO trip_statuses (
+    service_date, trip_id, trip_relationship, route_id, route_short_name,
+    skipped_stop_ids, first_seen_utc, last_seen_utc, observation_count
+) VALUES (?,?,?,?,?,?,?,?,1)
+ON CONFLICT (service_date, trip_id, trip_relationship) DO UPDATE SET
+    route_short_name  = excluded.route_short_name,
+    skipped_stop_ids  = excluded.skipped_stop_ids,
+    last_seen_utc     = excluded.last_seen_utc,
+    observation_count = trip_statuses.observation_count + 1
+WHERE excluded.last_seen_utc > trip_statuses.last_seen_utc
+"""
+
+
 EXPECTED_PRIMARY_KEY = ("service_date", "trip_id", "stop_id", "stop_sequence")
+TRIP_STATUS_EXPECTED_PRIMARY_KEY = ("service_date", "trip_id", "trip_relationship")
 ALERT_EXPECTED_PRIMARY_KEY = ("alert_id",)
 SCOPE_EXPECTED_PRIMARY_KEY = (
     "alert_id",
@@ -295,6 +354,7 @@ class SqliteObservationStore:
         self._assert_primary_key("stop_observations", EXPECTED_PRIMARY_KEY)
         self._assert_primary_key("service_alerts", ALERT_EXPECTED_PRIMARY_KEY)
         self._assert_primary_key("alert_scopes", SCOPE_EXPECTED_PRIMARY_KEY)
+        self._assert_primary_key("trip_statuses", TRIP_STATUS_EXPECTED_PRIMARY_KEY)
 
     def _assert_primary_key(self, table: str, expected: tuple[str, ...]) -> None:
         """Check one table's primary key, or return if it does not exist yet."""
@@ -407,6 +467,40 @@ class SqliteObservationStore:
             (poll_time_utc, alerts_seen, rows_written, status),
         )
         self._connection.commit()
+
+    def record_trip_statuses(self, statuses: Sequence[TripStatus]) -> int:
+        """Upsert trip statuses. Returns rows actually **applied**."""
+        if not statuses:
+            return 0
+        rows = [
+            (
+                s.service_date,
+                s.trip_id,
+                s.trip_relationship,
+                s.route_id,
+                s.route_short_name,
+                s.skipped_stop_ids,
+                s.observed_at_utc,
+                s.observed_at_utc,
+            )
+            for s in statuses
+        ]
+        before = self._connection.total_changes
+        self._connection.executemany(_UPSERT_TRIP_STATUS, rows)
+        self._connection.commit()
+        return self._connection.total_changes - before
+
+    def trip_status_count(self) -> int:
+        cursor = self._connection.execute("SELECT COUNT(*) FROM trip_statuses")
+        return int(cursor.fetchone()[0])
+
+    def trip_status_breakdown(self) -> dict[str, int]:
+        """Rows per trip relationship, for ``--status``."""
+        cursor = self._connection.execute(
+            "SELECT trip_relationship, COUNT(*) FROM trip_statuses "
+            "GROUP BY trip_relationship ORDER BY trip_relationship"
+        )
+        return {str(r[0]): int(r[1]) for r in cursor.fetchall()}
 
     def alert_count(self) -> int:
         cursor = self._connection.execute("SELECT COUNT(*) FROM service_alerts")

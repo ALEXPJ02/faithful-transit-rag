@@ -204,6 +204,101 @@ def extract_delay_observations(
 
 
 @dataclass(frozen=True)
+class TripStatus:
+    """A trip on a tracked line that is not running as timetabled.
+
+    Recorded because :func:`extract_delay_observations` cannot see it. TfNSW
+    publishes a cancellation as a ``CANCELED`` trip-level relationship with
+    **no** stop updates -- measured on the live feed, 2026-09-29: eight
+    cancelled T1/T4 trips, every one with zero -- so a parser that only walks
+    stop updates drops cancellations silently. TfNSW's own punctuality measure
+    counts cancelled and skipped-stop trains as late, and the disruption label
+    in ``docs/08`` §3.2 is checked against that.
+
+    ``first_seen_utc`` in the store is when the change was first published,
+    which is itself worth having: a cancellation posted before a disruption is
+    lead time the operator had.
+    """
+
+    service_date: str
+    trip_id: str
+    route_id: str
+    route_short_name: str | None
+    #: ``CANCELED``, ``ADDED``, ``REPLACEMENT`` ... or ``SCHEDULED`` when the
+    #: trip runs but skips stops.
+    trip_relationship: str
+    #: Comma-joined, in feed order; empty when no stop is skipped.
+    skipped_stop_ids: str
+    observed_at_utc: str
+
+    def as_dict(self) -> dict[str, Any]:
+        """Field name -> value. Sinks map this to their own column order."""
+        return asdict(self)
+
+
+def _trip_relationship_name(value: int) -> str:
+    from google.transit import gtfs_realtime_pb2
+
+    try:
+        return str(gtfs_realtime_pb2.TripDescriptor.ScheduleRelationship.Name(value))
+    except ValueError:
+        return f"UNKNOWN({value})"
+
+
+def extract_trip_statuses(
+    feed: Any,
+    route_lookup: Mapping[str, str],
+    tracked_routes: Iterable[str],
+    poll_time_utc: str,
+) -> list[TripStatus]:
+    """Trips on the tracked lines that are cancelled, added, replaced, or skip stops.
+
+    The same line filter as :func:`extract_delay_observations`, because these
+    rows complement those ones: together they describe every tracked service.
+    A normally running trip yields nothing -- it is already fully described
+    by its stop observations.
+    """
+    tracked = set(tracked_routes)
+    statuses: list[TripStatus] = []
+
+    for entity in feed.entity:
+        if not entity.HasField("trip_update"):
+            continue
+        trip_update = entity.trip_update
+        route_id = trip_update.trip.route_id
+        route_short_name = route_lookup.get(route_id)
+        if route_lookup and tracked and route_short_name not in tracked:
+            continue
+        if not trip_update.trip.trip_id:
+            continue
+
+        relationship = _trip_relationship_name(trip_update.trip.schedule_relationship)
+        skipped = [
+            stop_time_update.stop_id
+            for stop_time_update in trip_update.stop_time_update
+            if _schedule_relationship_name(stop_time_update.schedule_relationship) == "SKIPPED"
+        ]
+        if relationship == "SCHEDULED" and not skipped:
+            continue
+
+        statuses.append(
+            TripStatus(
+                # TfNSW leaves start_date empty on cancelled trips, so this is
+                # usually the poll's service day. Reconciliation places the trip
+                # in time from the timetable, by trip_id.
+                service_date=_service_date(trip_update.trip, poll_time_utc),
+                trip_id=trip_update.trip.trip_id,
+                route_id=route_id,
+                route_short_name=route_short_name,
+                trip_relationship=relationship,
+                skipped_stop_ids=",".join(skipped),
+                observed_at_utc=poll_time_utc,
+            )
+        )
+    return statuses
+
+
+@dataclass(frozen=True)
 class RouteSummary:
     """How many trips a feed carried for one route_id, and whether the static
     bundle knows that id."""

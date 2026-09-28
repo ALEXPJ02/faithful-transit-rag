@@ -66,8 +66,10 @@ service alerts, used to explain a disruption's cause.
 
 - Network-wide prediction, multi-modal journey planning, and roads/parking data.
 - **"Other transport events"** beyond disruptions and delays — planned trackwork,
-  cancellations and skipped stops, station notices, crowding. Future work, pending
-  the supervisor's confirmation ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §1).
+  cancellations and skipped stops, station notices, crowding — as things to
+  predict. Future work, pending the supervisor's confirmation
+  ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §1). Cancellations are
+  still collected from 2026-09-29, as a check on the disruption label.
 - **Reinforcement learning.** Assessed and not used: it suits disruption *response*,
   not detection or cause identification ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §3.3).
 - A seasonally robust model. The collection window is weeks, not years — see the
