@@ -201,4 +201,6 @@ Rows per service date — min 252, median 252, max 252
   belongs in the write-up as a stated limitation.
 - **Peak boundaries are a modelling choice**, not a fact: weekdays 06:00–09:59
   and 15:00–18:59, set in `reconcile.py` as named constants so the write-up can
-  state them.
+  state them. They match the peak periods TfNSW's punctuality measure uses, 6–10 am
+  and 3–7 pm (Audit Office of New South Wales, 2017, *Passenger rail punctuality*),
+  so the choice has a citation.

@@ -130,13 +130,23 @@ incident. Or,
 (b) at least a quarter of the line's observed services are **more than 5 minutes
 late**.
 
-The 5-minute threshold is Transport for NSW's own on-time-running definition, and it
-is used alone. A stricter rider's standard (3 minutes) was considered and not
-adopted: it is a judgement where 5 minutes is a citation, and it moves the label from
-"the line is disrupted" towards ordinary lateness. The one-quarter share is a
-modelling choice. Rule (b) catches disruptions the operator never posted an alert for.
+The 5-minute threshold is Transport for NSW's own on-time-running definition: a
+suburban train is on time if it "arrived at its destination no later than its arrival
+time as listed in the timetable plus an on-time tolerance" of five minutes (Audit Office
+of New South Wales, 2017, *Passenger rail punctuality*). "Late" is therefore **more
+than** 300 s, and the threshold is used alone. A stricter rider's standard (3 minutes)
+was considered and not adopted: it is a judgement where 5 minutes is a citation, and it
+moves the label from "the line is disrupted" towards ordinary lateness. The
+one-quarter share is a modelling choice. Rule (b) catches disruptions the operator
+never posted an alert for.
 
-**Two limits of the rules, stated rather than discovered later.**
+**The threshold is adapted, not copied.** TfNSW judges a train once, at its
+destination. The feed reports every stop, and a window needs an answer before most
+trains reach their destination, so rule (b) applies the threshold per window: a service
+counts as late in a window if its **latest observed delay in that window** is above
+300 s. That is the labeller's default, and the write-up states it as an adaptation.
+
+**Three limits of the rules, stated rather than discovered later.**
 
 - **Rule (b) cannot see a full closure.** With no trains running there are no services
   to be late, so a closure is caught by rule (a) or not at all.
@@ -145,6 +155,9 @@ modelling choice. Rule (b) catches disruptions the operator never posted an aler
   (incidents run 0–242 minutes; the Tangara notice below runs 7,752), so no current
   alert lands near it. If a genuine incident ever exceeds it, that is reported as a
   known misclassification, not quietly relabelled.
+- **Rule (b) undercounts against TfNSW's own measure.** TfNSW counts cancelled and
+  skipped-stop trains as late; the collector keeps only `SCHEDULED` stop calls
+  (`realtime/parsing.py`), so those trains never enter the share.
 
 > **Rule (a) as written is degenerate, and this is measured.** Applied over 15-minute
 > windows from 2026-09-15 to 09-24, "an unplanned alert is active" labels **100% of T1
@@ -377,6 +390,8 @@ class-conditional binning mitigates but does not remove this. State it.
 | ~10 unplanned incidents is a very small reasons set | Group causes; report confidence intervals from resampling whole dates; fixed cut-off, with any shortfall reported with its consequences; state it as the headline limitation |
 | Republished alerts look like separate incidents | Group alerts into events; exclude and score by event (§3.5) |
 | Rule (b) cannot see a full closure | Stated; closures rest on rule (a) |
+| Rule (b) omits cancelled and skipped-stop trains, which TfNSW counts as late | Stated; the share is a lower bound on TfNSW's own lateness |
+| TfNSW's threshold is judged at the destination; rule (b) judges each window | Stated as an adaptation (§3.2) |
 | The 24-hour cap would misfile a closure longer than a day | Cap sits in a wide empty gap on current data; any incident exceeding it is reported, not relabelled |
 | Lead time is only known to within the 30-minute alert poll | Reported at that resolution |
 | Author wrote both system and evaluation | Ground truth fixed at authoring time; judge validated against a human subsample; adversarial cases written to fail |
