@@ -154,13 +154,14 @@ runtime, which is legitimate precisely because the corpus is static
 
 ## 5. Still to come
 
-- **`VOYAGE_API_KEY` is not yet set**, so no index has been built against the
-  real embedding model. Everything up to the Voyage call has been run end to end
-  over the real 144 chunks — persistence, reopening from disk, the fingerprint
-  round trip, staleness detection and ranked retrieval with correct citations.
-  The Voyage call itself is covered by unit tests against a substituted client.
+- **The alert corpus.** The Opal index is built against the real Voyage model —
+  collection `opal_policy`, 144 chunks, `voyage-4-lite`, 1024-dim, cosine, built
+  2026-09-17 — so the machinery is proven end to end. For RQ1 Objective 3 it has
+  to index past T1/T4 service alerts instead: read `service_alerts`, group
+  republished alerts into events ([`08`](./08-evaluation-plan.md) §3.5), and cite
+  each chunk by alert id and date where a PDF chunk cites a page.
 - **The chunk-size and k sweep** ([`08`](./08-evaluation-plan.md) §3.5). The knobs
   and the dry-run path exist; the labelled query set it would be swept against
-  does not — it needs the disruption definition in [`08`](./08-evaluation-plan.md)
-  §3.2 first.
+  does not yet. The disruption definition it depends on was decided on 2026-09-28
+  ([`08`](./08-evaluation-plan.md) §3.2), pending the supervisor's confirmation.
 - **Retrieval as an agent tool** — `mcp_server/`, once the agent loop exists.

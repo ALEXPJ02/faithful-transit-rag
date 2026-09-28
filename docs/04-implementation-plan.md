@@ -3,13 +3,13 @@
 > One semester, one engineer, 41029 + 41030 concurrently. The plan is written around
 > what can be cut, because something will be.
 
-## Status — 24 September 2026
+## Status — 29 September 2026
 
 | Workstream | State |
 | --- | --- |
-| Literature review | **Done** — 11 references, 3 from 2026, three thematic clusters |
-| Problem definition + methodology | **Done** — written up, pending supervisor sign-off |
-| Research questions | **Done** — RQ1 feasibility, RQ2 evaluation, set by the supervisor 2026-09-22. Scope narrowed to T1/T4 service disruptions; Opal fare policy dropped |
+| Literature review | **Done** — Task 1 complete |
+| Problem definition + methodology | **Superseded** — the 24 August notes predate the 2026-09-22 restructure (Opal fares, a rider Q&A assistant, and a collection start of 2026-08-23 where the real one is 2026-09-03). The problem statement is rewritten in the Task 3 proposal rather than kept as a separate document |
+| Research questions | **Done** — RQ1 feasibility, RQ2 evaluation, set by the supervisor 2026-09-22. Scope narrowed to T1/T4 service disruptions; Opal fare policy dropped. Academic record: `RQ_List_and_Evaluation_Methods_v3.docx` (2026-09-28) |
 | Data source selection | **Done** — see [`03-data-sources.md`](./03-data-sources.md); its §4 recommendation is superseded by the scope change |
 | Tech stack | **Done** — see [`02-tech-stack.md`](./02-tech-stack.md) |
 | Repo + CI + module layout | **Done** — this scaffold |
@@ -19,13 +19,13 @@
 | Service Alerts collection | **Done** — `transit-poller` polls alerts every 30 min into `service_alerts`/`alert_scopes` ([`09-service-alerts.md`](./09-service-alerts.md)). The training-table flag waits for an overlap window |
 | Reconciliation → training table | **Done** — `transit-reconcile`, schema in [`07-training-table.md`](./07-training-table.md) |
 | Prediction: delay regression | **Done** — `transit-train`; naive persistence written first. Test MAE **15.45 s** vs baseline **18.67 s**, **MASE 0.828**, over the 17 schedule-covered dates to 2026-09-24 |
-| Prediction: disruption classification | **Not started** — added to scope 2026-09-22 for RQ2. Gated on the disruption definition in [`08-evaluation-plan.md`](./08-evaluation-plan.md) §3.2 being agreed |
+| Prediction: disruption classification | **Not started** — added to scope 2026-09-22 for RQ2. The definition was decided 2026-09-28 ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §3.2), pending the supervisor's confirmation; buildable now, with its thresholds as parameters |
 | Timetable bundle archive | **Done** — daily on the VM; `bundles.discover()` finds every era, so reconcile needs no flag. 2026-09-11..15 predate it and are unrecoverable |
 | Corpus ingestion | **Done for PDFs, retired from the RQs** — the three Opal PDFs pinned and chunked into 144 cited passages. Retained as code; not the corpus any more |
 | **Alert corpus ingestion** | **Not started** — nothing reads `service_alerts` back out. Blocks RQ1 Objective 3 |
 | Retrieval index | **Done, wrong corpus** — `transit-index`, Voyage embeddings into a fingerprinted Chroma collection ([`10-retrieval.md`](./10-retrieval.md)). Built and real: `opal_policy`, 144 chunks, `voyage-4-lite`, 2026-09-17. Repointing it at alerts is the next build step |
 | Agent loop + MCP tools | Not started |
-| Evaluation plan | **Rewritten 2026-09-24** — [`08-evaluation-plan.md`](./08-evaluation-plan.md) now follows RQ1's objectives and RQ2's metrics. Two items need the supervisor: the disruption definition (§3.2) and the empty weather cause class |
+| Evaluation plan | **Updated 2026-09-28** — [`08-evaluation-plan.md`](./08-evaluation-plan.md) follows RQ1's objectives and RQ2's metrics, and now records the student's decisions on the open items, which await the supervisor's confirmation (§5) |
 | Evaluation harness | Not started |
 
 ## 1. The one thing that cannot be caught up
@@ -85,11 +85,18 @@ This answers RQ2. If Weeks 4–7 overrun, scope comes out of the *system*, not h
 feasibility-study fallback is needed for the delay model. The reasons side has not
 passed: 10 unplanned alerts touch T1/T4, they fall on **3 Sydney dates**, and the
 current test dates hold 2 of one cause group — so cause macro-F1 is not yet
-computable. Collection continues; see [`08`](./08-evaluation-plan.md) §3.2.
+computable. Collection continues to a fixed cut-off at the end of 2026-10-18, and any
+shortfall is reported rather than waited out; see [`08`](./08-evaluation-plan.md) §3.1.
 
 ### Weeks 11–13 — Polish and write-up
 MCP integration finished, final report, architecture diagram, evaluation numbers.
 Phase 2 deployment happens **after** grading.
+
+| Date | What |
+| --- | --- |
+| 2026-10-18 | **Data cut-off** — the last service date that enters a scored result |
+| 2026-10-25 | 41029 Task 2 (Low-risk Student Project Application), Task 3 (Research Project Proposal), Reflection |
+| 2026-11-02 | 41030 Final Report and Project Video |
 
 ## 3. Risks
 
@@ -100,27 +107,24 @@ Phase 2 deployment happens **after** grading.
 | Laptop uptime | Gaps in the training window | Mitigated — collection runs off the laptop on an always-on box, with the scheduled Action as backup ([`06-always-on-collector.md`](./06-always-on-collector.md)) |
 | Weeks 4–7 overrun into the harness | Loses the highest-value phase | Cut system scope, not harness scope. Trip Planner API is the escape hatch for GTFS joins |
 | Anthropic spend overrun | Budget | Console spend limit; Haiku for judging; cache eval-set embeddings |
-| RQ or methodology not signed off | Rework late | Both are flagged pending; raise at the next supervisor meeting |
+| The 2026-09-28 decisions not confirmed | Relabelling late | The thresholds are labeller parameters, so a change is a re-run; raise them at the next supervisor meeting |
 | Supervisor's expertise is a step from RAG specifics | Unreviewed technical choices | Every non-obvious decision is written down with its rejected alternative ([`02-tech-stack.md`](./02-tech-stack.md) §6) |
 
 ## 4. Outstanding supervisor items
 
-1. **The disruption definition** ([`08`](./08-evaluation-plan.md) §3.2) — the alert
-   rule and the one-quarter late-services share. Nothing can be scored until this is
-   agreed. Bring the measured finding: rule (a) as written labels **100% of windows
-   disrupted**, because no unplanned alert carries an `active_period_end`. Bound the
-   incident by feed presence instead.
-2. **The empty weather cause class** (§3.2) — collapse the four groups to three, or
-   report macro-F1 over occurring classes only.
-3. **"Other transport events"** in RQ1 — in scope, or future work?
-4. **The retrain window** — 2026-09-11..15 have no timetable era and are excluded,
+Agreed with her: the 30-minute horizon and the 15-minute window.
+
+1. **Confirm the student's decisions of 2026-09-28** ([`08`](./08-evaluation-plan.md)
+   §5): the disruption definition (feed-presence timing, a 24-hour cap for standing
+   notices, a quarter of services more than 5 minutes late); the data cut-off at the
+   end of 2026-10-18; weather kept as a cause group; "other transport events" as
+   future work; and reinforcement learning assessed and not used. Bring the measured
+   finding behind the first: rule (a) as first written labels **100% of windows
+   disrupted**, because no unplanned alert carries an `active_period_end`.
+2. **The retrain window** — 2026-09-11..15 have no timetable era and are excluded,
    splitting collection into 09-03..10 and 09-16..24. Current models exclude them,
    which leaves validation and test clean and contiguous.
-5. **The prediction interval** — the margin moves from "consistent with global MAE" to
+3. **The prediction interval** — the margin moves from "consistent with global MAE" to
    a conditional conformal interval, because conditional error spans roughly
    7.8–82.4 s and a global margin is worst exactly where the tool is asked. Needs
    re-deriving against the corrected model before it is quoted.
-6. **Sign off the problem definition and methodology** — still outstanding, and its
-   stated collection start date (2026-08-23) is wrong; the real start is 2026-09-03.
-7. **Task 1 word count** — the expanded review runs past the original 800–1000 word
-   cap. Confirm the limit before final submission.

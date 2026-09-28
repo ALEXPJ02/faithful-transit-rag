@@ -22,7 +22,8 @@ disruptions and their reasons better.
 
 Scope was narrowed to T1/T4 service disruptions on 2026-09-22, and Opal fare policy
 dropped. Retrieval stays: the corpus becomes past service alerts rather than fare
-documents. See [`docs/08-evaluation-plan.md`](./docs/08-evaluation-plan.md).
+documents. "Other transport events" are future work, pending the supervisor's
+confirmation. See [`docs/08-evaluation-plan.md`](./docs/08-evaluation-plan.md).
 
 ## Prerequisites
 
@@ -153,7 +154,8 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 
 ## Status
 
-Reconciled against the repo and the live collector on 2026-09-24.
+Figures reconciled against the repo and the live collector on 2026-09-24; decisions
+updated 2026-09-28.
 
 - **Collection (RQ1 O1)** — live since 3 September 2026, plus the scheduled-Action
   backup. **321,634 stop events over 22 service dates**, T1 192,114 · T4 129,520;
@@ -161,8 +163,13 @@ Reconciled against the repo and the live collector on 2026-09-24.
 - **Prediction (RQ1 O2)** — `transit-train` fits the delay model against a
   naive-persistence baseline written first. On the 17 schedule-covered dates:
   **test MAE 15.45 s vs 18.67 s, MASE 0.828**. The disruption classifier that RQ2
-  compares does not exist yet — it is gated on the disruption definition in
-  [`docs/08`](./docs/08-evaluation-plan.md) §3.2.
+  compares does not exist yet. Its definition was decided on 2026-09-28, pending the
+  supervisor's confirmation ([`docs/08`](./docs/08-evaluation-plan.md) §3.2): an
+  unplanned alert timed by feed presence with a 24-hour cap, or a quarter of a line's
+  services more than 5 minutes late.
+- **Evaluation data** — fixed cut-off at the end of 2026-10-18; a shortfall in the
+  reasons evaluation is reported rather than waited out
+  ([`docs/08`](./docs/08-evaluation-plan.md) §3.1).
 - **Retrieval (RQ1 O3)** — the stack is proven end to end against real Voyage
   embeddings: collection `opal_policy`, 144 chunks, `voyage-4-lite`, cosine
   ([`docs/10-retrieval.md`](./docs/10-retrieval.md)). It indexes the **wrong corpus**

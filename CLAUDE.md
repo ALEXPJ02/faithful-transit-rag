@@ -27,7 +27,9 @@ model detects the disruptions and their reasons better.
 
 Both are Dr Ramezani's wording, with the T1/T4 scope added. The decomposition
 lives in `docs/08-evaluation-plan.md`; the authoritative source is
-`RQ_List_and_Evaluation_Methods_v2.docx`, one level up in `Capstone/`.
+`RQ_List_and_Evaluation_Methods_v3.docx`, one level up in `Capstone/`. v2 is kept
+as the version the supervisor saw, but its Objective 2 input list and its "roughly
+one a day" are wrong — do not copy from it.
 
 **Scope, set 2026-09-22.** Trains only, service disruptions only, T1 and T4 only.
 **Opal fare policy is out** — see "Design decisions" below for what that means for
@@ -92,8 +94,10 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
 - **The alert corpus** — nothing reads `service_alerts` back out yet.
   `reconcile.py` does not mention alerts, so the T1/T4 filter `docs/09` promised
   does not exist. This is RQ1 Objective 3's blocker.
-- **The disruption classifier** — RQ2 compares detectors, and none exists. Gated
-  on the §3.2 disruption definition being agreed.
+- **The disruption classifier** — RQ2 compares detectors, and none exists. The
+  definition was decided 2026-09-28 (`docs/08` §3.2) pending the supervisor's
+  confirmation, so it can be built now with its thresholds as parameters. It needs
+  line-level window features, not the delay model's per-stop ones (§3.3).
 
 **Snapshots in `data/` are frozen, never live.** The newest is
 `delay_observations_20260924.db` — 321,634 stop events over 22 service dates
@@ -159,9 +163,12 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
    redirection, and passes a trailing `#` comment through as arguments. Derive
    values with `$(...)`, or put them on their own line with a check that they were
    found.
-3. **Ask for an adversarial review before pushing a milestone.** The first such
-   review found three blockers, including one that silently fabricated training
-   data, plus a CI that would have been red on every push.
+3. **Every change goes through a reviewed PR.** Pull the latest `main`, commit on
+   a new branch, open a PR, let Cursor Bot review it, and merge only once every
+   check passes and every issue it flags is resolved. Set 2026-09-28; it replaces a
+   separate adversarial-agent review before each push, which earned its place —
+   the first found three blockers, including one that silently fabricated
+   training data — so read what the bot flags rather than dismissing it.
 
 ## Design decisions already settled — do not relitigate
 
@@ -170,8 +177,8 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
   (disruptions are too rare in a short collection window)" and a later session
   reading only that rationale would revert this. Regression survives as RQ1
   Objective 2's supporting output (XGBoost, baseline naive persistence, MAE /
-  RMSE / MAPE). Classification is added for RQ2 and is **not yet built**: it is
-  gated on the disruption definition in `docs/08` §3.2 being agreed.
+  RMSE / MAPE). Classification is added for RQ2 and is **not yet built**; its
+  definition is the next entry.
 
   The rarity concern was correct and has not gone away. Ten unplanned alerts touch
   T1/T4 in the whole alert history to 2026-09-24, and they fall on **three Sydney
@@ -179,6 +186,23 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
   of a single cause group, so cause macro-F1 is not yet computable. That is a
   scheduling constraint on RQ2, not a reason to avoid the question — but do not
   quote "about one a day", which is wrong.
+- **The disruption definition, decided 2026-09-28 by the student, pending the
+  supervisor's confirmation** (`docs/08` §3.2). A line × 15-minute window is
+  disrupted if (a) an unplanned (non-`MAINTENANCE`) alert is in the feed for the
+  line, timed by feed presence (`first_seen_utc`..`last_seen_utc`), and present
+  no longer than 24 hours — longer is a standing notice; or (b) at least a quarter
+  of the line's services are more than 5 minutes late. **5 minutes, not 3**: a
+  3-minute rider's standard was considered and rejected, because 5 is TfNSW's own
+  definition and citable. The 30-minute horizon and 15-minute window are agreed
+  with the supervisor.
+- **Evaluation data has a fixed cut-off: the end of service date 2026-10-18.**
+  Nothing after it enters a scored result. If the reasons evaluation is
+  under-powered, report the shortfall and its consequences; do not move the date.
+- **Four cause groups, weather kept although empty.** Macro-F1 averages over the
+  groups present in the test split's ground truth, and the report names any left
+  out.
+- **"Other transport events" are future work; reinforcement learning was assessed
+  and not used** (`docs/08` §1, §3.3). Both pending the supervisor's confirmation.
 - **Opal fare policy is out of scope**, set 2026-09-22. RAG stays; the corpus
   becomes past T1/T4 service alerts. The Opal PDFs, `ingestion/corpus.py` and the
   built `opal_policy` collection are **retained, not deleted** — they are working,
@@ -224,4 +248,5 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
 `docs/04-implementation-plan.md`'s status table and the README's status section
 both make dated claims, so they go stale silently. When you change what the system
 does, update them in the same pass rather than leaving a later reader to be misled.
-Both were last reconciled against the repo on 2026-09-17.
+Both were last reconciled against the repo on 2026-09-24, and their decisions
+updated on 2026-09-28.

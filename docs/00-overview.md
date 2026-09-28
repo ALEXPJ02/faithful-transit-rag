@@ -65,6 +65,11 @@ service alerts, used to explain a disruption's cause.
 **Out of scope**
 
 - Network-wide prediction, multi-modal journey planning, and roads/parking data.
+- **"Other transport events"** beyond disruptions and delays — planned trackwork,
+  cancellations and skipped stops, station notices, crowding. Future work, pending
+  the supervisor's confirmation ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §1).
+- **Reinforcement learning.** Assessed and not used: it suits disruption *response*,
+  not detection or cause identification ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §3.3).
 - A seasonally robust model. The collection window is weeks, not years — see the
   honest limitation in [`04-implementation-plan.md`](./04-implementation-plan.md).
 - Using TfNSW's Trip Planner API as a replacement for hand-rolled GTFS joins
@@ -86,6 +91,7 @@ service alerts, used to explain a disruption's cause.
 | [`07-training-table.md`](./07-training-table.md) | Reconciliation: observations to model-ready rows |
 | [`08-evaluation-plan.md`](./08-evaluation-plan.md) | RQ1's objectives, RQ2's metrics, baselines and experimental design |
 | [`09-service-alerts.md`](./09-service-alerts.md) | What the alerts feed sends, and how it is stored |
+| [`10-retrieval.md`](./10-retrieval.md) | Chunking, the index fingerprint, and the retrieval decisions |
 
 ## Ground rules
 

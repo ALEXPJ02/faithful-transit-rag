@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "transit-rag"
 version = "0.1.0"
-description = "An agentic RAG system for real-time Sydney public transport Q&A with automated faithfulness evaluation."
+description = "An agentic AI workflow that predicts and explains Sydney Trains T1/T4 service disruptions from real-time GTFS data, with the evaluation that compares models."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
