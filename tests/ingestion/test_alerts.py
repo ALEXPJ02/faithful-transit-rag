@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from transit_rag.ingestion.alerts import (
+    DEFAULT_OVERRIDES,
     MAX_REPUBLISH_GAP,
     AlertRecord,
     Incident,
@@ -144,6 +145,22 @@ class TestGrouping:
 
         assert len(group_incidents([earlier, later])) == 2
 
+    def test_concurrent_incidents_with_one_cause_stay_apart(self) -> None:
+        """Two long, overlapping technical problems on T1 are two incidents:
+        neither left the feed as the other appeared."""
+        first = _alert("a", minutes=240)
+        second = _alert("b", start=START + timedelta(minutes=60), minutes=240)
+
+        assert len(group_incidents([first, second])) == 2
+
+    def test_a_handover_within_one_poll_merges_even_when_both_start_together(self) -> None:
+        """Edgecliff: both alerts first seen at 16:11; the unknown-cause one
+        left at once and the named one stayed two hours."""
+        posted = _alert("a", cause="UNKNOWN_CAUSE", minutes=0)
+        named = _alert("b", cause="POLICE_ACTIVITY", minutes=121)
+
+        assert len(group_incidents([named, posted])) == 1
+
     def test_an_incident_never_seen_with_a_cause_stays_unknown(self) -> None:
         [incident] = group_incidents([_alert("a", cause="UNKNOWN_CAUSE")])
         assert incident.cause == "UNKNOWN_CAUSE"
@@ -176,8 +193,16 @@ class TestAudit:
 
 
 class TestOverridesFile:
-    def test_a_missing_file_means_no_overrides(self, tmp_path: Path) -> None:
-        assert load_overrides(tmp_path / "absent.csv") == {}
+    def test_a_missing_explicit_file_is_an_error_not_silence(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            load_overrides(tmp_path / "absent.csv")
+
+    def test_the_default_path_does_not_depend_on_the_working_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        assert DEFAULT_OVERRIDES.is_absolute() and DEFAULT_OVERRIDES.exists()
+        load_overrides()
 
     def test_rows_are_read(self, tmp_path: Path) -> None:
         path = tmp_path / "o.csv"
@@ -238,7 +263,9 @@ def test_the_audit_command_prints_every_alert_and_the_incidents(
 ) -> None:
     db = _collection_db(tmp_path)
 
-    exit_code = alerts_main(["audit", "--db", str(db), "--overrides", str(tmp_path / "none.csv")])
+    overrides = tmp_path / "none.csv"
+    overrides.write_text("alert_id,is_incident,reason\n", encoding="utf-8")
+    exit_code = alerts_main(["audit", "--db", str(db), "--overrides", str(overrides)])
 
     output = capsys.readouterr().out
     assert exit_code == 0

@@ -176,10 +176,16 @@ reason — never by editing the markers after seeing the data.
 
 TfNSW republishes an incident under a new `entity.id` whenever its scope or text
 changes, and the old one leaves the feed. Two alerts are one incident when they
-share a line, the later one appears within **35 minutes** (one 30-minute alert
-poll plus slack) of the earlier one disappearing, and the causes match **or one
-of them is `UNKNOWN_CAUSE`** — the last because Edgecliff was first posted as
-unknown and then twice as police activity. Chains are merged transitively.
+share a line, one leaves the feed within **35 minutes** (one 30-minute alert poll
+plus slack) of the other appearing — a *handover* — and the causes match **or one
+of them is `UNKNOWN_CAUSE`**, because Edgecliff was first posted as unknown and
+then twice as police activity. Chains are merged transitively.
+
+Overlap alone does not merge. Two different incidents can run on one line at the
+same time with the same cause, and then both stay in the feed for their whole
+length rather than handing over (found by Cursor Bugbot). The handover is checked
+both ways round because it can happen within one poll: Edgecliff's two first
+alerts were first seen together, and the unknown-cause one left at once.
 
 An incident's cause is the **first specific cause any of its alerts names**, and
 unknown only if none ever does: Edgecliff is police activity; Chatswood

@@ -41,20 +41,25 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from transit_rag.config import PROJECT_ROOT
 from transit_rag.ingestion.chunks import UnattributableChunkError
 
 SYDNEY = ZoneInfo("Australia/Sydney")
 
 DEFAULT_LINES: tuple[str, ...] = ("T1", "T4")
-DEFAULT_OVERRIDES = Path("data/alert_overrides.csv")
+#: Resolved against the project root, not the working directory: a relative
+#: path would silently skip the committed corrections whenever a command runs
+#: from anywhere else, and the ground truth would change with the shell.
+DEFAULT_OVERRIDES = PROJECT_ROOT / "data" / "alert_overrides.csv"
 
 #: Longer than this in the feed is a standing notice, not an incident
 #: (``docs/08`` §3.2). Incidents so far run 0-243 minutes; the shortest
 #: standing notice runs 1,969.
 MAX_INCIDENT_PRESENCE = timedelta(hours=24)
 
-#: One alert poll (15 x 120 s) plus slack for poll jitter. Republications in
-#: the data arrive 30-31 minutes after their predecessor was last seen.
+#: One alert poll (15 x 120 s) plus slack for poll jitter. A republication is a
+#: *handover*: in the data the old alert leaves the feed 0-31 minutes from the
+#: new one appearing.
 MAX_REPUBLISH_GAP = timedelta(minutes=35)
 
 #: Alerts first seen on or after this date were not read when the markers
@@ -247,12 +252,15 @@ def load_alerts(db_path: Path, lines: Iterable[str] = DEFAULT_LINES) -> list[Ale
 def load_overrides(path: Path = DEFAULT_OVERRIDES) -> dict[str, Override]:
     """Manual corrections to the rule, keyed by alert id.
 
-    A missing file means no corrections. A malformed row is an error rather
-    than a skipped line: an override that silently fails to apply is a ground
-    truth nobody decided.
+    A malformed row is an error rather than a skipped line: an override that
+    silently fails to apply is a ground truth nobody decided. A missing file is
+    an error too unless it is the default one, which a fresh checkout has but
+    an explicit path that does not exist is almost certainly a typo.
     """
     if not path.exists():
-        return {}
+        if path == DEFAULT_OVERRIDES:
+            return {}
+        raise FileNotFoundError(f"no overrides file at {path}")
     overrides: dict[str, Override] = {}
     with path.open(newline="", encoding="utf-8") as handle:
         for number, row in enumerate(csv.DictReader(handle), start=2):
@@ -297,11 +305,23 @@ def classify(alert: AlertRecord, override: Override | None = None) -> Verdict:
 
 
 def _same_disruption(earlier: AlertRecord, later: AlertRecord) -> bool:
-    """Whether ``later`` is plausibly a republication of ``earlier``."""
+    """Whether the two alerts are plausibly one disruption republished.
+
+    A republication is a **handover**: one alert leaves the feed within one
+    alert poll of the other appearing. Overlap alone is not enough -- two
+    different incidents on one line can run at the same time with the same
+    cause, and both stay in the feed for their whole length (found by Cursor
+    Bugbot on #14). Checked both ways round, because a handover can happen in
+    the same poll: Edgecliff's "not running" alert and its "police activity"
+    republication were first seen together, and the first left at once.
+    """
     if not set(earlier.lines) & set(later.lines):
         return False
-    gap = later.first_seen - earlier.last_seen
-    if gap > MAX_REPUBLISH_GAP:
+    handover = min(
+        abs(later.first_seen - earlier.last_seen),
+        abs(earlier.first_seen - later.last_seen),
+    )
+    if handover > MAX_REPUBLISH_GAP:
         return False
     return earlier.cause == later.cause or UNKNOWN_CAUSE in (earlier.cause, later.cause)
 
