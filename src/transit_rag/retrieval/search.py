@@ -20,7 +20,8 @@ uncitable passage into the answers the whole evaluation rests on.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -49,13 +50,23 @@ class RetrievedPassage:
     score: float
     #: 1-based position in the returned set, so Hit Rate@k and MRR read directly.
     rank: int
+    #: Where in the source the passage sits when a page cannot say: the alert
+    #: ids an incident passage was built from. Empty for PDF chunks.
+    locator: str = ""
+    #: Everything else stored with the vector -- an incident's cause, lines and
+    #: first-seen time -- for callers that need more than the citation.
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not self.document_title.strip() or self.page < 1:
+        # A page for a PDF, a locator for an alert: either can be cited, and
+        # neither may be faked. An alert has no page, and a page of 1 standing
+        # in for "none" would be a citation to nothing.
+        located = self.page >= 1 or bool(self.locator.strip())
+        if not self.document_title.strip() or not located:
             raise UnattributableChunkError(
                 f"passage {self.chunk_id!r} came back from the index without a usable "
-                f"citation (title={self.document_title!r}, page={self.page}); the index "
-                f"is malformed and should be rebuilt"
+                f"citation (title={self.document_title!r}, page={self.page}, "
+                f"locator={self.locator!r}); the index is malformed and should be rebuilt"
             )
 
 
@@ -81,6 +92,8 @@ def _passage_from_hit(
         citation=str(meta.get("citation", "")),
         score=_similarity(distance),
         rank=rank,
+        locator=str(meta.get("locator", "")),
+        metadata=dict(meta),
     )
 
 
@@ -114,6 +127,8 @@ class Retriever:
         k: int = DEFAULT_K,
         *,
         document_key: str | None = None,
+        seen_before: datetime | None = None,
+        exclude_incident: str | None = None,
     ) -> list[RetrievedPassage]:
         """Top-``k`` passages for ``question``, best first.
 
@@ -121,6 +136,12 @@ class Retriever:
         use it -- picking the document is the retriever's job -- but the
         ingestion sweep needs per-document recall to see which of the three
         PDFs a chunk size helps or hurts.
+
+        ``seen_before`` and ``exclude_incident`` are the leakage guards in
+        ``docs/08`` §3.5, for the alert index. Explaining an incident first
+        seen at *T* may only draw on incidents first seen before *T* -- the
+        future was not available when the question was asked -- and never on
+        the incident itself, whose cause is the answer being scored.
         """
         if k < 1:
             raise ValueError(f"k must be at least 1, got {k}")
@@ -136,7 +157,7 @@ class Retriever:
         n_results = min(k, available)
 
         query_vector = self._embedder.embed_query(question)
-        where = {"document_key": document_key} if document_key else None
+        where = _where(document_key, seen_before, exclude_incident)
         result = self._collection.query(
             query_embeddings=[query_vector],
             n_results=n_results,
@@ -162,6 +183,32 @@ class Retriever:
             passages[0].score if passages else float("nan"),
         )
         return passages
+
+
+def _where(
+    document_key: str | None,
+    seen_before: datetime | None,
+    exclude_incident: str | None,
+) -> dict[str, Any] | None:
+    """A Chroma metadata filter from whichever restrictions were asked for.
+
+    Chroma rejects an ``$and`` with fewer than two clauses, so one condition
+    is passed bare and none is passed as no filter at all.
+    """
+    clauses: list[dict[str, Any]] = []
+    if document_key:
+        clauses.append({"document_key": document_key})
+    if seen_before is not None:
+        if seen_before.tzinfo is None:
+            # A naive time is ambiguous by ten or eleven hours here; guessing
+            # would move the leakage boundary silently.
+            raise ValueError("seen_before must be timezone-aware")
+        clauses.append({"first_seen_ts": {"$lt": int(seen_before.timestamp())}})
+    if exclude_incident:
+        clauses.append({"incident_id": {"$ne": exclude_incident}})
+    if not clauses:
+        return None
+    return clauses[0] if len(clauses) == 1 else {"$and": clauses}
 
 
 def format_passages(passages: list[RetrievedPassage], *, width: int = 220) -> str:

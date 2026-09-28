@@ -1,7 +1,9 @@
 # Retrieval
 
-How the ingested Opal corpus becomes a searchable index, and the two properties
-that layer is responsible for. The numbers in §1 were measured by running the
+How ingested text becomes a searchable index, and the two properties that layer
+is responsible for. There are two corpora: the retired Opal PDFs (§1–4), and
+since 2026-09-28 the incidents built from collected alerts (§5), which is what
+RQ1 Objective 3 retrieves from. The numbers in §1 were measured by running the
 chunker over the pinned corpus on 2026-09-17, not estimated.
 
 ## 1. What the index actually contains
@@ -152,16 +154,50 @@ Phase 2 it is built into the Docker image at build time rather than created at
 runtime, which is legitimate precisely because the corpus is static
 ([`02-tech-stack.md`](./02-tech-stack.md) §1).
 
-## 5. Still to come
+## 5. The alert index — the corpus RQ1 Objective 3 retrieves from
 
-- **The alert corpus.** The Opal index is built against the real Voyage model —
-  collection `opal_policy`, 144 chunks, `voyage-4-lite`, 1024-dim, cosine, built
-  2026-09-17 — so the machinery is proven end to end. For RQ1 Objective 3 it has
-  to index past T1/T4 service alerts instead: read `service_alerts`, group
-  republished alerts into events ([`08`](./08-evaluation-plan.md) §3.5), and cite
-  each chunk by alert id and date where a PDF chunk cites a page.
-- **The chunk-size and k sweep** ([`08`](./08-evaluation-plan.md) §3.5). The knobs
-  and the dry-run path exist; the labelled query set it would be swept against
-  does not yet. The disruption definition it depends on was decided on 2026-09-28
-  ([`08`](./08-evaluation-plan.md) §3.2), pending the supervisor's confirmation.
+```bash
+transit-index build  --source alerts --db data/delay_observations_20260929.db
+transit-index status --source alerts --db data/delay_observations_20260929.db
+transit-index query  --source alerts "T1 delays near Chatswood" \
+    --seen-before 2026-09-25T17:19:00+10:00 --exclude-incident inc-761f6f2b37
+```
+
+Built 2026-09-28 from the snapshot of that day: collection `tfnsw_alerts`,
+**8 incident passages**, `voyage-4-lite`, 1024-d, cosine. The Opal collection is
+untouched beside it.
+
+**One passage per incident, not per alert.** The incidents come from
+`transit-alerts audit` ([`09-service-alerts.md`](./09-service-alerts.md) §7),
+which groups republished alerts. Indexed per alert, a republished disruption
+would fill two of the five retrieved slots, and keeping it out of its own
+explanation would mean hunting down its twins. There is nothing to chunk — the
+longest passage is 1,158 characters — so the fingerprint records chunk size and
+overlap as 0 and there is no chunk-size sweep for this corpus; k is still swept.
+
+**Cited by locator, not page.** A passage names the alerts it was built from and
+when the first was seen — *"TfNSW alerts 0f013e51, ce4a88bd, 718f39d9 (first seen
+2026-09-21 16:11 Sydney time)"*. The citation invariant in `search.py` now accepts
+a page **or** a locator, and refuses a passage with neither; it never fakes a page.
+
+**The fingerprint's corpus hash covers the passages themselves** — each incident
+id with a hash of its text — because this corpus is not a set of pinned files.
+A different snapshot, a changed incident rule or a new override all change a
+passage, so `status` reports the index stale until it is rebuilt.
+
+**The leakage guards are search arguments, tested against a real Chroma
+collection.** `seen_before` keeps only incidents first seen before the incident
+being explained; `exclude_incident` drops that incident itself. On the real
+index, explaining Chatswood (2026-09-25 17:19) returns the five earlier incidents
+and neither Chatswood nor the later Tempe incident. A naive time is refused
+rather than guessed, because Sydney is ten or eleven hours from UTC and a guess
+would move the boundary silently. One residual: an earlier incident still in the
+feed at *T* is indexed with its *final* text, which may include wording published
+after *T*. Stated, not fixed — the texts are short and mostly written at first
+posting.
+
+## 6. Still to come
+
+- **The k sweep** ([`08`](./08-evaluation-plan.md) §3.5), on a development subset
+  of incidents, frozen before the test dates are scored.
 - **Retrieval as an agent tool** — `mcp_server/`, once the agent loop exists.

@@ -136,3 +136,66 @@ When it is built, two constraints are already known:
   (start = 0 OR start <= t) AND (end = 0 OR t < end)`, falling back to the
   observed `[first_seen_utc, last_seen_utc]` window when the claimed period is
   unbounded.
+
+## 7. From alerts to incidents
+
+`transit-alerts audit --db <snapshot>` (`ingestion/alerts.py`) answers the two
+questions under both the disruption label (`docs/08` §3.2 rule (a)) and the
+reasons corpus: **which alerts are disruptions, and which alerts are the same
+disruption.** Decided 2026-09-29, pending the supervisor's confirmation. It
+opens the snapshot read-only.
+
+### Which alerts are disruptions
+
+Cause alone gets it wrong in both directions. Measured on the 22 non-maintenance
+alerts naming T1 or T4 to 2026-09-28:
+
+| Alert | Published cause | What the description says | By cause alone |
+| --- | --- | --- | --- |
+| 2026-09-15 23:54 (×2) | `UNKNOWN_CAUSE` | "no train running at 1:47am … due to trackwork" | wrongly a disruption |
+| 2026-09-21 23:46 | `UNKNOWN_CAUSE` | "trackwork replacement buses will set down …" | wrongly a disruption |
+| 2026-09-25 04:51 | `UNKNOWN_CAUSE` | police operation closing **streets**; bus connections affected | wrongly a disruption |
+| 2026-09-21 16:11 | `UNKNOWN_CAUSE` | "Trains are not running between Bondi Junction and Central …" | a disruption — keep it |
+
+So the rule reads the description, in order: a manual override; `MAINTENANCE`
+cause; more than 24 h in the feed (a standing notice); planned-work wording
+(`trackwork`, `planned work`, `installation works`) excludes; service-impact
+wording (`extra travel`, `not running`, `delay`, `running late`, `resumed`, …)
+includes; anything else is a notice. "Replacement bus" is deliberately **not**
+a planned marker, because an unplanned incident can also say "buses are
+replacing trains".
+
+**The rule was written by reading those 22 alerts, so it is checked on alerts it
+never saw.** Everything first seen from 2026-09-29 is marked `*` in the audit
+(`--held-out` shows only those); the author reads them against the same
+criteria and the rule's accuracy on them is reported. A wrong call is corrected
+in the tracked `data/alert_overrides.csv` — alert id, yes/no, and a written
+reason — never by editing the markers after seeing the data.
+
+### Which alerts are the same disruption
+
+TfNSW republishes an incident under a new `entity.id` whenever its scope or text
+changes, and the old one leaves the feed. Two alerts are one incident when they
+share a line, the later one appears within **35 minutes** (one 30-minute alert
+poll plus slack) of the earlier one disappearing, and the causes match **or one
+of them is `UNKNOWN_CAUSE`** — the last because Edgecliff was first posted as
+unknown and then twice as police activity. Chains are merged transitively.
+
+An incident's cause is the **first specific cause any of its alerts names**, and
+unknown only if none ever does: Edgecliff is police activity; Chatswood
+(2026-09-25, three alerts, all unknown) stays other/unknown.
+
+### What it gives, to 2026-09-28
+
+| | |
+| --- | --- |
+| Alerts naming T1 or T4 | 46 (24 `MAINTENANCE`) |
+| Standing notices (> 24 h in the feed) | 4 — station works, missing tactiles, the Tangara notice, a trackwork bus stand |
+| Planned work or no train impact | 4 — the table above |
+| **Incidents** | **8, on 5 Sydney dates** — 15 Sep (3), 21 Sep (2), 22 Sep, 25 Sep, 26 Sep |
+| Cause groups | technical 4, network incident 3, other/unknown 1, weather/external 0 |
+
+Those 8 incidents come from 14 alerts: Edgecliff and Chatswood are three alerts
+each, North Sydney and Martin Place two each. The same rule over the data to
+2026-09-24 gives 6 incidents on 3 dates, which is what `docs/08` §3.2 counted by
+hand.

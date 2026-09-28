@@ -25,10 +25,8 @@ overlap, so 128 of them cannot approach it.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
-
-if TYPE_CHECKING:  # pragma: no cover - import cycle only matters to type checkers
-    from transit_rag.ingestion.chunks import Chunk
+from collections.abc import Sequence
+from typing import Protocol, runtime_checkable
 
 log = logging.getLogger("transit_rag.embeddings")
 
@@ -189,7 +187,14 @@ class VoyageEmbedder:
         return self._embed([text], "query")[0]
 
 
-def embed_chunks(chunks: list[Chunk], embedder: Embedder) -> list[list[float]]:
+class HasText(Protocol):
+    """Anything embeddable: a PDF chunk or an incident passage."""
+
+    @property
+    def text(self) -> str: ...
+
+
+def embed_chunks(chunks: Sequence[HasText], embedder: Embedder) -> list[list[float]]:
     """Embed chunk text in the order given, so vectors align to ``chunks``.
 
     Alignment is positional all the way into Chroma's ``add``, which takes ids,
