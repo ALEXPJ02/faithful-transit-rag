@@ -22,8 +22,8 @@
 | Prediction: disruption classification | **Not started** — added to scope 2026-09-22 for RQ2. The definition was decided 2026-09-28 ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §3.2), pending the supervisor's confirmation; buildable now, with its thresholds as parameters |
 | Timetable bundle archive | **Done** — daily on the VM; `bundles.discover()` finds every era, so reconcile needs no flag. 2026-09-11..15 predate it and are unrecoverable |
 | Corpus ingestion | **Done for PDFs, retired from the RQs** — the three Opal PDFs pinned and chunked into 144 cited passages. Retained as code; not the corpus any more |
-| **Alert corpus ingestion** | **Not started** — nothing reads `service_alerts` back out. Blocks RQ1 Objective 3 |
-| Retrieval index | **Done, wrong corpus** — `transit-index`, Voyage embeddings into a fingerprinted Chroma collection ([`10-retrieval.md`](./10-retrieval.md)). Built and real: `opal_policy`, 144 chunks, `voyage-4-lite`, 2026-09-17. Repointing it at alerts is the next build step |
+| **Alert corpus ingestion** | **Done** — `transit-alerts audit` decides which alerts are disruptions and groups republications into incidents ([`09-service-alerts.md`](./09-service-alerts.md) §7): 8 incidents on 5 dates to 2026-09-28. The rule is checked on alerts from 2026-09-29, which it was not written from |
+| Retrieval index | **Done** — `transit-index`, Voyage embeddings into fingerprinted Chroma collections ([`10-retrieval.md`](./10-retrieval.md)). `tfnsw_alerts`: 8 incident passages, `voyage-4-lite`, built 2026-09-28, with time-aware retrieval that excludes the incident being explained. `opal_policy` (144 chunks) is retired |
 | Agent loop + MCP tools | Not started |
 | Evaluation plan | **Updated 2026-09-28** — [`08-evaluation-plan.md`](./08-evaluation-plan.md) follows RQ1's objectives and RQ2's metrics, and now records the student's decisions on the open items, which await the supervisor's confirmation (§5) |
 | Evaluation harness | Not started |

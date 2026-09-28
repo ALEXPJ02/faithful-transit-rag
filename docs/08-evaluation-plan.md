@@ -55,7 +55,7 @@ The objectives are the stages, in the order the workflow runs. An orchestrator a
 | --- | --- | --- | --- | --- |
 | **O1** Retrieval | Live T1/T4 trip updates and service alerts, joined to the static timetable. **Deterministic Python, not an LLM** | Trip updates (120 s), alerts (30 min), timetable → per-stop delay observations; active alerts with cause, effect, scope, text | Tool-faithfulness: share of the agent's statements about live conditions matching the logged tool response. Feed currency: lag between tool timestamp and snapshot | **Working** |
 | **O2** Prediction | Is T1/T4 disrupted, or about to be, and by how much. **XGBoost inside the tool handler** | *Delay half, per stop event:* the nine features in `dataset.FEATURE_COLUMNS` — scheduled arrival, stop sequence, previous-stop delay, hour, day, weekend, peak, line, stop — plus an active-alert flag *(once overlap allows)* → expected delay with a 90% interval. *Disruption half, per line × 15-minute window:* line-level window features (§3.3) → probability the line is disrupted in the next 30 minutes, and a flag | The answer states the interval the tool returned, unnarrowed. Calibration: a 90% interval contains the truth ~90% of the time on held-out days | **Delay half working; disruption half not built** |
-| **O3** Reasons | Likely cause of a predicted or detected disruption. **Retrieval agent over past alerts + Claude writing the reason** | O2's prediction with context, plus the five most similar past alerts → a cause category and a one/two-sentence explanation citing alert ids | Faithfulness: every statement supported by a retrieved alert or a tool output (Papageorgiou et al., 2025) | **Not built** |
+| **O3** Reasons | Likely cause of a predicted or detected disruption. **Retrieval agent over past alerts + Claude writing the reason** | O2's prediction with context, plus the five most similar past alerts → a cause category and a one/two-sentence explanation citing alert ids | Faithfulness: every statement supported by a retrieved alert or a tool output (Papageorgiou et al., 2025) | **Corpus and retrieval built; reasons agent not built** |
 
 ### Where each objective actually stands
 
@@ -85,11 +85,13 @@ score the identical 41,022 rows, and MASE moves 0.834 → 0.828. See
 confirmation.** Its thresholds are parameters, so the labeller can be built now and
 re-run unchanged if she moves one.
 
-**O3 — not built, and the blocker is narrow.** The retrieval stack is proven end to
-end against real Voyage embeddings (`10-retrieval.md`), but it indexes the Opal PDFs.
-What changes is the corpus, not the machinery: nothing yet reads `service_alerts` back
-out, and an alert has no page number, so the citation invariant needs a locator rather
-than a page.
+**O3 — the corpus and retrieval are built; the reasons agent is not.**
+`transit-alerts audit` turns collected alerts into incidents — which alerts are
+disruptions, and which are republications of one — with every decision printed and
+reasoned (`09-service-alerts.md` §7). `transit-index build --source alerts` indexes one
+passage per incident, cited by its alert ids since an alert has no page
+(`10-retrieval.md` §5): **8 incidents to 2026-09-28**. Retrieval takes the two leakage
+guards of §3.5 as arguments. What remains is the Claude agent that writes the reason.
 
 ## 3. RQ2 — the evaluation plan
 
@@ -122,11 +124,12 @@ are fixed before the test dates are scored.
 
 **Disruption.** A window is disrupted if either
 
-(a) an **unplanned** service alert — any cause other than `MAINTENANCE` — is in the
-feed for the line during the window, timed by **feed presence**
-(`first_seen_utc`..`last_seen_utc`), not by `active_period`; **and** that alert's feed
-presence is no longer than **24 hours**. Anything longer is a standing notice, not an
-incident. Or,
+(a) an alert that the **incident rule** classifies as a disruption is in the feed for
+the line during the window, timed by **feed presence**
+(`first_seen_utc`..`last_seen_utc`), not by `active_period`. The rule
+(`09-service-alerts.md` §7) requires a cause other than `MAINTENANCE`, feed presence of
+no more than **24 hours** (longer is a standing notice, not an incident), and a
+description that states an effect on train running rather than planned work. Or,
 (b) at least a quarter of the line's observed services are **more than 5 minutes
 late**.
 
@@ -145,6 +148,14 @@ destination. The feed reports every stop, and a window needs an answer before mo
 trains reach their destination, so rule (b) applies the threshold per window: a service
 counts as late in a window if its **latest observed delay in that window** is above
 300 s. That is the labeller's default, and the write-up states it as an adaptation.
+
+**Why the description test** *(added 2026-09-29, pending the supervisor's
+confirmation)*. Cause and duration alone admitted three planned-trackwork notices and
+a police operation that closed streets, all published as `UNKNOWN_CAUSE` and all under
+24 hours — and cause alone would also delete the Edgecliff closure, which is
+`UNKNOWN_CAUSE` too. The description separates them. The rule was written by reading
+the 22 alerts to 2026-09-28, so alerts from 2026-09-29 are held out to check it, and a
+case it gets wrong is corrected in a tracked overrides file with a written reason.
 
 **Three limits of the rules, stated rather than discovered later.**
 
@@ -192,21 +203,27 @@ counts as late in a window if its **latest observed delay in that window** is ab
 > event RQ2 exists to detect. **Header text does not carry the cause; read the
 > description.**
 
-**Reason (ground truth).** The `cause` field of the alert. Planned trackwork is
-excluded because it is scheduled, not predicted. Windows flagged only by rule (b) have
-no recorded cause, so they count for detection but not for reasons.
+**Reason (ground truth).** The cause of the *incident*: the first specific cause any
+of its alerts names, and unknown only if none ever does *(decided 2026-09-29, pending
+the supervisor's confirmation)*. Edgecliff was first posted as unknown and then as
+police activity; the correction is the answer. Planned trackwork is excluded because it
+is scheduled, not predicted. Windows flagged only by rule (b) have no recorded cause,
+so they count for detection but not for reasons.
 
-**Cause categories.** Grouped so each has enough examples. Counts below are distinct
-alerts touching T1 or T4 over 2026-09-14..24:
+**Cause categories.** Grouped so each has enough examples. Counts below are
+**incidents**, not alerts, to 2026-09-28 (`transit-alerts audit`):
 
-| Group | Feed causes | n |
+| Group | Feed causes | Incidents |
 | --- | --- | --- |
-| Technical / infrastructure | `TECHNICAL_PROBLEM` | 6 |
-| Incident on the network | `ACCIDENT` 1, `POLICE_ACTIVITY` 2, `MEDICAL_EMERGENCY` 0 | 3 |
-| Weather or external | `WEATHER`, etc. | **0** |
-| Other or unknown | `OTHER_CAUSE` 1, `UNKNOWN_CAUSE` 7 | 8 |
-| *(excluded — planned)* | `MAINTENANCE` | *23* |
-| **Total alerts touching T1/T4** | | **40** |
+| Technical / infrastructure | `TECHNICAL_PROBLEM` | 4 |
+| Incident on the network | `ACCIDENT` 1, `POLICE_ACTIVITY` 1, `MEDICAL_EMERGENCY` 1 | 3 |
+| Weather or external | `WEATHER`, `STRIKE`, `DEMONSTRATION`, `CONSTRUCTION`, `HOLIDAY` | **0** |
+| Other or unknown | `OTHER_CAUSE` 0, `UNKNOWN_CAUSE` 1 | 1 |
+| **Total incidents** | from 14 alerts | **8** |
+
+The 46 alerts naming T1 or T4 in that snapshot also include 24 `MAINTENANCE` alerts, 4
+standing notices, and 4 planned-work or non-train notices, all excluded with a stated
+reason.
 
 `UNKNOWN_CAUSE` sits in "other or unknown" — the supervisor's grouping names that
 class explicitly — not outside the table. The rule (a) blockquote above is why it
@@ -223,14 +240,14 @@ is therefore averaged over the groups that **occur in the test split's ground tr
 and the report names any group left out. A wrong "weather" prediction still costs the
 model: it is a missed case of the true group, which lowers that group's recall.
 
-**Ten unplanned alerts touch T1/T4 in the 10 days of history — but they are not one
-a day, and they are not ten incidents.**
+**Eight incidents in 14 days of alert history to 2026-09-28 — not one a day, and not
+one per alert.**
 
 | | |
 | --- | --- |
-| Sydney dates carrying any | **3** — 09-15 (4), 09-21 (4), 09-22 (2). Seven of ten dates have none |
-| Lines | T1 6, T4 5 — these overlap; one alert is scoped to both |
-| Distinct operational events | **~6.** TfNSW re-publishes an alert with a widened scope under a new `entity.id`, because the id is a content-derived UUIDv5. Three pairs here are the same event twice, one pair byte-identical in `description_text` |
+| Sydney dates carrying any | **5** — 09-15 (3), 09-21 (2), 09-22, 09-25, 09-26. Nine of fourteen dates have none |
+| Lines | T1 6, T4 3 — Edgecliff is scoped to both |
+| Alerts behind them | **14.** TfNSW republishes an incident under a new `entity.id` when its scope or text changes, because the id is content-derived: Edgecliff and Chatswood are three alerts each, North Sydney and Martin Place two each |
 
 **Two consequences the rest of this plan has to absorb.**
 
@@ -238,8 +255,8 @@ a day, and they are not ten incidents.**
 incidents on three of them means most resamples contain none, so a 95% interval on
 cause macro-F1 is not meaningful at this sample size.
 
-*The reasons test set may be empty.* A chronological 70/15/15 over the 22 collected
-dates puts test at 09-22..24, which holds **2** unplanned alerts, both
+*The reasons test set may be empty.* On the data to 2026-09-24, a chronological
+70/15/15 over the 22 collected dates put test at 09-22..24, which holds **2** unplanned alerts, both
 `TECHNICAL_PROBLEM` — one cause group. **Macro-F1 over four groups is not computable
 on it.** Splitting over the 10 alert-covered dates is worse: test lands on 09-23..24
 with zero.
@@ -315,7 +332,9 @@ signals to learn a policy from. RL for disruption response is recorded as future
   three such pairs among ten alerts), so when the later twin is explained, the earlier
   one passes the time filter carrying the same `cause`. Alerts are grouped into events
   before indexing, the whole event is excluded, and reasons are scored per event —
-  otherwise twins also inflate the incident count.
+  otherwise twins also inflate the incident count. **Built:** `transit-alerts` groups
+  them (`09-service-alerts.md` §7), and the index takes `seen_before` and
+  `exclude_incident` as search arguments (`10-retrieval.md` §5).
 - **Judge validation.** The author hand-labels a **20% stratified subsample** and
   reports **Cohen's κ** against the LLM judge. An unvalidated judge is an unvalidated
   instrument, and every explanation number depends on one. If κ < 0.6 the prompt is
@@ -370,7 +389,7 @@ class-conditional binning mitigates but does not remove this. State it.
 
 **Agreed with her:** the 30-minute prediction horizon and the 15-minute window (§3.1).
 
-**Decided by the student on 2026-09-28, each needing her confirmation:**
+**Decided by the student on 2026-09-28 and 2026-09-29, each needing her confirmation:**
 
 1. **The disruption definition** (§3.2) — an unplanned alert timed by feed presence,
    with alerts present longer than 24 hours treated as standing notices; or a quarter
@@ -384,10 +403,16 @@ class-conditional binning mitigates but does not remove this. State it.
 4. **"Other transport events" become future work** (§1).
 5. **Reinforcement learning assessed and not used** (§3.3), in answer to her question
    whether an LLM or reinforcement learning works for the model.
+6. **Which alerts are disruptions** is decided by their description as well as their
+   cause (§3.2): planned-trackwork notices published as unknown cause are excluded, and
+   unknown-cause closures kept. Republished alerts are grouped into one incident, whose
+   cause is the first specific cause any of its alerts names.
+7. **Cancellations are collected from 2026-09-29** and used as a check on rule (b) and
+   as a detector feature, not in the main label (§3.2).
 
 **Still open:**
 
-6. **The retrain window.** The 5 schedule-blind dates split the collection into
+8. **The retrain window.** The 5 schedule-blind dates split the collection into
    2026-09-03..10 and 09-16..24. Current models exclude them, which puts the gap
    inside training and leaves validation and test clean and contiguous.
 
@@ -414,11 +439,10 @@ class-conditional binning mitigates but does not remove this. State it.
 
 In dependency order.
 
-1. **Alert corpus ingestion** — `service_alerts` → cited chunks, filtered to T1/T4
-   *(blocks O3)*
-2. **Alert retrieval index** — reuse the existing Voyage/Chroma stack *(blocks O3)*
-3. **Time-aware retrieval** — the §3.5 leakage guards, time *and* event *(needs the
-   alerts grouped into events first)*
+1. ✅ **Alert corpus ingestion** — alerts to incidents, T1/T4 only
+   (`transit-alerts`, 2026-09-29)
+2. ✅ **Alert retrieval index** — one passage per incident in `tfnsw_alerts`
+3. ✅ **Time-aware retrieval** — the §3.5 leakage guards, time *and* incident
 4. **Realtime tools** over the existing client *(blocks O1 as an agent tool)*
 5. **The agent loop** — the margin requirement is in the system prompt from the first
    version, never bolted on, or O2's check measures a retrofit

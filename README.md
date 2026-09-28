@@ -104,6 +104,14 @@ transit-index status                             # what is on disk, and whether 
 transit-index query "how does a daily cap work"
 ```
 
+The reasons corpus is built from a collection snapshot instead:
+
+```bash
+transit-alerts audit --db data/delay_observations_20260929.db    # every alert, verdict and reason
+transit-index build --source alerts --db data/delay_observations_20260929.db
+transit-index query --source alerts "T1 delays near Chatswood" --seen-before 2026-09-25T17:19:00+10:00
+```
+
 `status` exits non-zero when the stored index no longer matches the pinned corpus or
 the configured chunking, so it works as a pre-eval check. That matters because a
 stale index does not fail — it answers confidently, with citations, from a document
@@ -172,12 +180,14 @@ updated 2026-09-28.
 - **Evaluation data** — fixed cut-off at the end of 2026-10-18; a shortfall in the
   reasons evaluation is reported rather than waited out
   ([`docs/08`](./docs/08-evaluation-plan.md) §3.1).
-- **Retrieval (RQ1 O3)** — the stack is proven end to end against real Voyage
-  embeddings: collection `opal_policy`, 144 chunks, `voyage-4-lite`, cosine
-  ([`docs/10-retrieval.md`](./docs/10-retrieval.md)). It indexes the **wrong corpus**
-  for the current scope; repointing it at past T1/T4 alerts is the next build step.
-- **Next** — alert ingestion and its index, then the agent loop and MCP tools, then
-  the evaluation harness. All still empty packages.
+- **Reasons corpus (RQ1 O3)** — collected alerts become incidents
+  (`transit-alerts audit`: which alerts are disruptions, which are republications of
+  one) and are indexed one passage per incident in `tfnsw_alerts`, with retrieval
+  that cannot see the future or the incident being explained
+  ([`docs/09`](./docs/09-service-alerts.md) §7, [`docs/10`](./docs/10-retrieval.md) §5).
+  **8 incidents on 5 dates** to 2026-09-28.
+- **Next** — the reasons agent, the disruption labeller and conformal intervals, then
+  the agent loop and MCP tools, then the evaluation harness.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.

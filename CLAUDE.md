@@ -82,9 +82,16 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   so a retrieval number can be traced to the configuration that produced it
   (`docs/10-retrieval.md`). `VOYAGE_API_KEY` **is** set, and the collection
   `opal_policy` is built and real — 144 chunks, `voyage-4-lite`, 1024-dim,
-  cosine, built 2026-09-17T14:01Z. The stack is proven end to end; what has to
-  change for RQ1 Objective 3 is the corpus, not the machinery.
-- Repo scaffolding: 371 tests passing, CI green (ruff + mypy + pytest) plus
+  cosine, built 2026-09-17T14:01Z — retired from the RQs.
+- **The alert corpus** (RQ1 Objective 3) — `transit-alerts audit --db <snapshot>`
+  (`ingestion/alerts.py`) decides which T1/T4 alerts are disruptions and groups
+  republications into incidents, printing every decision with its reason
+  (`docs/09` §7). `transit-index build --source alerts --db <snapshot>` indexes one
+  passage per incident into `tfnsw_alerts`, cited by alert ids; `search` takes the
+  leakage guards `seen_before` and `exclude_incident` (`docs/10` §5). Built
+  2026-09-28: **8 incidents on 5 dates**, `voyage-4-lite`, 1024-d. Snapshots are
+  opened read-only.
+- Repo scaffolding: tests passing, CI green (ruff + mypy + pytest) plus
   CodeQL and a SHA-pinned Trivy workflow. Tests mirror the source tree, so
   `prediction/features/quality.py` is covered by
   `tests/prediction/features/test_quality.py` — but basenames must be globally
@@ -96,9 +103,8 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
 - `agent/` — hand-rolled Anthropic tool-use loop, the RQ1 orchestrator
 - `mcp_server/` — MCP tool interface + FastAPI
 - `evaluation/` — the RQ2 harness
-- **The alert corpus** — nothing reads `service_alerts` back out yet.
-  `reconcile.py` does not mention alerts, so the T1/T4 filter `docs/09` promised
-  does not exist. This is RQ1 Objective 3's blocker.
+- **The reasons agent** — Claude writing a cause from the retrieved incidents. The
+  corpus and guarded retrieval it needs exist.
 - **The disruption classifier** — RQ2 compares detectors, and none exists. The
   definition was decided 2026-09-28 (`docs/08` §3.2) pending the supervisor's
   confirmation, so it can be built now with its thresholds as parameters. It needs
@@ -206,6 +212,13 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
 - **Four cause groups, weather kept although empty.** Macro-F1 averages over the
   groups present in the test split's ground truth, and the report names any left
   out.
+- **Which alerts are disruptions is decided by the description, not the cause
+  alone** (`docs/09` §7, decided 2026-09-29 pending the supervisor). Planned
+  trackwork notices are published as `UNKNOWN_CAUSE` and so is the Edgecliff
+  closure; only the wording separates them. The markers were fitted on the 22
+  alerts to 2026-09-28 — alerts from 2026-09-29 are the held-out check, and a wrong
+  call goes in `data/alert_overrides.csv` with a reason, **never** into edited
+  markers. An incident's cause is the first specific cause any of its alerts names.
 - **"Other transport events" are future work; reinforcement learning was assessed
   and not used** (`docs/08` §1, §3.3). Both pending the supervisor's confirmation.
 - **Opal fare policy is out of scope**, set 2026-09-22. RAG stays; the corpus

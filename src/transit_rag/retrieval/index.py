@@ -29,12 +29,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
-from transit_rag.ingestion.chunks import Chunk
 from transit_rag.ingestion.corpus import DOCUMENTS, CorpusDocument
 
 log = logging.getLogger("transit_rag.index")
@@ -54,6 +54,19 @@ DISTANCE_SPACE = "cosine"
 WRITE_BATCH_SIZE = 256
 
 _FINGERPRINT_PREFIX = "fingerprint."
+
+
+class Indexable(Protocol):
+    """What the index needs from a passage: an id, its text, and the metadata
+    carrying its citation. A PDF ``Chunk`` and an ``IncidentPassage`` both are."""
+
+    @property
+    def chunk_id(self) -> str: ...
+
+    @property
+    def text(self) -> str: ...
+
+    def metadata(self) -> dict[str, Any]: ...
 
 
 def corpus_fingerprint(documents: tuple[CorpusDocument, ...] = DOCUMENTS) -> str:
@@ -89,14 +102,23 @@ class IndexFingerprint:
         overlap_chars: int,
         chunk_count: int,
         documents: tuple[CorpusDocument, ...] = DOCUMENTS,
+        corpus_hash: str | None = None,
+        document_keys: tuple[str, ...] | None = None,
     ) -> IndexFingerprint:
+        """``corpus_hash`` and ``document_keys`` default to the pinned PDFs. A
+        corpus that is not a set of pinned files -- the alert incidents, drawn
+        from a collection snapshot -- passes its own."""
         return cls(
             embedding_model=embedding_model,
             embedding_dimension=embedding_dimension,
             target_chars=target_chars,
             overlap_chars=overlap_chars,
-            corpus_hash=corpus_fingerprint(documents),
-            document_keys=tuple(sorted(document.key for document in documents)),
+            corpus_hash=corpus_hash if corpus_hash is not None else corpus_fingerprint(documents),
+            document_keys=(
+                document_keys
+                if document_keys is not None
+                else tuple(sorted(document.key for document in documents))
+            ),
             chunk_count=chunk_count,
             built_at=datetime.now(UTC).isoformat(timespec="seconds"),
         )
@@ -157,6 +179,7 @@ def stale_reasons(
     target_chars: int,
     overlap_chars: int,
     documents: tuple[CorpusDocument, ...] = DOCUMENTS,
+    expected_corpus_hash: str | None = None,
 ) -> list[str]:
     """Why the stored index does not match what is being asked for.
 
@@ -179,6 +202,15 @@ def stale_reasons(
     if stored.overlap_chars != overlap_chars:
         reasons.append(f"overlap {stored.overlap_chars} chars, now {overlap_chars}")
 
+    if expected_corpus_hash is not None:
+        if stored.corpus_hash != expected_corpus_hash:
+            reasons.append(
+                f"built from different incidents ({stored.corpus_hash[:12]}… vs "
+                f"{expected_corpus_hash[:12]}…): another snapshot, or the incident rule or "
+                f"overrides have changed since; rebuild"
+            )
+        return reasons
+
     current_hash = corpus_fingerprint(documents)
     if stored.corpus_hash != current_hash:
         reasons.append(
@@ -198,7 +230,7 @@ def open_client(persist_dir: Path) -> Any:
 
 
 def build_index(
-    chunks: list[Chunk],
+    chunks: Sequence[Indexable],
     vectors: list[list[float]],
     *,
     persist_dir: Path,

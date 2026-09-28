@@ -6,6 +6,10 @@
     transit-index status                    # what is on disk, and is it stale
     transit-index query "how does a daily cap work" --k 5
 
+    transit-index build --source alerts --db data/delay_observations_20260929.db
+    transit-index query --source alerts "T1 delays, train repairs" \
+        --seen-before 2026-09-25T17:00+10:00 --exclude-incident inc-761f6f2b37
+
 ``build`` is destructive: it replaces the collection rather than updating it,
 so a rebuild at a new chunk size cannot leave passages from the old one behind
 (``retrieval.index``). The whole corpus is two Voyage requests, so this costs
@@ -21,6 +25,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from transit_rag.config import (
@@ -28,6 +33,15 @@ from transit_rag.config import (
     VoyageConfig,
     chroma_persist_dir,
     configured_embedding_model,
+)
+from transit_rag.ingestion.alerts import (
+    DEFAULT_OVERRIDES,
+    IncidentPassage,
+    audit,
+    incident_corpus_hash,
+    incident_passages,
+    load_alerts,
+    load_overrides,
 )
 from transit_rag.ingestion.chunks import (
     DEFAULT_OVERLAP_CHARS,
@@ -48,6 +62,21 @@ from transit_rag.retrieval.index import (
 from transit_rag.retrieval.search import DEFAULT_K, Retriever, format_passages
 
 log = logging.getLogger("transit_rag.index_cli")
+
+#: Default collection per source. Separate collections, because a fingerprint
+#: describes one corpus and the two are never searched together.
+COLLECTIONS = {"opal": DEFAULT_COLLECTION, "alerts": "tfnsw_alerts"}
+
+
+def _collection(args: argparse.Namespace) -> str:
+    return str(args.collection or COLLECTIONS[args.source])
+
+
+def _incident_passages(args: argparse.Namespace) -> list[IncidentPassage]:
+    if args.db is None:
+        raise ValueError("--source alerts needs --db: the collection snapshot to read")
+    _, incidents = audit(load_alerts(args.db), load_overrides(args.overrides))
+    return incident_passages(incidents)
 
 
 def _summarise(chunks: list[Chunk]) -> str:
@@ -84,6 +113,8 @@ def _configured_model(args: argparse.Namespace) -> str:
 
 
 def command_build(args: argparse.Namespace) -> int:
+    if args.source == "alerts":
+        return _build_alerts(args)
     # The fingerprint stamps the *pinned* hashes, so the bytes being chunked
     # have to be the bytes those pins name. Without this the one failure the
     # fingerprint exists to catch is the one it cannot see: an index built from
@@ -125,24 +156,65 @@ def command_build(args: argparse.Namespace) -> int:
         vectors,
         persist_dir=args.persist_dir,
         fingerprint=fingerprint,
-        collection_name=args.collection,
+        collection_name=_collection(args),
     )
     print(
-        f"built {args.collection!r} in {args.persist_dir}: "
+        f"built {_collection(args)!r} in {args.persist_dir}: "
         f"{collection.count()} passages, {fingerprint.embedding_dimension}-d"
+    )
+    return 0
+
+
+def _build_alerts(args: argparse.Namespace) -> int:
+    """One passage per incident, so there is nothing to chunk or sweep:
+    the fingerprint records 0/0 for chunk size and overlap to say so."""
+    passages = _incident_passages(args)
+    if not passages:
+        raise ValueError(f"no incidents in {args.db}; nothing to index")
+    lengths = sorted(len(passage.text) for passage in passages)
+    print(
+        f"{len(passages)} incident passages from {args.db}\n"
+        f"chars: min {lengths[0]}, median {lengths[len(lengths) // 2]}, max {lengths[-1]}"
+    )
+    if args.dry_run:
+        print("\n--dry-run: nothing embedded, nothing written.")
+        return 0
+
+    embedder = _embedder(args)
+    print(f"\nembedding {len(passages)} passages with {embedder.model}…")
+    vectors = embed_chunks(passages, embedder)
+    fingerprint = IndexFingerprint.create(
+        embedding_model=embedder.model,
+        embedding_dimension=len(vectors[0]),
+        target_chars=0,
+        overlap_chars=0,
+        chunk_count=len(passages),
+        corpus_hash=incident_corpus_hash(passages),
+        document_keys=("tfnsw_alerts",),
+    )
+    collection = build_index(
+        passages,
+        vectors,
+        persist_dir=args.persist_dir,
+        fingerprint=fingerprint,
+        collection_name=_collection(args),
+    )
+    print(
+        f"built {_collection(args)!r} in {args.persist_dir}: "
+        f"{collection.count()} incidents, {fingerprint.embedding_dimension}-d"
     )
     return 0
 
 
 def command_status(args: argparse.Namespace) -> int:
     try:
-        collection = open_collection(args.persist_dir, args.collection)
+        collection = open_collection(args.persist_dir, _collection(args))
     except FileNotFoundError as exc:
         print(exc, file=sys.stderr)
         return 1
 
     fingerprint = describe(collection)
-    print(f"collection : {args.collection}")
+    print(f"collection : {_collection(args)}")
     print(f"location   : {args.persist_dir}")
     print(f"passages   : {collection.count()}")
 
@@ -155,12 +227,21 @@ def command_status(args: argparse.Namespace) -> int:
     print(f"corpus     : {fingerprint.corpus_hash[:16]}… ({len(fingerprint.document_keys)} docs)")
     print(f"built      : {fingerprint.built_at}")
 
-    reasons = stale_reasons(
-        fingerprint,
-        embedding_model=_configured_model(args),
-        target_chars=args.target_chars,
-        overlap_chars=args.overlap_chars,
-    )
+    if args.source == "alerts":
+        reasons = stale_reasons(
+            fingerprint,
+            embedding_model=_configured_model(args),
+            target_chars=0,
+            overlap_chars=0,
+            expected_corpus_hash=incident_corpus_hash(_incident_passages(args)),
+        )
+    else:
+        reasons = stale_reasons(
+            fingerprint,
+            embedding_model=_configured_model(args),
+            target_chars=args.target_chars,
+            overlap_chars=args.overlap_chars,
+        )
     if reasons:
         print("\nSTALE — this index does not match the current configuration:")
         for reason in reasons:
@@ -168,17 +249,27 @@ def command_status(args: argparse.Namespace) -> int:
         print("\nRebuild with `transit-index build`.")
         return 1
 
-    print("\nup to date with the pinned corpus and the configured chunking.")
+    if args.source == "alerts":
+        print(f"\nup to date with the incidents in {args.db}.")
+    else:
+        print("\nup to date with the pinned corpus and the configured chunking.")
     return 0
 
 
 def command_query(args: argparse.Namespace) -> int:
     try:
-        retriever = Retriever.open(args.persist_dir, _embedder(args), args.collection)
+        retriever = Retriever.open(args.persist_dir, _embedder(args), _collection(args))
     except FileNotFoundError as exc:
         print(exc, file=sys.stderr)
         return 1
-    passages = retriever.search(args.question, k=args.k, document_key=args.document)
+    seen_before = datetime.fromisoformat(args.seen_before) if args.seen_before else None
+    passages = retriever.search(
+        args.question,
+        k=args.k,
+        document_key=args.document,
+        seen_before=seen_before,
+        exclude_incident=args.exclude_incident,
+    )
     print(format_passages(passages))
     return 0
 
@@ -197,7 +288,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=chroma_persist_dir(),
         help="where the Chroma index lives (default: $CHROMA_PERSIST_DIR or .chroma)",
     )
-    common.add_argument("--collection", default=DEFAULT_COLLECTION)
+    common.add_argument(
+        "--source",
+        choices=sorted(COLLECTIONS),
+        default="opal",
+        help="which corpus: the retired Opal PDFs, or incidents from collected alerts",
+    )
+    common.add_argument(
+        "--collection", default=None, help="override the source's default collection"
+    )
+    common.add_argument(
+        "--db", type=Path, default=None, help="collection snapshot, for --source alerts"
+    )
+    common.add_argument("--overrides", type=Path, default=DEFAULT_OVERRIDES)
     common.add_argument(
         "--embedding-model",
         default=None,
@@ -230,6 +333,14 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("question")
     query.add_argument("--k", type=int, default=DEFAULT_K)
     query.add_argument("--document", default=None, help="restrict to one document key")
+    query.add_argument(
+        "--seen-before",
+        default=None,
+        help="alerts only: incidents first seen before this ISO time (timezone required)",
+    )
+    query.add_argument(
+        "--exclude-incident", default=None, help="alerts only: leave this incident out"
+    )
     query.set_defaults(handler=command_query)
 
     return parser
