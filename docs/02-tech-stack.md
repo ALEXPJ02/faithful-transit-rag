@@ -11,9 +11,9 @@
 | Language | **Python 3.12** (hard floor) | The whole RAG/eval/ML ecosystem lives here; below 3.12 mypy silently stops checking |
 | Generation | **Claude Sonnet** via the Anthropic API | Strong tool-use; the judge is a *different, cheaper* model to avoid self-grading |
 | Eval judge | **Claude Haiku** | Judge calls dominate eval volume; a cheap judge is what makes per-statement faithfulness scoring affordable |
-| Embeddings | **Voyage `voyage-4-lite`** | Anthropic has no first-party embeddings API; 200M free tokens covers a 3-PDF corpus many times over |
+| Embeddings | **Voyage `voyage-4-lite`** | Anthropic has no first-party embeddings API; 200M free tokens covers a corpus of past T1/T4 alerts (or the retired 3-PDF Opal corpus) many times over |
 | Agent | **Hand-rolled tool-use loop** (Anthropic SDK) | See §2 |
-| Vector store | **Chroma**, embedded | The corpus is 3 static PDFs — a server-based store would be ceremony |
+| Vector store | **Chroma**, embedded | The corpus is small — at most a few hundred T1/T4 alerts by the 2026-10-18 cut-off — so a server-based store would be ceremony |
 | Realtime | `gtfs-realtime-bindings` + TfNSW Open Data Hub | The feeds are protobuf; there is no JSON alternative |
 | Prediction | **XGBoost** — regressor, classifier to follow | See §3 |
 | Tool interface | **Anthropic MCP Python SDK** + FastAPI | Makes the tools callable from any MCP client, not just this agent |
@@ -151,3 +151,4 @@ eval set is the realistic way this estimate gets blown.
 | Claude API vs. local LLM | Claude API | A local model would be free, but costs GPU/hosting overhead and weakens the eval story |
 | Trip Planner API vs. GTFS joins | GTFS joins | The API is easier and returns fares too; kept as a fallback if joins eat too much of Weeks 4–7 |
 | Network-wide vs. T1/T4 | T1/T4 | Narrower claim, but the only honest one given the collection window |
+| Supervised ML + LLM vs. reinforcement learning | Supervised ML + LLM | RL is the natural tool for disruption *response* (rescheduling, holding trains), which would be a stronger applied story; but detection and cause are prediction problems with known answers, and ~6 incidents give RL nothing to learn from. Future work. Pending the supervisor's confirmation ([`08`](./08-evaluation-plan.md) §3.3) |

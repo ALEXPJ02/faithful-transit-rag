@@ -85,8 +85,8 @@ src/transit_rag/
       poller.py                The unattended collector (loop / --once / --status)
       routes.py                route_id -> line-name lookup from the static bundle
       store.py                 Two sinks: upserting SQLite, or CSV snapshots
-    features/                  (next) reconciliation + feature engineering
-    model/                     (next) XGBoost training and inference
+    features/                  reconciliation -> the training table
+    model/                     XGBoost delay regressor + its naive baseline
   agent/                       The hand-rolled tool-use loop
   mcp_server/                  MCP tool interface + FastAPI surface
   evaluation/                  Ragas + custom LLM-as-judge harness
