@@ -12,9 +12,11 @@ reported metric quietly starts describing a different set of rows.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
+import joblib
 import pandas as pd
 import pytest
 
@@ -147,3 +149,34 @@ class TestHelpRenders:
 
         assert raised.value.code == 0
         assert "--keep-schedule-blind" in capsys.readouterr().out
+
+
+class TestInterval:
+    def test_it_is_calibrated_on_validation_and_saved_with_the_model(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The margin inference states must be the one fitted beside the model,
+        on validation rows, and none from test."""
+        table = make_table({f"2026-09-{day:02d}": 1.0 for day in range(3, 13)})
+        model_out, metrics_out = tmp_path / "model.joblib", tmp_path / "metrics.json"
+        _run(
+            monkeypatch,
+            table,
+            tmp_path,
+            "--model-out",
+            str(model_out),
+            "--metrics-out",
+            str(metrics_out),
+        )
+
+        written = json.loads(metrics_out.read_text())
+        interval = written["interval"]
+        assert interval["key"] == ["line", "lateness"]
+        assert sum(interval["calibration_sizes"].values()) == written["split"]["validation_rows"]
+        assert joblib.load(model_out)["conformal"]["half_widths_s"] == interval["half_widths_s"]
+        assert (
+            "prediction interval -- split conformal by line x lateness" in capsys.readouterr().out
+        )

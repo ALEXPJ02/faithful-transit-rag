@@ -30,6 +30,12 @@ are *scored* only on rows where the baseline has an input, i.e. not the first
 stop of a trip. Scoring the model on rows the baseline was never offered would
 flatter it by roughly the share of first stops (~6%).
 
+**The margin is calibrated on validation too.** The 90% interval is split
+conformal, binned by line and by how late the train already was (``conformal.py``,
+``docs/08`` §4). On test it is scored per lateness band, beside the global
+validation MAE it replaces, and it is saved with the model so inference states the
+same margin.
+
 **The test split is scored once**, after hyperparameter selection has finished on
 validation. Nothing in this module fits or selects against it.
 """
@@ -52,7 +58,7 @@ from transit_rag.prediction.features.quality import (
     MIN_SCHEDULE_COVERAGE,
     time_based_split,
 )
-from transit_rag.prediction.model import baseline, metrics
+from transit_rag.prediction.model import baseline, conformal, metrics
 from transit_rag.prediction.model.dataset import (
     CATEGORICAL_COLUMNS,
     FEATURE_COLUMNS,
@@ -124,6 +130,21 @@ def _fit_and_score(table: pd.DataFrame) -> tuple[FittedModel, dict[str, object]]
     model_scores = metrics.score(test_set.target, model_prediction)
     baseline_scores = metrics.score(test_set.target, baseline_prediction)
 
+    # The margin is calibrated on validation only, then checked on every test
+    # row, first stops included, because the tool answers for those too. The
+    # global validation MAE is scored beside it as the margin it replaces.
+    intervals = conformal.ConformalIntervals.fit(
+        validation_set.target,
+        fitted.predict(validation_set.features),
+        conformal.bin_keys(split.validation),
+    )
+    every_test_row = build_dataset(test, levels)
+    test_prediction = fitted.predict(every_test_row.features)
+    test_keys = conformal.bin_keys(test)
+    half_width = intervals.half_width(test_keys)
+    lateness = conformal.bin_columns(test)["lateness"]
+    mae_margin = pd.Series(fitted.validation_mae_s, index=test.index)
+
     summary: dict[str, object] = {
         "split": {
             "train_rows": len(split.train),
@@ -147,6 +168,20 @@ def _fit_and_score(table: pd.DataFrame) -> tuple[FittedModel, dict[str, object]]
             ).to_dict("records")
             for column in ("is_peak", "route_short_name", "hour_local")
         },
+        "interval": {
+            **intervals.to_dict(),
+            "uncalibrated_bins": intervals.uncalibrated(test_keys),
+            "test_coverage_by_lateness": conformal.coverage_table(
+                every_test_row.target, test_prediction, half_width, lateness
+            ).to_dict("records"),
+            "test_coverage_by_bin": conformal.coverage_table(
+                every_test_row.target, test_prediction, half_width, test_keys
+            ).to_dict("records"),
+            "validation_mae_margin_coverage_by_lateness": conformal.coverage_table(
+                every_test_row.target, test_prediction, mae_margin, lateness
+            ).to_dict("records"),
+        },
+        "_intervals": intervals,
         "_frames": {
             "comparable": comparable,
             "truth": test_set.target,
@@ -220,6 +255,41 @@ def _print_report(fitted: FittedModel, summary: dict[str, object]) -> None:
         print(f"  MAE by {column}:")
         for record in segments[column]:
             print(f"    {record['segment']!s:<24}{record['mae_s']:>8.1f}s  (n={record['n']:,})")
+
+    _print_interval(summary)
+
+
+def _print_interval(summary: dict[str, object]) -> None:
+    intervals = summary["_intervals"]
+    interval = summary["interval"]
+    assert isinstance(intervals, conformal.ConformalIntervals) and isinstance(interval, dict)
+    target = 1 - intervals.alpha
+    print()
+    print(
+        f"  {target:.0%} prediction interval -- split conformal by "
+        f"{' x '.join(intervals.key)}, calibrated on validation:"
+    )
+    for name, width in intervals.half_widths.items():
+        size = intervals.calibration_sizes[name]
+        print(f"    {name:<30} +/- {width:>6.1f}s  (calibrated on {size:,})")
+    for name in interval["uncalibrated_bins"]:
+        print(
+            f"    {name:<30} no validation rows -- falls back to the global "
+            f"+/- {intervals.global_half_width:.1f}s"
+        )
+
+    conformal_rows = {row["segment"]: row for row in interval["test_coverage_by_lateness"]}
+    mae_rows = {
+        row["segment"]: row for row in interval["validation_mae_margin_coverage_by_lateness"]
+    }
+    print()
+    print(f"  Test coverage by how late the train already was (target {target:.0%}):")
+    print(f"    {'':<24}{'rows':>8}{'conformal':>11}{'+/- val MAE':>13}")
+    for name, row in sorted(conformal_rows.items(), key=lambda item: item[0] == "all"):
+        print(
+            f"    {name:<24}{row['n']:>8,}{row['coverage']:>11.1%}"
+            f"{mae_rows[name]['coverage']:>13.1%}"
+        )
 
 
 def _run_curve(table: pd.DataFrame) -> None:
@@ -402,6 +472,8 @@ def main() -> None:
             # id to the same code training used, and the levels are not
             # recoverable from the booster.
             "category_levels": {column: list(dtype.categories) for column, dtype in levels.items()},
+            # The margin inference states, fitted on validation with the model.
+            "conformal": summary["interval"],
         },
         args.model_out,
     )

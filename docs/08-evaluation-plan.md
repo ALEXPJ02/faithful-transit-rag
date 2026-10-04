@@ -363,38 +363,76 @@ signals to learn a policy from. RL for disruption response is recorded as future
   The realtime client already separates fetching from parsing, so this needs no new
   abstraction.
 
-## 4. The prediction interval — carried forward from the old plan
+## 4. The prediction interval
 
-RQ1 Objective 2 requires the prediction to state an error margin and for that margin
-to hold up. The work behind this is real and survives the restructure.
+RQ1 Objective 2 requires the prediction to state an error margin, and that margin has
+to hold up.
 
-**The margin cannot be the global MAE.** Measured on the **7-day fit of 2026-09-10**
-— 14,669 rows, not the current model — conditional error spanned roughly **7.8 s to
-82.4 s**, a factor of ten, between trains running to time and trains already late. A single global margin is over-conservative on the first and
-badly overconfident on the second.
+**The margin cannot be the global MAE.** This was re-derived on 2026-10-05 with the
+current pipeline, on the 2026-10-05 table. Validation is 09-27..30 and test is
+10-01..04. This is the validation |residual|, by how late the train already was at
+its previous stop:
+
+| Already | Rows | MAE | 90th percentile |
+| --- | --- | --- | --- |
+| on time (≤ 60 s) | 42,689 | 9.7 s | 26.5 s |
+| 1–5 min late | 10,937 | 29.5 s | 61.4 s |
+| more than 5 min late | 2,121 | 89.9 s | 235.9 s |
+| first stop of the trip | 3,675 | 61.4 s | 167.6 s |
+
+This replaces the 7.8–82.4 s measured on the 7-day fit of 2026-09-10, which could not
+be re-derived. It makes the same point more sharply: a nine-fold spread at the 90th
+percentile.
 
 The failure is worse than uneven: it is **anti-correlated with the question**. Nobody
 asks whether their on-time train is on time. The tool is invoked when a rider suspects
-a delay — exactly the rows a global margin covers worst. A metric scoring such an
-answer "faithful" would certify the system's most misleading behaviour.
+a delay, which is exactly where a global margin covers worst. A metric that scored such
+an answer "faithful" would certify the system's most misleading behaviour.
 
-> **Neither figure has been re-derived against the corrected 17-date model**, and the
-> segment/coverage table they came from was removed with the old decomposition, so its
-> n's and percentages are not recoverable from this repo. Re-deriving is the only path,
-> and it has to happen before any of this is quoted. The *argument* does not depend on
-> the exact numbers — it depends on conditional error varying by an order of magnitude,
-> which is a property of the data, not of that fit.
+**Built: split conformal intervals, by line × lateness**
+(`prediction/model/conformal.py`, run by `transit-train`). They are fitted on validation
+and never on test. The score is the absolute residual. Within each bin, the margin is
+the ⌈(n+1)(1−α)⌉-th smallest score, at 90%. The tool emits `prediction ± q̂`. The
+half-widths are saved in the model artefact, so the agent tool states the margin that
+was calibrated.
 
-**The fix: split conformal intervals**, fitted on validation and never on test —
-absolute residuals, the ⌈(n+1)(1−α)⌉/n quantile, emit `prediction ± q̂`. It is
-distribution-free and assumes only exchangeability. Because conditional coverage is
-the whole problem, use **Mondrian (class-conditional) conformal**: residual quantiles
-within bins of hour-band × peak × route, so a 22:00 prediction carries a wider bound
-than an 06:00 one by construction. Report coverage marginally *and* per bin — the
-per-bin table is the evidence the fix worked.
+**The bins are not the ones this plan first named, and the reason is measured.** The
+plan named hour band × peak × route. Hour band moves the 90th-percentile error only
+1.7-fold (32–54 s), while lateness moves it nine-fold. The candidates were compared on
+the validation split alone. Each was calibrated on two validation dates and checked on
+the other two, both ways round:
 
-Rail delays are autocorrelated within a day, so exchangeability is imperfect;
-class-conditional binning mitigates but does not remove this. State it.
+| Bins | Coverage of trains already more than 5 min late | Median half-width |
+| --- | --- | --- |
+| One global margin | 64% / 48% | 40–51 s |
+| Hour band × peak × line (the plan) | 61% / 49% | 42–46 s |
+| **Line × lateness** | **89% / 75%** | **28 s** |
+| The plan's bins + lateness | 86% / 67% | 31 s |
+
+Line × lateness was chosen on that evidence, before the test split was looked at.
+*Proposed 2026-10-05, pending confirmation (§5).* The plan's bins remain available as a
+key.
+
+**On the test dates**, in a development run on the 2026-10-05 table (test 10-01..04).
+This is not the scored run, which comes after the cut-off:
+
+| Already | Rows | Conformal | ± validation MAE |
+| --- | --- | --- | --- |
+| on time | 40,930 | 91.4% | 88.3% |
+| 1–5 min late | 9,505 | 90.0% | 50.6% |
+| more than 5 min late | 1,136 | 96.2% | **32.3%** |
+| first stop | 3,430 | 91.4% | 63.5% |
+| all | 55,001 | 91.3% | 79.1% |
+
+A global margin covers a third of the trains riders ask about. The conformal interval
+holds every band at 90% or above. Its half-widths run from ±26.5 s for a train on time
+to ±292 s for a T1 train already more than five minutes late.
+
+**Exchangeability is the residual risk, and it shows.** Rail delays are autocorrelated
+within a day and drift between days. In the cross-fit, the same bins covered late
+trains 89% of the time one way round and 75% the other. The 75% came from calibrating
+on 27–28 Sep and checking on 29–30 Sep, which was the start of T4's late week
+(`11-disruption-labels.md` §5). Binning mitigates drift; it does not remove it. State it.
 
 ## 5. To confirm with Dr Ramezani
 
