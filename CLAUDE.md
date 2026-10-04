@@ -98,6 +98,14 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   unique, because the suite has no `__init__.py` files and pytest imports each
   module by bare basename.
 
+- **The disruption label** (RQ2 ground truth) — `transit-label --db <snapshot>`
+  (`prediction/disruption/`, `docs/11`) labels every T1/T4 15-minute window from the
+  §3.2 definition, with every threshold as a parameter. Rule (b) fires only on five or
+  more observed services. That minimum was proposed on 2026-10-05 and is pending
+  confirmation. Windows with no observed service, or from before alert collection,
+  are `pd.NA`, never `False`. To 2026-10-04 it marks 4.7% of T1 windows and 4.4% of
+  T4 windows disrupted.
+
 **Not started — these packages contain only an empty `__init__.py`:**
 
 - `agent/` — hand-rolled Anthropic tool-use loop, the RQ1 orchestrator
@@ -105,10 +113,10 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
 - `evaluation/` — the RQ2 harness
 - **The reasons agent** — Claude writing a cause from the retrieved incidents. The
   corpus and guarded retrieval it needs exist.
-- **The disruption classifier** — RQ2 compares detectors, and none exists. The
-  definition was decided 2026-09-28 (`docs/08` §3.2) pending the supervisor's
-  confirmation, so it can be built now with its thresholds as parameters. It needs
-  line-level window features, not the delay model's per-stop ones (§3.3).
+- **The disruption classifier** — RQ2 compares detectors, and none exists. The label
+  it is scored against is built (above). It needs line-level window features, not the
+  delay model's per-stop ones, and its target is the next 30 minutes' label, never
+  the label of the windows its features come from (`docs/08` §3.3).
 
 **Snapshots in `data/` are frozen, never live.** The newest is
 `delay_observations_20261005.db`: 481,084 stop events over 32 service dates

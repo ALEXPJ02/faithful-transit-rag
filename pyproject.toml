@@ -70,6 +70,7 @@ transit-reconcile = "transit_rag.prediction.features.cli:main"
 transit-train = "transit_rag.prediction.model.cli:main"
 transit-index = "transit_rag.retrieval.cli:main"
 transit-alerts = "transit_rag.ingestion.alerts_cli:main"
+transit-label = "transit_rag.prediction.disruption.cli:main"
 
 [project.urls]
 Repository = "https://github.com/ALEXPJ02/faithful-transit-rag"

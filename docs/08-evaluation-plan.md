@@ -54,7 +54,7 @@ The objectives are the stages, in the order the workflow runs. An orchestrator a
 | | Task and tool | In → out | How it is checked | State |
 | --- | --- | --- | --- | --- |
 | **O1** Retrieval | Live T1/T4 trip updates and service alerts, joined to the static timetable. **Deterministic Python, not an LLM** | Trip updates (120 s), alerts (30 min), timetable → per-stop delay observations; active alerts with cause, effect, scope, text | Tool-faithfulness: share of the agent's statements about live conditions matching the logged tool response. Feed currency: lag between tool timestamp and snapshot | **Working** |
-| **O2** Prediction | Is T1/T4 disrupted, or about to be, and by how much. **XGBoost inside the tool handler** | *Delay half, per stop event:* the nine features in `dataset.FEATURE_COLUMNS` — scheduled arrival, stop sequence, previous-stop delay, hour, day, weekend, peak, line, stop — plus an active-alert flag *(once overlap allows)* → expected delay with a 90% interval. *Disruption half, per line × 15-minute window:* line-level window features (§3.3) → probability the line is disrupted in the next 30 minutes, and a flag | The answer states the interval the tool returned, unnarrowed. Calibration: a 90% interval contains the truth ~90% of the time on held-out days | **Delay half working; disruption half not built** |
+| **O2** Prediction | Is T1/T4 disrupted, or about to be, and by how much. **XGBoost inside the tool handler** | *Delay half, per stop event:* the nine features in `dataset.FEATURE_COLUMNS` — scheduled arrival, stop sequence, previous-stop delay, hour, day, weekend, peak, line, stop — plus an active-alert flag *(once overlap allows)* → expected delay with a 90% interval. *Disruption half, per line × 15-minute window:* line-level window features (§3.3) → probability the line is disrupted in the next 30 minutes, and a flag | The answer states the interval the tool returned, unnarrowed. Calibration: a 90% interval contains the truth ~90% of the time on held-out days | **Delay half working; disruption label built, classifier not** |
 | **O3** Reasons | Likely cause of a predicted or detected disruption. **Retrieval agent over past alerts + Claude writing the reason** | O2's prediction with context, plus the five most similar past alerts → a cause category and a one/two-sentence explanation citing alert ids | Faithfulness: every statement supported by a retrieved alert or a tool output (Papageorgiou et al., 2025) | **Corpus and retrieval built; reasons agent not built** |
 
 ### Where each objective actually stands
@@ -81,9 +81,15 @@ does *not* produce the margin: it cannot reach the test split at all, both setti
 score the identical 41,022 rows, and MASE moves 0.834 → 0.828. See
 `07-training-table.md`.
 
-**The disruption output's definition is decided (§3.2), pending the supervisor's
-confirmation.** Its thresholds are parameters, so the labeller can be built now and
-re-run unchanged if she moves one.
+**The disruption label is built** (`transit-label`,
+[`11-disruption-labels.md`](./11-disruption-labels.md)) from the definition in §3.2,
+which is pending the supervisor's confirmation. Its thresholds are parameters, so it
+can be re-run unchanged if she moves one. To 2026-10-04 it marks 4.7% of T1 windows
+and 4.4% of T4 windows disrupted. The two rules agree less than one might expect.
+Rule (b) fires on most windows of four incidents: Edgecliff, North Sydney, Harris Park
+and the Bondi Junction repairs of 22 Sep. It fires on one window of Chatswood and on
+none of the other seven. It also fires on 56 windows that no alert covers. That is the case for keeping both rules
+(`11` §5).
 
 **O3 — the corpus and retrieval are built; the reasons agent is not.**
 `transit-alerts audit` turns collected alerts into incidents — which alerts are
@@ -421,6 +427,13 @@ class-conditional binning mitigates but does not remove this. State it.
 7. **Cancellations are collected from 2026-09-29** and used as a check on rule (b) and
    as a detector feature, not in the main label (§3.2).
 
+**Proposed on 2026-10-05, needing the student's and then her confirmation:**
+
+9. **Rule (b) fires only on five or more observed services** (`11` §3). Five is the
+   smallest count at which one late train cannot reach a quarter on its own. With no
+   minimum, 26 of the 28 extra windows it marks are between 01:00 and 04:30, with one
+   to four trains running.
+
 **Still open:**
 
 8. **The retrain window.** The 5 schedule-blind dates split the collection into
@@ -458,8 +471,9 @@ In dependency order.
 5. **The agent loop** — the margin requirement is in the system prompt from the first
    version, never bolted on, or O2's check measures a retrofit
 6. **Conformal calibration** on the validation split *(blocks O2's interval)*
-7. **The disruption labeller and classifier** — definition decided (§3.2), thresholds
-   as parameters; line-level window features (§3.3) *(blocks RQ2 detection)*
+7. **The disruption labeller and classifier.** ✅ The labeller: `transit-label`
+   (`11-disruption-labels.md`, 2026-10-05), with thresholds as parameters. Next come
+   the classifier and its line-level window features (§3.3) *(blocks RQ2 detection)*
 8. **The evaluation harness** — detection metrics, cause macro-F1, the judge, then
    judge validation, then the scored run on data to the §3.1 cut-off
 
