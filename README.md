@@ -162,14 +162,15 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 
 ## Status
 
-Figures reconciled against the repo and the live collector on 2026-09-24; decisions
-updated 2026-09-28.
+Collection figures are from the snapshot of 2026-10-05. Model figures were reconciled
+on 2026-09-24, and decisions updated on 2026-09-28.
 
 - **Collection (RQ1 O1)** — live since 3 September 2026, plus the scheduled-Action
-  backup. **321,634 stop events over 22 service dates**, T1 192,114 · T4 129,520;
-  134 service alerts, 40 of which touch T1 or T4. 15,038 of 15,039 polls successful.
-  Cancelled and altered trips are collected from 2026-09-29 (`trip_statuses`);
-  TfNSW publishes a cancellation with no stop updates, so before then none were.
+  backup. **481,084 stop events over 32 service dates** to 2026-10-04, T1 286,765 ·
+  T4 194,319. There are 184 service alerts, 54 of which touch T1 or T4, and 22,325 of
+  22,326 polls succeeded. Cancelled and altered trips are collected from 2026-09-29
+  (`trip_statuses`). TfNSW publishes a cancellation with no stop updates, so none
+  were collected before then.
 - **Prediction (RQ1 O2)** — `transit-train` fits the delay model against a
   naive-persistence baseline written first. On the 17 schedule-covered dates:
   **test MAE 15.45 s vs 18.67 s, MASE 0.828**. The disruption classifier that RQ2
@@ -185,7 +186,9 @@ updated 2026-09-28.
   one) and are indexed one passage per incident in `tfnsw_alerts`, with retrieval
   that cannot see the future or the incident being explained
   ([`docs/09`](./docs/09-service-alerts.md) §7, [`docs/10`](./docs/10-retrieval.md) §5).
-  **8 incidents on 5 dates** to 2026-09-28.
+  **8 incidents on 5 dates** to 2026-09-28, indexed. By 2026-10-04 that is **11 on 7
+  dates**. The incident rule agreed with all 8 alerts it was not written from, but
+  none was `UNKNOWN_CAUSE`, so the description markers are still untested out of sample.
 - **Next** — the reasons agent, the disruption labeller and conformal intervals, then
   the agent loop and MCP tools, then the evaluation harness.
 

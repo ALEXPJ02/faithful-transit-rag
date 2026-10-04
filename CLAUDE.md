@@ -111,11 +111,12 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   line-level window features, not the delay model's per-stop ones (§3.3).
 
 **Snapshots in `data/` are frozen, never live.** The newest is
-`delay_observations_20260924.db` — 321,634 stop events over 22 service dates
-(2026-09-03..24), T1 192,114 · T4 129,520, 134 alerts, 4,272 scopes, integrity
-`ok`. Re-pull from the VM before quoting any number, **and pull
-`data/bundles/` in the same pass** — the instance archives a timetable era daily
-and nothing else does.
+`delay_observations_20261005.db`: 481,084 stop events over 32 service dates
+(2026-09-03..10-04), T1 286,765 · T4 194,319. It also has 184 alerts, 5,624 scopes,
+and 628 trip statuses over 6 dates. Integrity is `ok`, and its sha256 matches the
+VM's copy. 19 bundle eras (to 20261004) are in `data/bundles/`. Re-pull from the VM
+before quoting any number, **and pull `data/bundles/` in the same pass** — the
+instance archives a timetable era daily and nothing else does.
 
 ## Hard constraints — breaking these costs real work
 

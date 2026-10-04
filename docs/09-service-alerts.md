@@ -205,3 +205,48 @@ Those 8 incidents come from 14 alerts: Edgecliff and Chatswood are three alerts
 each, North Sydney and Martin Place two each. The same rule over the data to
 2026-09-24 gives 6 incidents on 3 dates, which is what `docs/08` §3.2 counted by
 hand.
+
+### The held-out check, to 2026-10-04
+
+First run on the snapshot of 2026-10-05 (last poll 01:15 Sydney time), which
+holds the first six days the rule was not written from. Eight alerts naming T1
+or T4 were first seen from 2026-09-29. Each was read against the same criteria,
+from `description_text`, not the header:
+
+| First seen (Sydney) | Alert | Cause | What the description says | Rule | Read as |
+| --- | --- | --- | --- | --- | --- |
+| 2026-09-29 12:03 | `0c790a35` | `MAINTENANCE` | changed timetable, nightly 14–15 Oct | excluded | planned |
+| 2026-09-29 12:03 | `13282b0a` | `MAINTENANCE` | buses replace trains Parramatta–Lidcombe, Sunday 18 Oct | excluded | planned |
+| 2026-09-29 13:03 | `606d28af` | `MAINTENANCE` | buses replace trains Waterfall–Sutherland, Saturday 17 Oct | excluded | planned |
+| 2026-09-29 17:06 | `c408c9a6` | `TECHNICAL_PROBLEM` | "Urgent train repairs at Bondi Junction have been completed … allow extra travel time" | incident | incident |
+| 2026-09-30 10:16 | `b164574d` | `MAINTENANCE` | Richmond trains to a changed timetable, 3–4 Oct | excluded | planned |
+| 2026-10-01 08:38 | `ad28913f` | `POLICE_ACTIVITY` | "a person on the tracks at Central earlier" | incident | incident |
+| 2026-10-01 10:40 | `6116de49` | `MAINTENANCE` | Penrith trains make extra stops, nightly 7–8 Oct | excluded | planned |
+| 2026-10-01 21:47 | `7003e485` | `POLICE_ACTIVITY` | "the incident requiring emergency services at Marayong has been completed" | incident | incident |
+
+**Eight of eight agree, but the check has not yet reached the part of the rule
+it exists for.** None of the eight is `UNKNOWN_CAUSE`, so cause alone decided
+every one: `MAINTENANCE` excluded five, and the three incidents name a specific
+cause. The description markers only matter among `UNKNOWN_CAUSE` alerts, where
+planned and unplanned work look the same, and no such alert has named T1 or T4
+since the rule was frozen. Until one does, the markers are untested out of
+sample. The check continues to the cut-off (`docs/08` §3.1) and is reported then.
+
+With these, the rule gives **11 incidents on 7 Sydney dates**: the 8 above,
+plus 29 Sep (T4) and 1 Oct (two, both T1). Cause groups are technical 5, network
+incident 5, other/unknown 1 and weather/external 0. The 11 come from 17 alerts.
+
+Two observations from the same snapshot:
+
+- `c408c9a6` was in the feed for a single alert poll, first and last seen
+  together, and reports the repairs as already completed. The incident ran
+  between polls, or was never posted while in progress. Feed presence therefore
+  times it as one instant, and rule (a) marks only the window it was seen in.
+  This is the 30-minute resolution limit of §3, not a defect in the rule.
+- **The first `WEATHER` alert in the collection does not count, and that is
+  correct.** On 3 Oct TfNSW posted flooding on the tracks at Riverstone (61 min
+  in the feed), scoped to T5 only. Riverstone is on T1's Richmond branch (1,083
+  T1 stop times in that day's bundle), but no T1 stop event was observed there
+  on 3 Oct. That weekend's planned work (`b164574d`) ran Richmond trains to
+  Leppington instead. The operator's scope matched what actually ran, and the
+  rule takes scope as given. So weather/external is still empty on T1 and T4.

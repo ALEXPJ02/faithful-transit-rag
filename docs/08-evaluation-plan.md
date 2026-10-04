@@ -249,6 +249,16 @@ one per alert.**
 | Lines | T1 6, T4 3 — Edgecliff is scoped to both |
 | Alerts behind them | **14.** TfNSW republishes an incident under a new `entity.id` when its scope or text changes, because the id is content-derived: Edgecliff and Chatswood are three alerts each, North Sydney and Martin Place two each |
 
+**Updated 2026-10-05: 11 incidents on 7 dates to 2026-10-04.** The new ones are 29 Sep
+(T4, technical) and two on 1 Oct (T1, both police activity), from 17 alerts in all.
+By line it is T1 8 and T4 4. By group: technical 5, network incident 5, other/unknown
+1, weather/external 0. All three came from alerts the incident rule was not written
+from, and the rule called all eight held-out alerts correctly
+([`09-service-alerts.md`](./09-service-alerts.md) §7). A 70/15/15 split over the 32
+dates collected so far would put test at 09-30..10-04, which holds 2 incidents of one
+group. That is still too narrow for macro-F1. The split that counts is drawn once, at
+the cut-off.
+
 **Two consequences the rest of this plan has to absorb.**
 
 *The date-level bootstrap in §3.5 is degenerate.* Resampling whole service dates with
