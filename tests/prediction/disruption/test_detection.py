@@ -266,18 +266,23 @@ def _observation(trip_id: str, delay_s: int, at: datetime, day: int) -> StopDela
 
 
 def _week_snapshot(tmp_path: Path) -> Path:
-    """Seven days, each with one disrupted T1 window at 10:15 Sydney time."""
+    """Seven days of 10:00-11:30 Sydney time, each disrupted on T1 only at 10:15."""
     db = tmp_path / "week.db"
     with SqliteObservationStore(db) as store:
         for day in range(7):
             start = BASE + timedelta(days=day)
             store.record_alert_poll(start.isoformat(), 0, 0, "ok")
-            for minute in range(0, 60, 2):
+            for minute in range(0, 92, 2):
                 store.record_poll((start + timedelta(minutes=minute)).isoformat(), 10, 10, "ok")
-            seen = start + timedelta(minutes=20)
-            store.record_observations(
-                [_observation(f"d{day}-t{i}", 900 if i < 3 else 0, seen, day) for i in range(6)]
-            )
+            for window in range(6):
+                seen = start + timedelta(minutes=15 * window + 5)
+                late = 3 if window == 1 else 0
+                store.record_observations(
+                    [
+                        _observation(f"d{day}-w{window}-t{i}", 900 if i < late else 0, seen, day)
+                        for i in range(6)
+                    ]
+                )
     return db
 
 
@@ -294,6 +299,7 @@ def test_the_detect_command_scores_the_baseline_and_writes_only_where_asked(
     printed = capsys.readouterr().out
     assert "Split by service date, 70/15/15:" in printed
     assert "Persistence -- the next 30 minutes are disrupted if this window is:" in printed
+    assert "Detectors -- chosen on validation by average precision" in printed
 
     assert detect_main(["--db", str(db), "--overrides", str(overrides), "--out", str(out)]) == 0
     written = pd.read_csv(out)

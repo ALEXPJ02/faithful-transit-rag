@@ -97,7 +97,38 @@ validation it catches 72% of rule (a)'s targets, because an alert in the feed no
 usually still there in 30 minutes. It catches fewer of rule (b)'s, because lateness
 builds and clears faster than the operator posts.
 
-## 5. Today's test split is too thin to compare anything
+## 5. The detectors
+
+`models.py` fits XGBoost and a random forest (`08` §3.3) on `FEATURE_COLUMNS` and
+nothing else. Each is chosen the way the delay model is: a small explicit grid, the
+candidate with the best **validation** average precision, and a threshold set on
+validation. XGBoost also stops early on validation. Test is touched once. Neither
+model is reweighted for the 6% base rate. Average precision does not need it, and
+reweighting changes what a score means without improving the ranking.
+`transit-detect` scores both, then both again **without `alert_in_feed`**, which is
+the ablation `08` §3.5 names.
+
+On the 2026-10-05 snapshot:
+
+| Validation (46 positives) | AP | F1 | False alarms / day | Recall, rule (a) | Recall, rule (b) |
+| --- | --- | --- | --- | --- | --- |
+| Persistence | 0.457 | 64% | 3.0 | 72% | 45% |
+| XGBoost | 0.631 | 62% | 6.7 | 67% | 62% |
+| Random forest | 0.592 | 65% | 5.3 | 72% | 59% |
+| XGBoost, no alert feature | 0.489 | 53% | 8.0 | 28% | 69% |
+| Random forest, no alert feature | 0.477 | 52% | 3.7 | 22% | 55% |
+
+**These validation figures are selection scores, not results.** The detectors'
+settings, early stopping and thresholds were all chosen on these rows, so their AP is
+optimistic in a way persistence's is not. The comparison that counts is on test.
+
+**The ablation already says something.** Without the operator's alert, recall on
+rule (a)'s targets collapses from about 70% to about 25%, while rule (b)'s holds.
+Delay features find what rule (b) sees. Seeing what rule (a) sees needs the
+operator, as `11` §5 predicted. In XGBoost the most important features are mean
+delay (29%), services late (16%) and the alert flag (13%).
+
+## 6. Today's test split is too thin to compare anything
 
 Six positive targets, none from rule (a), on three quiet days. On that, a detector's
 AP is noise: persistence scores 0.011 by missing the six. **No detection result on
@@ -106,11 +137,14 @@ once, over the data to the cut-off at the end of 2026-10-18. That puts about fiv
 in test. Every scored result is reported with its count of positive targets beside
 it, so a reader can see how much it rests on (`08` §3.1).
 
-## 6. Next
+On today's test split, both detectors score AP 0.06–0.08 against persistence's
+0.011, on six positives. That is noise and is not quoted as a result.
 
-- **The detectors**: XGBoost and random forest on these features, selected on
-  validation by AP, and an LSTM if time allows (`08` §3.3). Then the ablations:
-  without `alert_in_feed`, and later without cancellations.
+## 7. Next
+
+- **The scored run**, on the split drawn at the cut-off, with every figure reported
+  beside its count of positive targets and with confidence intervals from resampling
+  whole service dates (`08` §3.5). Add an LSTM if time allows.
 - **Lead time**, in the evaluation harness.
 - **Timetabled services and cancellations as features.** They need a calendar-aware
   reading of the static timetable, the same one the label's cancellation check needs

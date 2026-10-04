@@ -517,8 +517,9 @@ In dependency order.
 7. **The disruption labeller and classifier.** ✅ The labeller: `transit-label`
    (`11-disruption-labels.md`, 2026-10-05), with thresholds as parameters. ✅ The
    line-level window features, the 30-minute target and the persistence baseline:
-   `transit-detect` (`12-disruption-detection.md`). Next come the detectors, XGBoost
-   and random forest *(blocks RQ2 detection)*
+   `transit-detect` (`12-disruption-detection.md`). ✅ The detectors, XGBoost and
+   random forest, chosen on validation, with the no-alert ablation (`12` §5). Their
+   scored comparison waits for the split drawn at the cut-off
 8. **The evaluation harness** — detection metrics, cause macro-F1, the judge, then
    judge validation, then the scored run on data to the §3.1 cut-off
 
