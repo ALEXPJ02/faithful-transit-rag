@@ -159,6 +159,7 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 - [`docs/08-evaluation-plan.md`](./docs/08-evaluation-plan.md) — the research questions and how each one gets measured
 - [`docs/09-service-alerts.md`](./docs/09-service-alerts.md) — the Service Alerts feed and the alert tables
 - [`docs/10-retrieval.md`](./docs/10-retrieval.md) — chunking, the index fingerprint, and the retrieval decisions
+- [`docs/11-disruption-labels.md`](./docs/11-disruption-labels.md) — the disruption label RQ2's detectors are scored against
 
 ## Status
 
@@ -173,11 +174,14 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   were collected before then.
 - **Prediction (RQ1 O2)** — `transit-train` fits the delay model against a
   naive-persistence baseline written first. On the 17 schedule-covered dates:
-  **test MAE 15.45 s vs 18.67 s, MASE 0.828**. The disruption classifier that RQ2
-  compares does not exist yet. Its definition was decided on 2026-09-28, pending the
-  supervisor's confirmation ([`docs/08`](./docs/08-evaluation-plan.md) §3.2): an
-  unplanned alert timed by feed presence with a 24-hour cap, or a quarter of a line's
-  services more than 5 minutes late.
+  **test MAE 15.45 s vs 18.67 s, MASE 0.828**. The **disruption label** is built
+  (`transit-label`, [`docs/11`](./docs/11-disruption-labels.md)) from the definition
+  decided on 2026-09-28, pending the supervisor's confirmation
+  ([`docs/08`](./docs/08-evaluation-plan.md) §3.2). A window is disrupted by an
+  unplanned alert, timed by feed presence with a 24-hour cap, or by a quarter of a
+  line's services running more than 5 minutes late. To 2026-10-04 that marks 4.7% of
+  T1 windows and 4.4% of T4 windows. The classifier that RQ2 compares does not exist
+  yet.
 - **Evaluation data** — fixed cut-off at the end of 2026-10-18; a shortfall in the
   reasons evaluation is reported rather than waited out
   ([`docs/08`](./docs/08-evaluation-plan.md) §3.1).
@@ -190,7 +194,7 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   dates**. The incident rule agreed with all 8 alerts it was not written from, but
   none was `UNKNOWN_CAUSE`, so the description markers are still untested out of
   sample. One urgent repair that TfNSW published as `MAINTENANCE` is in by override.
-- **Next** — the reasons agent, the disruption labeller and conformal intervals, then
+- **Next** — the reasons agent, the disruption classifier and conformal intervals, then
   the agent loop and MCP tools, then the evaluation harness.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
