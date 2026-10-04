@@ -183,6 +183,29 @@ class TestAudit:
         assert [row.incident_id is None for row in rows] == [True, False]
         assert [incident.alert_ids for incident in incidents] == [("repairs",)]
 
+    def test_an_urgent_repair_published_as_maintenance_is_technical_once_overridden(
+        self,
+    ) -> None:
+        """Harris Park, 2026-09-27: the rule drops MAINTENANCE before reading a
+        word, so only an override can let it in, and then it must not land in
+        other/unknown by default."""
+        harris_park = _alert(
+            "afb3c985",
+            cause="MAINTENANCE",
+            description=(
+                "Some trains are running 10-20 minutes late due to urgent signal "
+                "repairs at Harris Park earlier."
+            ),
+            minutes=242,
+        )
+        assert not classify(harris_park).is_incident
+
+        _, [incident] = audit(
+            [harris_park], {"afb3c985": Override(is_incident=True, reason="urgent repair")}
+        )
+        assert incident.cause == "MAINTENANCE"
+        assert incident.cause_group == "technical"
+
     def test_alerts_first_seen_after_the_freeze_are_marked_held_out(self) -> None:
         before = _alert("old", start=datetime(2026, 9, 28, 3, 0, tzinfo=UTC))
         # 15:30 UTC on the 28th is 01:30 on the 29th in Sydney.

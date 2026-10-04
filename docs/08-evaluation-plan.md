@@ -215,7 +215,7 @@ so they count for detection but not for reasons.
 
 | Group | Feed causes | Incidents |
 | --- | --- | --- |
-| Technical / infrastructure | `TECHNICAL_PROBLEM` | 4 |
+| Technical / infrastructure | `TECHNICAL_PROBLEM`; `MAINTENANCE` only by override, as an urgent repair (from 2026-10-05) | 4 |
 | Incident on the network | `ACCIDENT` 1, `POLICE_ACTIVITY` 1, `MEDICAL_EMERGENCY` 1 | 3 |
 | Weather or external | `WEATHER`, `STRIKE`, `DEMONSTRATION`, `CONSTRUCTION`, `HOLIDAY` | **0** |
 | Other or unknown | `OTHER_CAUSE` 0, `UNKNOWN_CAUSE` 1 | 1 |
@@ -248,6 +248,17 @@ one per alert.**
 | Sydney dates carrying any | **5** — 09-15 (3), 09-21 (2), 09-22, 09-25, 09-26. Nine of fourteen dates have none |
 | Lines | T1 6, T4 3 — Edgecliff is scoped to both |
 | Alerts behind them | **14.** TfNSW republishes an incident under a new `entity.id` when its scope or text changes, because the id is content-derived: Edgecliff and Chatswood are three alerts each, North Sydney and Martin Place two each |
+
+**Updated 2026-10-05: 12 incidents on 8 dates to 2026-10-04.** Three are new: 29 Sep
+(T4, technical) and two on 1 Oct (T1, both police activity). The rule called all eight
+held-out alerts correctly. The fourth addition, Harris Park signal repairs on 27 Sep
+(T1), predates the freeze. TfNSW published it as `MAINTENANCE`, which the rule drops
+unread, so it is in by override. The 12 come from 18 alerts. By line it is T1 9 and
+T4 4. By group: technical 6, network incident 5, other/unknown 1, weather/external 0
+([`09-service-alerts.md`](./09-service-alerts.md) §7). A 70/15/15 split over the 32
+dates collected so far would put test at 09-30..10-04, which holds 2 incidents of one
+group. That is still too narrow for macro-F1. The split that counts is drawn once, at
+the cut-off.
 
 **Two consequences the rest of this plan has to absorb.**
 
