@@ -89,9 +89,14 @@ IMPACT_MARKERS: tuple[str, ...] = (
 
 UNKNOWN_CAUSE = "UNKNOWN_CAUSE"
 
-#: ``docs/08`` §3.2's four groups. MAINTENANCE is absent on purpose: planned
-#: work is excluded before grouping, never classified.
+#: ``docs/08`` §3.2's four groups. Planned work is excluded before grouping and
+#: never classified, so MAINTENANCE reaches this map only through an override.
+#: That is an urgent repair that TfNSW published under the planned-work cause:
+#: Harris Park signal repairs on 2026-09-27, "trains running 10-20 minutes
+#: late". A fault in the infrastructure is the technical group. Leaving it out
+#: of the map would quietly default it to other/unknown instead.
 CAUSE_GROUPS: dict[str, str] = {
+    "MAINTENANCE": "technical",
     "TECHNICAL_PROBLEM": "technical",
     "ACCIDENT": "network_incident",
     "POLICE_ACTIVITY": "network_incident",

@@ -186,9 +186,10 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   one) and are indexed one passage per incident in `tfnsw_alerts`, with retrieval
   that cannot see the future or the incident being explained
   ([`docs/09`](./docs/09-service-alerts.md) §7, [`docs/10`](./docs/10-retrieval.md) §5).
-  **8 incidents on 5 dates** to 2026-09-28, indexed. By 2026-10-04 that is **11 on 7
+  **8 incidents on 5 dates** to 2026-09-28, indexed. By 2026-10-04 that is **12 on 8
   dates**. The incident rule agreed with all 8 alerts it was not written from, but
-  none was `UNKNOWN_CAUSE`, so the description markers are still untested out of sample.
+  none was `UNKNOWN_CAUSE`, so the description markers are still untested out of
+  sample. One urgent repair that TfNSW published as `MAINTENANCE` is in by override.
 - **Next** — the reasons agent, the disruption labeller and conformal intervals, then
   the agent loop and MCP tools, then the evaluation harness.
 
