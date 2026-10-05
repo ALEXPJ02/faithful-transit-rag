@@ -200,4 +200,5 @@ posting.
 
 - **The k sweep** ([`08`](./08-evaluation-plan.md) §3.5), on a development subset
   of incidents, frozen before the test dates are scored.
-- **Retrieval as an agent tool** — `mcp_server/`, once the agent loop exists.
+- **Retrieval as an agent tool** — `mcp_server/`, once the agent loop exists. The
+  reasons stage already queries the index under both guards ([`13-reasons.md`](./13-reasons.md)).
