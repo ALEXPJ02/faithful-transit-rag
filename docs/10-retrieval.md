@@ -198,7 +198,8 @@ posting.
 
 ## 6. Still to come
 
-- **The k sweep** ([`08`](./08-evaluation-plan.md) §3.5), on a development subset
-  of incidents, frozen before the test dates are scored.
+- **Freezing k.** The sweep is built ([`13`](./13-reasons.md) §7) and compares each
+  k with chance. On the 12 development incidents, the ranking does no better than a
+  random draw of earlier incidents. k is frozen at the cut-off by the rule in `13` §7.
 - **Retrieval as an agent tool** — `mcp_server/`, once the agent loop exists. The
   reasons stage already queries the index under both guards ([`13-reasons.md`](./13-reasons.md)).

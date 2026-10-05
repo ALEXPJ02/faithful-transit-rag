@@ -4,6 +4,7 @@
     transit-reasons --db ... --model                                    # also ask Claude, with and without retrieval
     transit-reasons --db ... --model --since 2026-09-29 --repeats 3     # only the later incidents, three runs
     transit-reasons --db ... --model --out data/reasons_runs.jsonl      # keep every answer
+    transit-reasons --db ... --sweep-k 1,2,3,5,8,10 --until 2026-10-12  # free: k against chance
 
 For each incident it builds the situation the feed showed before the incident's
 first alert, never the alert itself. It retrieves past incidents under both
@@ -21,6 +22,7 @@ import argparse
 import json
 import statistics
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -42,15 +44,19 @@ from transit_rag.config import (
     configured_embedding_model,
 )
 from transit_rag.evaluation.reasons import (
+    KRow,
     ReasonCase,
     build_cases,
+    earlier_groups,
     most_common_cause,
     retrieval_recall,
     score_reasons,
+    sweep_k,
 )
 from transit_rag.evaluation.stats import Interval, bootstrap_by_date
 from transit_rag.ingestion.alerts import (
     DEFAULT_OVERRIDES,
+    Incident,
     audit,
     load_alerts,
     load_overrides,
@@ -129,7 +135,43 @@ def _print_scores(
     print(f"      macro-F1 {macro_f1_interval(truth, runs, dates).describe(2)}")
 
 
+def format_sweep(rows: Sequence[KRow]) -> str:
+    """The sweep as a table, lift being recall@k less chance."""
+    lines = [f"  {'k':>3}{'recall@k':>11}{'chance':>9}{'lift':>8}{'on cause':>11}{'shown':>8}"]
+    for row in rows:
+        lines.append(
+            f"  {row.k:>3}{row.recall:>11.2f}{row.chance:>9.2f}{row.recall - row.chance:>+8.2f}"
+            f"{row.on_cause:>11.2f}{row.shown:>8.1f}"
+        )
+    return "\n".join(lines)
+
+
+def _sweep(
+    cases: list[ReasonCase], incidents: list[Incident], retriever: Retriever, ks: list[int]
+) -> int:
+    """Recall@k against chance, at each k, from one retrieval per incident (``docs/13`` §7)."""
+    largest = max(ks)
+    ranked = [
+        [str(p.metadata.get("cause_group")) for p in _retrieve(retriever, case, largest)]
+        for case in cases
+    ]
+    pools = [earlier_groups(case, incidents) for case in cases]
+    rows = sweep_k([case.truth for case in cases], ranked, pools, ks)
+    print(
+        f"k sweep on {len(cases)} incident(s), retrieved once at k={largest}: "
+        "a smaller k reads the top of the same ranking"
+    )
+    print(f"\n{format_sweep(rows)}")
+    print(
+        "\nChance shows as many earlier incidents, drawn at random from the pool the guards "
+        "admit.\nOn cause is the mean share of the incidents shown that share the true group."
+    )
+    return 0
+
+
 def command_reasons(args: argparse.Namespace) -> int:
+    if args.sweep_k and args.model:
+        raise ValueError("--sweep-k scores retrieval only; run --model at the k it chooses")
     alerts = load_alerts(args.db)
     _, incidents = audit(alerts, load_overrides(args.overrides))
     collection = open_collection(args.persist_dir, ALERT_COLLECTION)
@@ -141,10 +183,16 @@ def command_reasons(args: argparse.Namespace) -> int:
     retriever = Retriever(collection, embedder)
     bundle = args.bundle or max(discover(), key=lambda path: path.name)
     cases = build_cases(
-        incidents, load_stop_events(args.db), station_names(bundle), since=args.since
+        incidents,
+        load_stop_events(args.db),
+        station_names(bundle),
+        since=args.since,
+        until=args.until,
     )
     if not cases:
-        raise ValueError(f"no incident first seen on or after {args.since}")
+        raise ValueError(f"no incident first seen from {args.since} and before {args.until}")
+    if args.sweep_k:
+        return _sweep(cases, incidents, retriever, args.sweep_k)
 
     truth = [case.truth for case in cases]
     retrieved = [_retrieve(retriever, case, args.k) for case in cases]
@@ -223,6 +271,16 @@ def command_reasons(args: argparse.Namespace) -> int:
     return 0
 
 
+def _ks(text: str) -> list[int]:
+    try:
+        ks = sorted({int(part) for part in text.split(",") if part.strip()})
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected k values such as 1,3,5, got {text!r}") from None
+    if not ks or ks[0] < 1:
+        raise argparse.ArgumentTypeError(f"every k must be at least 1, got {text!r}")
+    return ks
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="transit-reasons",
@@ -236,7 +294,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--since", default=None, help="only incidents first seen from this Sydney date"
     )
+    parser.add_argument(
+        "--until", default=None, help="only incidents first seen before this Sydney date"
+    )
     parser.add_argument("--k", type=int, default=DEFAULT_K)
+    parser.add_argument(
+        "--sweep-k",
+        type=_ks,
+        default=None,
+        metavar="K,K,...",
+        help="score retrieval at each k against chance, and stop (no model is called)",
+    )
     parser.add_argument("--model", action="store_true", help="ask the configured Claude model")
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--out", type=Path, default=None, help="write every answer as JSONL")

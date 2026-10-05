@@ -82,7 +82,8 @@ The model rows are the mean ± sd of three runs at the default sampling. There w
 answers, none failed, and **no citation of an alert that was not shown**. The run used
 90k input and 15k output tokens. Retrieval recall@5 is **0.75**: for 9 of 12
 incidents, at least one of the five past incidents shares the true group, and the
-first incident has no past at all. Macro-F1 averages technical, network incident and
+first incident has no past at all. A random draw of earlier incidents scores 0.74
+(§7), so this is not evidence that the ranking works. Macro-F1 averages technical, network incident and
 other/unknown, since no weather incident has occurred. Every answer is kept, locally,
 in `data/reasons_dev_20261005.jsonl`. The run used the situation's earlier wording
 (§1). A second run after the wording changed is the faithfulness judge's validation
@@ -129,12 +130,57 @@ transit-index build --source alerts --db data/delay_observations_20261005.db   #
 transit-reasons --db data/delay_observations_20261005.db                       # free: cases, retrieval, baseline
 transit-reasons --db ... --model --repeats 3 --out data/reasons_runs.jsonl     # three runs, every answer kept
 transit-reasons --db ... --model --since 2026-10-14                            # only the incidents from a date
+transit-reasons --db ... --sweep-k 1,2,3,4,5,6,8,10 --until 2026-10-12         # free: k against chance (§7)
 ```
 
-## 7. Not built yet
+## 7. The k sweep
+
+`08` §3.5 freezes k on development incidents before the test dates are scored.
+**Recall@k cannot choose k on its own.** Showing more incidents can only find more, so
+recall always favours the largest k. `--sweep-k` therefore compares each k with
+**chance**: the recall of the same number of earlier incidents drawn at random from the
+pool the guards admit. Chance is exact, a hypergeometric "at least one", not simulated.
+The sweep also shows the **on-cause share**, the mean share of the incidents shown that
+share the true group, which is what each extra passage costs. The sweep retrieves once
+per incident at the largest k, and a smaller k reads the top of the same ranking. It
+calls no model, and it refuses to run if retrieval and the pool disagree about which
+incidents were admissible.
+
+**On the 12 development incidents, 2026-10-05:**
+
+| k | Recall@k | Chance | Lift | On cause | Shown |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 0.33 | 0.37 | −0.04 | 0.36 | 0.9 |
+| 2 | 0.50 | 0.56 | −0.06 | 0.32 | 1.8 |
+| 3 | 0.75 | 0.67 | +0.08 | 0.42 | 2.5 |
+| 4 | 0.75 | 0.71 | +0.04 | 0.42 | 3.2 |
+| 5 | 0.75 | 0.74 | +0.01 | 0.40 | 3.8 |
+| 6 | 0.75 | 0.75 | +0.00 | 0.42 | 4.2 |
+| 8 | 0.75 | 0.75 | +0.00 | 0.41 | 5.0 |
+| 10 | 0.75 | 0.75 | +0.00 | 0.40 | 5.4 |
+
+- **0.75 is a ceiling, not a score.** Three incidents have no earlier incident of their
+  group, so no k can help them: the first incident, the first network incident and the
+  only other/unknown one. Recall reaches the ceiling at k = 3.
+- **The ranking does no better than chance.** At every k the lift is within one
+  incident (1/12 = 0.08) of a random draw, and at k = 1 and 2 it is slightly below.
+  §5's recall@5 of 0.75 is chance's 0.74. It must never be reported without its chance.
+- **Why:** the situation names stations, so the nearest past incidents are the nearest
+  places. Place predicts a recurring technical fault and says nothing about a network
+  incident (§5). On-cause share stays near 0.4 at every k, which is about the base
+  rate.
+
+**The proposed rule, for the author's confirmation.** At the cut-off, re-run the sweep
+on every incident before the test split (`--until` the first test date). Freeze k as
+the smallest value whose recall@k reaches the sweep's highest recall. Today that gives
+3. The plan's 5 stays in force until the rule is confirmed and applied. A smaller k
+might also help faithfulness, since retrieval lowered it in development (`15` §6). That
+is a question for the validated judge, not something to assume.
+
+## 8. Not built yet
 
 - **The judge's validation.** The judge is built ([`15`](./15-faithfulness-judge.md)).
   Its Cohen's κ against the author waits on the author's labels for a blind sample.
-- **The k sweep**, on a development subset, frozen before the test dates are scored.
+- **Freezing k** at the cut-off, by the rule in §7, once the author confirms it.
 - **The scored run**, on the incidents in the test split drawn at the cut-off, with the
   count of incidents and cause groups beside every number.
