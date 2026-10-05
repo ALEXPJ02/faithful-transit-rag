@@ -63,7 +63,8 @@ class Situation:
     services: int
     late: int
     max_delay_s: float | None
-    #: (station, services more than five minutes late there), most first.
+    #: (station, services reported more than five minutes late there at any point in
+    #: the lookback), most first. A service late at three stations counts at each.
     delayed_stations: tuple[tuple[str, int], ...]
 
     def __post_init__(self) -> None:
@@ -80,17 +81,20 @@ class Situation:
         if self.services == 0:
             parts.append(f"No {lines} service was observed in the {minutes} minutes before.")
             return " ".join(parts)
-        parts.append(
-            f"In the {minutes} minutes before, {self.services} services were observed and "
-            f"{self.late} were more than five minutes late."
-        )
+        parts.append(f"In the {minutes} minutes before, {self.services} services were observed.")
+        latest = f"When last reported, {self.late} were more than five minutes late"
         if self.max_delay_s is not None and self.max_delay_s > 0:
-            parts.append(
-                f"The most delayed was {round(self.max_delay_s / 60)} minutes behind timetable."
-            )
+            latest += f" and the most delayed was {round(self.max_delay_s / 60)} minutes behind"
+        parts.append(f"{latest}.")
         if self.delayed_stations:
+            # The counts are over the whole lookback, so one station can hold more
+            # services than are late now. Unsaid, "Bondi Junction (5)" beside "4 were
+            # late" reads as a contradiction (found by the faithfulness judge).
             named = ", ".join(f"{station} ({count})" for station, count in self.delayed_stations)
-            parts.append(f"Late services were seen at {named}.")
+            parts.append(
+                f"At some point in those {minutes} minutes, services were reported more than "
+                f"five minutes late at {named}."
+            )
         return " ".join(parts)
 
 
