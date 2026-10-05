@@ -122,8 +122,11 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
 
 **Not started:**
 
-- The **agent loop** in `agent/`, the RQ1 orchestrator that calls the three stages as
-  tools, and `mcp_server/`, the MCP tool interface and FastAPI.
+- `mcp_server/`, the MCP tool interface and FastAPI, and the **live feed** behind the
+  agent's tools. The **agent loop** itself is built (`transit-ask`, `docs/14`). It is a
+  hand-rolled tool-use loop over line status, disruption risk and past incidents,
+  answering as of a moment in a frozen snapshot, with every tool call recorded
+  verbatim. Its **delay tool with the 90% interval** is not built yet.
 - The rest of the **RQ2 harness** in `evaluation/`: the faithfulness judge and its
   Cohen's κ validation, lead time, the k sweep, and the scored runs at the cut-off.
 - **The scored detection run** — the detectors (XGBoost and random forest,

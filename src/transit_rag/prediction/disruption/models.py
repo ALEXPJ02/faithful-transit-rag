@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -158,3 +159,45 @@ def fit_detector(
     best.threshold = best_f1_threshold(validation, best.score(validation))
     best.search = search
     return best
+
+
+def save_detector(detector: FittedDetector, path: Path, *, trained_on: dict[str, Any]) -> None:
+    """Write a fitted detector, its threshold, and where its training came from.
+
+    ``trained_on`` records the snapshot and the train and validation dates. The
+    agent reads it, because a detector asked about a window it was fitted on
+    would be reporting what it memorised, not what it detects.
+    """
+    import joblib
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(
+        {
+            "name": detector.name,
+            "model": detector.model,
+            "columns": list(detector.columns),
+            "params": detector.params,
+            "validation_ap": detector.validation_ap,
+            "threshold": detector.threshold,
+            "search": detector.search,
+            "trained_on": trained_on,
+        },
+        path,
+    )
+
+
+def load_detector(path: Path) -> tuple[FittedDetector, dict[str, Any]]:
+    """Read a detector written by :func:`save_detector`, and its provenance."""
+    import joblib
+
+    stored = joblib.load(path)
+    detector = FittedDetector(
+        name=stored["name"],
+        model=stored["model"],
+        columns=tuple(stored["columns"]),
+        params=stored["params"],
+        validation_ap=stored["validation_ap"],
+        threshold=stored["threshold"],
+        search=stored["search"],
+    )
+    return detector, dict(stored["trained_on"])

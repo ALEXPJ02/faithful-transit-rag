@@ -40,6 +40,8 @@ from transit_rag.ingestion.alerts import (
 )
 from transit_rag.prediction.collection.store import SqliteObservationStore
 from transit_rag.realtime.parsing import AlertScope, ServiceAlert, StopDelayObservation
+from transit_rag.retrieval import alert_index
+from transit_rag.retrieval.alert_index import check_alert_index
 from transit_rag.retrieval.embeddings import embed_chunks
 from transit_rag.retrieval.index import IndexFingerprint, build_index
 
@@ -137,9 +139,7 @@ def test_an_index_from_other_incidents_is_refused_with_the_rebuild_command() -> 
     with pytest.raises(
         ValueError, match=re.escape("transit-index build --source alerts --db snap.db")
     ):
-        reasons_cli.check_index(
-            collection, [_incident("a", "TECHNICAL_PROBLEM", DAY)], Path("snap.db")
-        )
+        check_alert_index(collection, [_incident("a", "TECHNICAL_PROBLEM", DAY)], Path("snap.db"))
 
 
 # --- the command, end to end -----------------------------------------------------------------
@@ -251,6 +251,7 @@ def test_the_command_guards_retrieval_scores_three_systems_and_keeps_every_answe
         reasons_cli.VoyageConfig, "from_env", classmethod(lambda cls: SimpleNamespace(api_key="k"))
     )
     monkeypatch.setattr(reasons_cli, "configured_embedding_model", lambda: "fake-embed-1")
+    monkeypatch.setattr(alert_index, "configured_embedding_model", lambda: "fake-embed-1")
     monkeypatch.setattr(reasons_cli, "ClaudeReasoner", fake_reasoner)
     monkeypatch.setattr(
         reasons_cli.ModelConfig,

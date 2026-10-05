@@ -5,12 +5,12 @@
 
 ## 1. The big picture
 
-> **Built vs planned.** Solid boxes with a `*` are **not built yet** as of
-> 2026-09-24: the orchestrator, the MCP tools, the alert corpus and its ingestion,
-> the disruption flag, the 90% interval, and the evaluation harness. What exists is
-> collection, reconciliation, the delay regressor, and a retrieval stack currently
-> indexing the Opal PDFs. [`04-implementation-plan.md`](./04-implementation-plan.md)
-> has the status table.
+> **Built vs planned.** The boxes marked `*` were **not built** as of 2026-09-24.
+> Since then, these have been built: the alert corpus and its ingestion, the
+> disruption flag (`12`), the 90% interval (`08` §4), and the orchestrator with its
+> tools over frozen snapshots (`14`). These are still not built: the MCP server, the
+> live feed behind the tools, and the evaluation harness's judge.
+> [`04-implementation-plan.md`](./04-implementation-plan.md) has the status table.
 
 ```mermaid
 flowchart TB

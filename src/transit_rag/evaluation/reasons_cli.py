@@ -42,38 +42,17 @@ from transit_rag.evaluation.reasons import (
 )
 from transit_rag.ingestion.alerts import (
     DEFAULT_OVERRIDES,
-    Incident,
     audit,
-    incident_corpus_hash,
-    incident_passages,
     load_alerts,
     load_overrides,
     sydney_time,
 )
 from transit_rag.prediction.collection.bundles import discover
 from transit_rag.prediction.disruption.labels import load_stop_events
+from transit_rag.retrieval.alert_index import ALERT_COLLECTION, check_alert_index
 from transit_rag.retrieval.embeddings import VoyageEmbedder
-from transit_rag.retrieval.index import describe, open_collection, stale_reasons
+from transit_rag.retrieval.index import open_collection
 from transit_rag.retrieval.search import DEFAULT_K, RetrievedPassage, Retriever
-
-ALERT_COLLECTION = "tfnsw_alerts"
-
-
-def check_index(collection: Any, incidents: list[Incident], db: Path) -> None:
-    """Refuse an alert index built from different incidents or a different model."""
-    reasons = stale_reasons(
-        describe(collection),
-        embedding_model=configured_embedding_model(),
-        target_chars=0,
-        overlap_chars=0,
-        expected_corpus_hash=incident_corpus_hash(incident_passages(incidents)),
-    )
-    if reasons:
-        raise ValueError(
-            "the alert index does not match this snapshot's incidents: "
-            + "; ".join(reasons)
-            + f". Rebuild it with `transit-index build --source alerts --db {db}`."
-        )
 
 
 def _retrieve(retriever: Retriever, case: ReasonCase, k: int) -> list[RetrievedPassage]:
@@ -121,7 +100,7 @@ def command_reasons(args: argparse.Namespace) -> int:
     alerts = load_alerts(args.db)
     _, incidents = audit(alerts, load_overrides(args.overrides))
     collection = open_collection(args.persist_dir, ALERT_COLLECTION)
-    check_index(collection, incidents, args.db)
+    check_alert_index(collection, incidents, args.db)
 
     embedder = VoyageEmbedder(
         api_key=VoyageConfig.from_env().api_key, model=configured_embedding_model()

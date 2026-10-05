@@ -162,6 +162,7 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 - [`docs/11-disruption-labels.md`](./docs/11-disruption-labels.md) — the disruption label RQ2's detectors are scored against
 - [`docs/12-disruption-detection.md`](./docs/12-disruption-detection.md) — what a detector may see, how it is scored, and the baseline
 - [`docs/13-reasons.md`](./docs/13-reasons.md) — explaining a disruption from past alerts, and scoring it
+- [`docs/14-agent.md`](./docs/14-agent.md) — the orchestrator: the loop, its tools, and answering as of a moment
 
 ## Status
 
@@ -205,9 +206,14 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   It explains each incident from the delay feed before its alert and five guarded past
   incidents, with checked citations. In a development run, retrieval doubled the
   model's accuracy, but neither beat the majority baseline at n = 12.
-- **Next** — the agent loop and MCP tools, then the rest of the evaluation harness: the
-  faithfulness judge and its κ validation, lead time, and the scored runs at the
-  cut-off.
+- **Orchestrator (RQ1)** — `transit-ask` ([`docs/14`](./docs/14-agent.md)) is a
+  hand-rolled Claude tool-use loop over line status, disruption risk and past
+  incidents. It answers as of a moment in a frozen snapshot and records every tool
+  call for scoring. The checked rules (estimates stated as estimates, causes only with
+  cited alerts) are in its prompt from the first version.
+- **Next** — the delay tool with its interval, the MCP server, then the rest of the
+  evaluation harness: the faithfulness judge and its κ validation, lead time, and the
+  scored runs at the cut-off.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.
