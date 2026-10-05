@@ -25,7 +25,6 @@ by how late the train already is (``docs/08`` §4), read from the artefact.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -34,9 +33,14 @@ from typing import Any
 
 import pandas as pd
 
+from transit_rag.prediction.collection.bundles import eras_for
 from transit_rag.prediction.disruption.labels import LabelRule
 from transit_rag.prediction.features.reconcile import AM_PEAK, PM_PEAK
-from transit_rag.prediction.features.schedule import ScheduledStop, ScheduleIndex
+from transit_rag.prediction.features.schedule import (
+    ScheduledStop,
+    ScheduleIndex,
+    service_day_origin,
+)
 from transit_rag.prediction.model.conformal import lateness_band
 from transit_rag.realtime.parsing import SYDNEY
 
@@ -46,9 +50,6 @@ RUNNING_WITHIN = timedelta(minutes=10)
 #: How many trains the tool lists, most delayed first. Enough for an answer,
 #: few enough not to bury it.
 MAX_TRAINS = 8
-
-#: How many timetable eras are tried for a trip, newest first.
-ERAS_TRIED = 3
 
 
 @dataclass
@@ -104,17 +105,6 @@ class DelayModel:
         return pd.Series(self.model.predict(frame), index=features.index, dtype=float)
 
 
-def eras_for(service_date: str, bundles: Sequence[Path]) -> list[Path]:
-    """The archived eras to try for a date: the newest fetched on or before it first."""
-    target = service_date.replace("-", "")
-    dated = []
-    for path in bundles:
-        match = re.search(r"_(\d{8})", path.name)
-        if match and match.group(1) <= target:
-            dated.append((match.group(1), path))
-    return [path for _, path in sorted(dated, reverse=True)[:ERAS_TRIED]]
-
-
 def running_trains(
     events: pd.DataFrame, line: str, at: datetime, rule: LabelRule | None = None
 ) -> pd.DataFrame:
@@ -168,9 +158,8 @@ def _scheduled_s(stop: ScheduledStop) -> float:
 
 
 def _service_day_seconds(observed_at: pd.Timestamp, service_date: str) -> float:
-    """An instant as seconds after local midnight of its service date, as GTFS times run."""
-    midnight = pd.Timestamp(service_date).tz_localize(SYDNEY)
-    return (observed_at.tz_convert(SYDNEY) - midnight).total_seconds()
+    """An instant as seconds into its service date, counted as GTFS times are."""
+    return (observed_at - pd.Timestamp(service_day_origin(service_date))).total_seconds()
 
 
 def _clock(seconds: int | None) -> str:

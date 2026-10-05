@@ -59,8 +59,12 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
 - Trip-status collection — cancelled, added, replacement and stop-skipping trips on
   T1/T4 into `trip_statuses`, **from 2026-09-29 only** (`docs/01` §5). TfNSW
   publishes a cancellation with no stop updates, so `stop_observations` can never
-  hold one. Used as a check on rule (b) and as a detector feature (`pd.NA` before
-  2026-09-29), **not** in the main label, which must mean the same on every date.
+  hold one. Used as a check on rule (b) (`transit-label --cancellation-check`,
+  `docs/11` §7), **not** in the main label, which must mean the same on every date. On
+  the six dates to 2026-10-04 the check changes no label. They are not yet a detector
+  feature. GTFS stop times count from noon less 12 h of the service date
+  (`schedule.service_day_origin`), which differs from midnight on clock-change days
+  such as 2026-10-04.
 - Timetable bundle archive — `transit-bundle-archive.timer` on the VM keeps one
   copy of each distinct static GTFS era, daily. `bundles.discover()` finds them in
   `data/` and `data/bundles/` and dedupes by content, so `transit-reconcile` needs

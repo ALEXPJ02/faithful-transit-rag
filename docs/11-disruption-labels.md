@@ -135,6 +135,7 @@ transit-label --db data/delay_observations_20261005.db \
               --out data/disruption_labels.csv                          # also write the labels
 transit-label --db ... --min-services 1                                 # the rule with no minimum
 transit-label --db ... --late-share 0.3 --late-threshold-s 180          # a threshold she might ask for
+transit-label --db ... --cancellation-check                             # the label check (§7)
 ```
 
 The audit prints windows and rule counts per line, where the rules agree, the windows
@@ -142,12 +143,57 @@ with no observed service (and whether any is an incident window), what the minim
 removes, each incident's windows, and disrupted windows per service date. The snapshot
 is opened read-only.
 
-## 7. Not built yet
+## 7. The cancellation check
 
-- **The cancellation check** (`docs/08` §3.2). It re-runs rule (b) counting cancelled
-  and skipped-stop services as late, on the dates from 2026-09-29. A cancelled trip has
-  no stop updates, so placing it in the windows it should have run needs its timetabled
-  stop times, from the static bundle of its service date.
+`08` §3.2 and §3.5 promise a **label check**: re-run rule (b) counting cancelled and
+skipped-stop services as late, on the dates trip statuses exist (from 2026-09-29). The
+label itself never counts them, because it must mean the same on every date.
+`transit-label --cancellation-check` runs it beside the audit (`prediction/disruption/unserved.py`).
+
+**A cancelled trip is placed by its timetable.** TfNSW publishes a cancellation with no
+stop updates, so the windows the trip should have served come from its timetabled
+calls, in the bundle eras of its service date. A call counts as unserved only when:
+
+- **the cancellation was in the feed at the call's time.** Cancellations are
+  withdrawn: four T4 trips cancelled at dawn on 2026-09-29, and four on 10-01, were
+  running as replacements by the afternoon. The status holds from when it was first
+  seen until one two-minute poll after it was last seen;
+- **the trip was not seen running in that window.** 26 of the 36 cancelled trips
+  reported stop updates first. Where a trip was seen, what was seen stands, so no
+  service is counted twice.
+
+**A skipped stop is placed the same way.** The call the trip skipped counts as unserved
+in its window, under the same time condition. A trip seen in that window becomes late
+there; one not seen is added as a late service.
+
+**GTFS times count from noon less twelve hours** of the service date
+(`schedule.service_day_origin`). That is midnight on every day except the two a year
+the clocks change. 2026-10-04 is one of them, and the delay tool, which had counted from
+midnight, now counts the same way.
+
+**On the six dates to 2026-10-04, the check changes no label.**
+
+| | Without the check | With it |
+| --- | --- | --- |
+| Rule (b) windows | 24 | 24 |
+| Disrupted windows | 39 | 39 |
+| Windows newly in the population | | 0 |
+
+36 cancelled trips were considered, and 27 were unserved in 126 line × windows while
+their cancellation stood. Of the 75 trips with skipped stops, 64 skipped a call in 107
+windows while the skip stood. Every trip was in a timetable. Their 148 windows gained up
+to three late services each: 190 services added and 200 more counted late. None crossed
+the threshold, because those windows are busy, with 25 to 50 services each. The
+nearest was **T4 at 10:45 on 2026-10-01**, with 4 of 17 late with the check, one short
+of rule (b).
+
+**What this does and does not say.** On these dates, rule (b) does not depend on
+whether cancellations count, so leaving them out of the label costs no disrupted
+window. It is six dates with a few dozen cancellations. It is re-run on the full data at
+the cut-off, and the result is reported either way.
+
+## 8. Not built yet
+
 - **The classifier's target and features** (`docs/08` §3.3). The target is whether
   the line is disrupted in the next 30 minutes, taken from these window labels. The
   features are aggregates over the windows up to the prediction time, never the

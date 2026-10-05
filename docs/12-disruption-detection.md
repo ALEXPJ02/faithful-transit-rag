@@ -180,7 +180,8 @@ On today's test split the detectors score AP 0.08–0.12 against persistence's
 - **The scored run**, on the split drawn at the cut-off, with every figure reported
   beside its count of positive targets and its date-resampled interval. Add an LSTM
   if time allows.
-- **Timetabled services and cancellations as features.** They need a calendar-aware
-  reading of the static timetable, the same one the label's cancellation check needs
-  (`11` §7). Until that exists, a thinned service shows up only as fewer services
-  observed.
+- **Timetabled services and cancellations as features.** Cancelled calls can now be
+  placed in windows, which is how the label check does it (`11` §7). They exist only from
+  2026-09-29, so the feature is `pd.NA` before then. A count of *timetabled* services
+  needs a calendar-aware reading of the whole timetable, which is not built. Until it
+  is, a thinned service shows up only as fewer services observed.

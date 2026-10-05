@@ -30,7 +30,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import logging
+import re
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -42,6 +44,9 @@ log = logging.getLogger("transit_rag.bundles")
 DEFAULT_ARCHIVE_DIR = PROJECT_ROOT / "data" / "bundles"
 #: Enough of the digest to name a file unambiguously without being unreadable.
 FINGERPRINT_PREFIX = 12
+
+#: How many timetable eras are tried for a trip, newest first.
+ERAS_TRIED = 3
 
 
 @dataclass(frozen=True)
@@ -77,6 +82,17 @@ def archived(archive_dir: Path) -> list[ArchivedBundle]:
         ArchivedBundle(path=path, fingerprint=fingerprint(path))
         for path in sorted(archive_dir.glob("gtfs_schedule_*.zip"))
     ]
+
+
+def eras_for(service_date: str, bundles: Sequence[Path]) -> list[Path]:
+    """The archived eras to try for a date: the newest fetched on or before it first."""
+    target = service_date.replace("-", "")
+    dated = []
+    for path in bundles:
+        match = re.search(r"_(\d{8})", path.name)
+        if match and match.group(1) <= target:
+            dated.append((match.group(1), path))
+    return [path for _, path in sorted(dated, reverse=True)[:ERAS_TRIED]]
 
 
 def discover(

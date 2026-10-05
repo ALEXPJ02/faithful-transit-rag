@@ -3,6 +3,7 @@
     transit-label --db data/delay_observations_20261005.db               # audit; writes nothing
     transit-label --db ... --out data/disruption_labels.csv             # also write the labels
     transit-label --db ... --min-services 1                             # the rule with no minimum
+    transit-label --db ... --cancellation-check                         # docs/08 §3.5's label check
 
 Prints how many windows each rule marks, where they agree, and which incidents
 are behind rule (a). The ground truth RQ2 scores against can then be read and
@@ -26,6 +27,7 @@ from transit_rag.ingestion.alerts import (
     load_overrides,
     sydney_time,
 )
+from transit_rag.prediction.collection.bundles import discover
 from transit_rag.prediction.disruption.labels import (
     LATE_SHARE,
     LATE_THRESHOLD_S,
@@ -34,7 +36,19 @@ from transit_rag.prediction.disruption.labels import (
     Coverage,
     LabelRule,
     incident_spans,
-    label_snapshot,
+    label_windows,
+    late_needed,
+    load_coverage,
+    load_stop_events,
+)
+from transit_rag.prediction.disruption.unserved import (
+    CANCELLED,
+    SKIPPED,
+    STATUSES_FROM,
+    Placement,
+    compare_labels,
+    load_trip_statuses,
+    unserved_calls,
 )
 from transit_rag.realtime.parsing import SYDNEY
 
@@ -109,7 +123,9 @@ def command_label(args: argparse.Namespace) -> int:
         min_services=args.min_services,
     )
     _, incidents = audit(load_alerts(args.db), load_overrides(args.overrides))
-    labels, coverage = label_snapshot(args.db, incidents, rule)
+    coverage = load_coverage(args.db)
+    events = load_stop_events(args.db)
+    labels = label_windows(events, incidents, coverage, rule)
 
     print(f"Disruption labels from {args.db}")
     print(f"  Rule: {rule.describe()}")
@@ -127,8 +143,8 @@ def command_label(args: argparse.Namespace) -> int:
     print(f"  Not labelled: {unlabelled:,} window(s) with no observed service.")
     print(f"  Rule (a) windows among them: {lost} -- incident windows the population loses.")
     if rule.min_services > 1:
-        literal, _ = label_snapshot(
-            args.db, incidents, LabelRule(rule.late_threshold_s, rule.late_share, 1)
+        literal = label_windows(
+            events, incidents, coverage, LabelRule(rule.late_threshold_s, rule.late_share, 1)
         )
         extra = int((literal["rule_b"] & ~labels["rule_b"]).sum())
         print(
@@ -141,10 +157,64 @@ def command_label(args: argparse.Namespace) -> int:
     print("\nDisrupted windows per service date:")
     print("\n".join(_per_date(labels)))
 
+    if args.cancellation_check:
+        placement = unserved_calls(load_trip_statuses(args.db), events, discover(), rule)
+        checked = label_windows(events, incidents, coverage, rule, unserved=placement.calls)
+        print()
+        print("\n".join(_check_lines(placement, compare_labels(labels, checked), rule)))
+
     if args.out is not None:
         _write(labels, args.out)
         print(f"\nwrote {len(labels):,} rows to {args.out}")
     return 0
+
+
+def _check_lines(placement: Placement, windows: pd.DataFrame, rule: LabelRule) -> list[str]:
+    """The label check: what counting unserved services as late changes (``docs/11`` §7)."""
+    calls = placement.calls["why"].value_counts()
+    changed = windows[
+        (windows["n_services"] != windows["n_services_check"])
+        | (windows["n_late"] != windows["n_late_check"])
+    ]
+    was = windows["disrupted"].fillna(False).astype(bool)
+    now = windows["disrupted_check"].fillna(False).astype(bool)
+    entered = windows["disrupted"].isna() & windows["disrupted_check"].notna()
+    lines = [
+        "Label check (docs/08 §3.5): rule (b) counting cancelled and skipped-stop services "
+        f"as late, on service dates from {STATUSES_FROM}",
+        f"  Cancelled: {placement.considered.get(CANCELLED, 0)} trip(s), "
+        f"{placement.trips(CANCELLED)} unserved in {int(calls.get(CANCELLED, 0))} window(s) "
+        "while the cancellation stood.",
+        f"  Skipped stops: {placement.considered.get(SKIPPED, 0)} trip(s), "
+        f"{placement.trips(SKIPPED)} skipping a call in {int(calls.get(SKIPPED, 0))} window(s) "
+        f"while the skip stood. Not in any timetable: {len(placement.unplaced)}.",
+        f"  Windows whose counts change: {len(changed)} "
+        f"({int((windows['n_services_check'] - windows['n_services']).sum())} service(s) added, "
+        f"{int((windows['n_late_check'] - windows['n_late']).sum())} more counted late).",
+        f"  Rule (b) windows: {int(windows['rule_b'].sum())} -> "
+        f"{int(windows['rule_b_check'].sum())}. Disrupted windows: {int(was.sum())} -> "
+        f"{int(now.sum())}. Newly labelled: {int(entered.sum())}.",
+    ]
+    flipped = windows[was != now]
+    for row in flipped.itertuples(index=False):
+        lines.append(
+            f"  {row.line} {_local(row.window_start_utc)}: {row.n_late}/{row.n_services} late "
+            f"-> {row.n_late_check}/{row.n_services_check}, now disrupted"
+        )
+    if flipped.empty:
+        lines.append("  No window changes its label.")
+        near = changed[
+            ~changed["rule_b_check"] & (changed["n_services_check"] >= rule.min_services)
+        ]
+        if not near.empty:
+            short = late_needed(near["n_services_check"], rule.late_share) - near["n_late_check"]
+            row = near.loc[short.idxmin()]
+            lines.append(
+                f"  Nearest: {row['line']} {_local(row['window_start_utc'])}, "
+                f"{row['n_late_check']} of {row['n_services_check']} late with the check, "
+                f"{int(short.min())} short of rule (b)."
+            )
+    return lines
 
 
 def _print_coverage_warning(coverage: Coverage) -> None:
@@ -182,6 +252,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=MIN_SERVICES,
         help="fewest observed services rule (b) may fire on (default: 5)",
+    )
+    parser.add_argument(
+        "--cancellation-check",
+        action="store_true",
+        help="also re-run rule (b) counting cancelled and skipped-stop services as late",
     )
     parser.set_defaults(handler=command_label)
     return parser

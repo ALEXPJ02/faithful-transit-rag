@@ -184,7 +184,9 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   ([`docs/08`](./docs/08-evaluation-plan.md) §3.2). A window is disrupted by an
   unplanned alert, timed by feed presence with a 24-hour cap, or by a quarter of a
   line's services running more than 5 minutes late. To 2026-10-04 that marks 4.7% of
-  T1 windows and 4.4% of T4 windows. The detectors RQ2 compares, XGBoost and a random
+  T1 windows and 4.4% of T4 windows. Counting cancelled and skipped-stop trains as late,
+  as TfNSW does, changes no window's label on the six dates they exist for
+  (`--cancellation-check`). The detectors RQ2 compares, XGBoost and a random
   forest, are built against a persistence baseline written first (`transit-detect`,
   [`docs/12`](./docs/12-disruption-detection.md)). Their scored comparison waits for
   the split drawn at the cut-off. Today's test dates hold only seven positive targets. The delay prediction's **margin** is a
