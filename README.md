@@ -181,9 +181,10 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   ([`docs/08`](./docs/08-evaluation-plan.md) §3.2). A window is disrupted by an
   unplanned alert, timed by feed presence with a 24-hour cap, or by a quarter of a
   line's services running more than 5 minutes late. To 2026-10-04 that marks 4.7% of
-  T1 windows and 4.4% of T4 windows. What a detector may see and the persistence
-  baseline are built (`transit-detect`, [`docs/12`](./docs/12-disruption-detection.md)).
-  The detectors RQ2 compares are not built yet. The delay prediction's **margin** is a
+  T1 windows and 4.4% of T4 windows. The detectors RQ2 compares, XGBoost and a random
+  forest, are built against a persistence baseline written first (`transit-detect`,
+  [`docs/12`](./docs/12-disruption-detection.md)). Their scored comparison waits for
+  the split drawn at the cut-off. Today's test dates hold only six positive targets. The delay prediction's **margin** is a
   90% conformal interval by line × how late the train already is
   ([`docs/08`](./docs/08-evaluation-plan.md) §4). It holds every lateness band at 90%
   or above, where ± MAE covers 32% of trains already more than 5 minutes late.
@@ -199,8 +200,8 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   dates**. The incident rule agreed with all 8 alerts it was not written from, but
   none was `UNKNOWN_CAUSE`, so the description markers are still untested out of
   sample. One urgent repair that TfNSW published as `MAINTENANCE` is in by override.
-- **Next** — the disruption detectors and the reasons agent, then the agent loop and
-  MCP tools, then the evaluation harness.
+- **Next** — the reasons agent, then the agent loop and MCP tools, then the evaluation
+  harness.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.
