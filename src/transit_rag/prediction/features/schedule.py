@@ -32,7 +32,10 @@ import io
 import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
+
+from transit_rag.realtime.parsing import SYDNEY
 
 
 def parse_gtfs_time(value: str) -> int | None:
@@ -50,6 +53,20 @@ def parse_gtfs_time(value: str) -> int | None:
     except ValueError:
         return None
     return hours * 3600 + minutes * 60 + seconds
+
+
+def service_day_origin(service_date: str) -> datetime:
+    """The instant a service date's GTFS times count from: noon less twelve hours.
+
+    GTFS measures stop times from "noon minus 12h" of the service date, in local
+    time. That is midnight on every day but the two a year the clocks change. On
+    2026-10-04, when Sydney's clocks went forward, it was 23:00 on the 3rd, so a
+    timetabled 08:00 is 08:00 on the wall clock. Counting from midnight puts it
+    at 09:00.
+    """
+    noon = datetime.combine(date.fromisoformat(service_date), time(12), tzinfo=SYDNEY)
+    # In UTC, so the subtraction is of elapsed time, not of wall-clock time.
+    return noon.astimezone(UTC) - timedelta(hours=12)
 
 
 @dataclass(frozen=True)

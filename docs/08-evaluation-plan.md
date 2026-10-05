@@ -185,6 +185,8 @@ case it gets wrong is corrected in a tracked overrides file with a written reaso
   thing on every date. A **check** re-runs rule (b) counting cancelled and
   skipped-stop services as late, on the dates that have them, and reports how many
   windows change label *(decided 2026-09-29, pending the supervisor's confirmation)*.
+  **Built 2026-10-05** (`transit-label --cancellation-check`, `11` §7). On the six
+  dates to 2026-10-04 it changes no window's label.
 
 > **Rule (a) as written is degenerate, and this is measured.** Applied over 15-minute
 > windows from 2026-09-15 to 09-24, "an unplanned alert is active" labels **100% of T1
@@ -467,8 +469,9 @@ on 27–28 Sep and checking on 29–30 Sep, which was the start of T4's late wee
    cause (§3.2): planned-trackwork notices published as unknown cause are excluded, and
    unknown-cause closures kept. Republished alerts are grouped into one incident, whose
    cause is the first specific cause any of its alerts names.
-7. **Cancellations are collected from 2026-09-29** and used as a check on rule (b) and
-   as a detector feature, not in the main label (§3.2).
+7. **Cancellations are collected from 2026-09-29** and used as a check on rule (b), not
+   in the main label (§3.2). The check is built (`11` §7). Their use as a detector
+   feature is not built yet (`12` §7).
 
 **Proposed on 2026-10-05, needing the student's and then her confirmation:**
 

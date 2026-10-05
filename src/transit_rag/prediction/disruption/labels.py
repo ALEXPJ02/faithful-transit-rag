@@ -274,13 +274,34 @@ def latest_by_service(events: pd.DataFrame, rule: LabelRule) -> pd.DataFrame:
     )
 
 
-def services_by_window(events: pd.DataFrame, rule: LabelRule) -> pd.DataFrame:
-    """Rule (b)'s inputs: observed and late services per line x window."""
+#: What identifies one service in one window.
+SERVICE_KEY = ("line", "window_start_utc", "service_date", "trip_id")
+
+
+def services_by_window(
+    events: pd.DataFrame, rule: LabelRule, unserved: pd.DataFrame | None = None
+) -> pd.DataFrame:
+    """Rule (b)'s inputs: observed and late services per line x window.
+
+    ``unserved`` is only for ``docs/08`` §3.5's label check: one row per
+    service and window it failed to serve (:mod:`.unserved`). Each such service
+    counts as late there. If it was also observed there, it is still one
+    service, now late; if not, it is one more service, late.
+    """
     latest = latest_by_service(events, rule)
-    latest = latest.assign(late=(latest["delay_s"] > rule.late_threshold_s).astype(int))
+    latest = latest.assign(late=latest["delay_s"] > rule.late_threshold_s)
+    if unserved is not None and len(unserved):
+        keys = list(SERVICE_KEY)
+        failed = unserved.loc[:, keys].drop_duplicates().assign(failed=True)
+        marked = latest.loc[:, [*keys, "late"]].merge(failed, on=keys, how="left")
+        marked["late"] = marked["late"].astype(bool) | marked["failed"].notna()
+        unseen = failed.merge(latest.loc[:, keys], on=keys, how="left", indicator=True)
+        unseen = unseen[unseen["_merge"] == "left_only"].loc[:, keys].assign(late=True)
+        latest = pd.concat([marked.loc[:, [*keys, "late"]], unseen], ignore_index=True)
     counts = latest.groupby(["line", "window_start_utc"], as_index=False).agg(
         n_services=("trip_id", "size"), n_late=("late", "sum")
     )
+    counts["n_late"] = counts["n_late"].astype(int)
     return counts
 
 
@@ -346,12 +367,16 @@ def label_windows(
     coverage: Coverage,
     rule: LabelRule | None = None,
     lines: Iterable[str] = DEFAULT_LINES,
+    unserved: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """The label for every line x window in the coverage. See the module docstring."""
+    """The label for every line x window in the coverage. See the module docstring.
+
+    ``unserved`` is only for the label check; the label itself never takes it.
+    """
     rule = rule or LabelRule()
     tracked = tuple(lines)
     frame = window_grid(coverage, tracked).merge(
-        services_by_window(events, rule), on=["line", "window_start_utc"], how="left"
+        services_by_window(events, rule, unserved), on=["line", "window_start_utc"], how="left"
     )
     frame["n_services"] = frame["n_services"].fillna(0).astype(int)
     frame["n_late"] = frame["n_late"].fillna(0).astype(int)

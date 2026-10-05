@@ -19,6 +19,7 @@ import pytest
 
 from transit_rag.agent.delays import (
     DelayModel,
+    _service_day_seconds,
     eras_for,
     expected_delays,
     next_call,
@@ -271,3 +272,10 @@ def test_a_bundle_given_for_station_names_is_a_timetable_era_too(tmp_path: Path)
     assert timetable_eras(given, []) == [given]
     assert timetable_eras(given, [given]) == [given]  # once, not twice
     assert timetable_eras(None, [given]) == [given]
+
+
+def test_a_train_is_placed_in_its_timetable_by_gtfs_time_on_a_clock_change() -> None:
+    """GTFS counts from noon less twelve hours; on 2026-10-04 that is not midnight."""
+    at = pd.Timestamp("2026-10-03 21:00", tz=UTC)  # 08:00 daylight time on the 4th
+    assert _service_day_seconds(at, "2026-10-04") == 8 * 3600
+    assert _service_day_seconds(pd.Timestamp("2026-09-30 22:00", tz=UTC), "2026-10-01") == 8 * 3600
