@@ -160,6 +160,7 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 - [`docs/09-service-alerts.md`](./docs/09-service-alerts.md) — the Service Alerts feed and the alert tables
 - [`docs/10-retrieval.md`](./docs/10-retrieval.md) — chunking, the index fingerprint, and the retrieval decisions
 - [`docs/11-disruption-labels.md`](./docs/11-disruption-labels.md) — the disruption label RQ2's detectors are scored against
+- [`docs/12-disruption-detection.md`](./docs/12-disruption-detection.md) — what a detector may see, how it is scored, and the baseline
 
 ## Status
 
@@ -180,8 +181,13 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   ([`docs/08`](./docs/08-evaluation-plan.md) §3.2). A window is disrupted by an
   unplanned alert, timed by feed presence with a 24-hour cap, or by a quarter of a
   line's services running more than 5 minutes late. To 2026-10-04 that marks 4.7% of
-  T1 windows and 4.4% of T4 windows. The classifier that RQ2 compares does not exist
-  yet.
+  T1 windows and 4.4% of T4 windows. The detectors RQ2 compares, XGBoost and a random
+  forest, are built against a persistence baseline written first (`transit-detect`,
+  [`docs/12`](./docs/12-disruption-detection.md)). Their scored comparison waits for
+  the split drawn at the cut-off. Today's test dates hold only seven positive targets. The delay prediction's **margin** is a
+  90% conformal interval by line × how late the train already is
+  ([`docs/08`](./docs/08-evaluation-plan.md) §4). It holds every lateness band at 90%
+  or above, where ± MAE covers 32% of trains already more than 5 minutes late.
 - **Evaluation data** — fixed cut-off at the end of 2026-10-18; a shortfall in the
   reasons evaluation is reported rather than waited out
   ([`docs/08`](./docs/08-evaluation-plan.md) §3.1).
@@ -194,8 +200,8 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   dates**. The incident rule agreed with all 8 alerts it was not written from, but
   none was `UNKNOWN_CAUSE`, so the description markers are still untested out of
   sample. One urgent repair that TfNSW published as `MAINTENANCE` is in by override.
-- **Next** — the reasons agent, the disruption classifier and conformal intervals, then
-  the agent loop and MCP tools, then the evaluation harness.
+- **Next** — the reasons agent, then the agent loop and MCP tools, then the evaluation
+  harness.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.

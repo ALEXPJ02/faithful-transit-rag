@@ -18,8 +18,8 @@
 | **Delay collection running** | **Done** — live since 3 September 2026 on the always-on collector, 120 s cadence, T1 + T4 ([`06-always-on-collector.md`](./06-always-on-collector.md)) |
 | Service Alerts collection | **Done** — `transit-poller` polls alerts every 30 min into `service_alerts`/`alert_scopes` ([`09-service-alerts.md`](./09-service-alerts.md)). The training-table flag waits for an overlap window |
 | Reconciliation → training table | **Done** — `transit-reconcile`, schema in [`07-training-table.md`](./07-training-table.md) |
-| Prediction: delay regression | **Done** — `transit-train`; naive persistence written first. Test MAE **15.45 s** vs baseline **18.67 s**, **MASE 0.828**, over the 17 schedule-covered dates to 2026-09-24 |
-| Prediction: disruption classification | **Label built, classifier not started.** Added to scope on 2026-09-22 for RQ2. `transit-label` builds the ground truth from the definition decided on 2026-09-28, pending the supervisor's confirmation ([`11-disruption-labels.md`](./11-disruption-labels.md)). It marks 4.7% of T1 windows and 4.4% of T4 windows disrupted to 2026-10-04. Next come the line-level window features and the detectors (`08` §3.3) |
+| Prediction: delay regression | **Done** — `transit-train`; naive persistence written first. Test MAE **15.45 s** vs baseline **18.67 s**, **MASE 0.828**, over the 17 schedule-covered dates to 2026-09-24. **Margin:** a 90% split conformal interval by line × how late the train already is, calibrated on validation ([`08`](./08-evaluation-plan.md) §4). In a development run on the 2026-10-05 table it holds every lateness band at 90% or above, where ± MAE covers 32% of trains already more than 5 minutes late |
+| Prediction: disruption classification | **Label, baseline and detectors built; scored run waits for the cut-off.** Added to scope on 2026-09-22 for RQ2. `transit-label` builds the ground truth ([`11-disruption-labels.md`](./11-disruption-labels.md)). It marks 4.7% of T1 windows and 4.4% of T4 windows disrupted to 2026-10-04. `transit-detect` builds what a detector may see and scores persistence, which was written first ([`12-disruption-detection.md`](./12-disruption-detection.md)). XGBoost and a random forest are chosen on validation, with an ablation without the alert feature (`12` §5). Without the operator's alert, recall on alert-defined targets falls from about 70% to about 25%. Today's test split holds 7 positive targets, too few to compare anything |
 | Timetable bundle archive | **Done** — daily on the VM; `bundles.discover()` finds every era, so reconcile needs no flag. 2026-09-11..15 predate it and are unrecoverable |
 | Corpus ingestion | **Done for PDFs, retired from the RQs** — the three Opal PDFs pinned and chunked into 144 cited passages. Retained as code; not the corpus any more |
 | **Alert corpus ingestion** | **Done** — `transit-alerts audit` decides which alerts are disruptions and groups republications into incidents ([`09-service-alerts.md`](./09-service-alerts.md) §7): 8 incidents on 5 dates to 2026-09-28, and 12 on 8 to 2026-10-04. The rule is checked on alerts from 2026-09-29, which it was not written from. To 2026-10-04 it agrees with 8 of 8, but none was `UNKNOWN_CAUSE`, so the description markers are not yet tested out of sample. One urgent repair published as `MAINTENANCE` is in by override |
@@ -124,7 +124,9 @@ Agreed with her: the 30-minute horizon and the 15-minute window.
 2. **The retrain window** — 2026-09-11..15 have no timetable era and are excluded,
    splitting collection into 09-03..10 and 09-16..24. Current models exclude them,
    which leaves validation and test clean and contiguous.
-3. **The prediction interval** — the margin moves from "consistent with global MAE" to
-   a conditional conformal interval, because conditional error spans roughly
-   7.8–82.4 s and a global margin is worst exactly where the tool is asked. Needs
-   re-deriving against the corrected model before it is quoted.
+3. **The prediction interval.** It is built: a 90% conformal interval, re-derived on
+   the 2026-10-05 table (`08` §4). Validation error varies nine-fold with how late the
+   train already is, and ± MAE covers 32% of trains already more than 5 minutes late.
+   The interval's bins are line × lateness, not the planned hour band × peak × line.
+   On validation alone the planned bins covered those trains about 50% of the time,
+   and these bins covered them 75–89%. That change needs her confirmation.

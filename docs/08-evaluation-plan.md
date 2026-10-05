@@ -471,6 +471,10 @@ on 27–28 Sep and checking on 29–30 Sep, which was the start of T4's late wee
    smallest count at which one late train cannot reach a quarter on its own. With no
    minimum, 26 of the 28 extra windows it marks are between 01:00 and 04:30, with one
    to four trains running.
+10. **The prediction interval is binned by line × lateness, not hour band × peak ×
+    line** (§4). On validation alone, the planned bins covered trains already more than
+    5 minutes late 61% and 49% of the time. These bins covered them 89% and 75%, with
+    a narrower interval.
 
 **Still open:**
 
@@ -508,10 +512,14 @@ In dependency order.
 4. **Realtime tools** over the existing client *(blocks O1 as an agent tool)*
 5. **The agent loop** — the margin requirement is in the system prompt from the first
    version, never bolted on, or O2's check measures a retrofit
-6. **Conformal calibration** on the validation split *(blocks O2's interval)*
+6. ✅ **Conformal calibration** on the validation split. `transit-train` fits it
+   beside the model, by line × lateness (§4, 2026-10-05)
 7. **The disruption labeller and classifier.** ✅ The labeller: `transit-label`
-   (`11-disruption-labels.md`, 2026-10-05), with thresholds as parameters. Next come
-   the classifier and its line-level window features (§3.3) *(blocks RQ2 detection)*
+   (`11-disruption-labels.md`, 2026-10-05), with thresholds as parameters. ✅ The
+   line-level window features, the 30-minute target and the persistence baseline:
+   `transit-detect` (`12-disruption-detection.md`). ✅ The detectors, XGBoost and
+   random forest, chosen on validation, with the no-alert ablation (`12` §5). Their
+   scored comparison waits for the split drawn at the cut-off
 8. **The evaluation harness** — detection metrics, cause macro-F1, the judge, then
    judge validation, then the scored run on data to the §3.1 cut-off
 

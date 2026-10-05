@@ -192,28 +192,37 @@ def load_stop_events(db_path: Path, lines: Iterable[str] = DEFAULT_LINES) -> pd.
     return frame
 
 
-def load_coverage(db_path: Path) -> Coverage:
-    """The complete windows from the first alert poll to the last trip-update poll."""
+def load_alert_polls(db_path: Path) -> pd.Series:
+    """Every successful alert poll, oldest first: when rule (a) could see the feed."""
     connection = _connect_read_only(db_path)
     try:
-        alert_polls = [
+        polls = [
             row[0]
             for row in connection.execute(
                 "SELECT poll_time_utc FROM alert_poll_log WHERE status = 'ok' ORDER BY 1"
             )
         ]
+    finally:
+        connection.close()
+    return _utc(pd.Series(polls, dtype=object))
+
+
+def load_coverage(db_path: Path) -> Coverage:
+    """The complete windows from the first alert poll to the last trip-update poll."""
+    polls = load_alert_polls(db_path)
+    connection = _connect_read_only(db_path)
+    try:
         last_poll = connection.execute(
             "SELECT MAX(poll_time_utc) FROM poll_log WHERE status = 'ok'"
         ).fetchone()[0]
     finally:
         connection.close()
 
-    if not alert_polls or last_poll is None:
+    if polls.empty or last_poll is None:
         raise ValueError(
             "the snapshot has no successful alert poll or no successful trip-update poll, "
             "so no window can be labelled"
         )
-    polls = _utc(pd.Series(alert_polls))
     gaps = polls.diff().dropna()
     return Coverage(
         start=polls.iloc[0].ceil(WINDOW),
@@ -245,13 +254,14 @@ def window_grid(coverage: Coverage, lines: Iterable[str] = DEFAULT_LINES) -> pd.
     )
 
 
-def services_by_window(events: pd.DataFrame, rule: LabelRule) -> pd.DataFrame:
-    """Rule (b)'s inputs: observed and late services per line x window.
+def latest_by_service(events: pd.DataFrame, rule: LabelRule) -> pd.DataFrame:
+    """Each service's latest reliable observation in each window it was seen in.
 
     A service is one trip on one service date. Its state in a window is its
     **latest** observation there. A train 400 s late at 10:01 that recovers to
     200 s by 10:10 was not late in the 10:00 window by the time the window
-    ended.
+    ended. The detector's features read the same rows, so the two cannot
+    disagree about what a window held.
     """
     reliable = events[
         events["delay_s"].notna()
@@ -259,9 +269,14 @@ def services_by_window(events: pd.DataFrame, rule: LabelRule) -> pd.DataFrame:
         & (events["delay_s"].abs() <= rule.max_plausible_delay_s)
     ]
     frame = reliable.assign(window_start_utc=reliable["observed_at"].dt.floor(WINDOW))
-    latest = frame.sort_values("observed_at", kind="stable").drop_duplicates(
+    return frame.sort_values("observed_at", kind="stable").drop_duplicates(
         ["line", "window_start_utc", "service_date", "trip_id"], keep="last"
     )
+
+
+def services_by_window(events: pd.DataFrame, rule: LabelRule) -> pd.DataFrame:
+    """Rule (b)'s inputs: observed and late services per line x window."""
+    latest = latest_by_service(events, rule)
     latest = latest.assign(late=(latest["delay_s"] > rule.late_threshold_s).astype(int))
     counts = latest.groupby(["line", "window_start_utc"], as_index=False).agg(
         n_services=("trip_id", "size"), n_late=("late", "sum")

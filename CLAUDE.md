@@ -38,7 +38,7 @@ reused as-is. Only the corpus changes, from fare PDFs to past service alerts.
 
 If build work overruns, scope comes out of the *system*, not out of evaluation.
 
-## State as of 2026-09-24 (verified against the repo and the live VM, not recalled)
+## State as of 2026-10-05 (verified against the repo and the live VM, not recalled)
 
 **Built, tested, running:**
 
@@ -72,7 +72,11 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   a 2 h plausibility bound (`quality.MAX_PLAUSIBLE_DELAY_S`) and a whole-date
   schedule-coverage filter (`quality.MIN_SCHEDULE_COVERAGE`) that drops
   2026-09-11..09-15, whose timetable era was never archived. Neither flatters the
-  result; see `docs/07-training-table.md`.
+  result; see `docs/07-training-table.md`. **Its margin is a 90% split conformal
+  interval** (`model/conformal.py`), calibrated on validation and saved in the
+  artefact. It is binned by line × how late the train already is, because validation
+  error varies nine-fold that way and ± MAE covers 32% of already-late trains
+  (`docs/08` §4). The bins are proposed and pending confirmation.
 - Corpus ingestion — the three Opal PDFs pinned to content hashes and chunked
   page-by-page into **144 cited passages** (`src/transit_rag/ingestion/`).
   **Retired from the research questions, retained as code** (see "Design
@@ -113,10 +117,12 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
 - `evaluation/` — the RQ2 harness
 - **The reasons agent** — Claude writing a cause from the retrieved incidents. The
   corpus and guarded retrieval it needs exist.
-- **The disruption classifier** — RQ2 compares detectors, and none exists. The label
-  it is scored against is built (above). It needs line-level window features, not the
-  delay model's per-stop ones, and its target is the next 30 minutes' label, never
-  the label of the windows its features come from (`docs/08` §3.3).
+- **The scored detection run** — the detectors (XGBoost and random forest,
+  `prediction/disruption/models.py`) and the persistence baseline are built and run
+  by `transit-detect` (`docs/12`). Features look back and the target looks forward.
+  The alert feature is re-derived causally, because the label's rule (a) is
+  hindsight. Validation figures are selection scores, not results. Today's test split
+  holds 7 positive targets, so the comparison waits for the split at the cut-off.
 
 **Snapshots in `data/` are frozen, never live.** The newest is
 `delay_observations_20261005.db`: 481,084 stop events over 32 service dates
