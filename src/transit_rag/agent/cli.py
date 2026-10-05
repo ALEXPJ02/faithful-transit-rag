@@ -40,6 +40,19 @@ from transit_rag.retrieval.index import open_collection
 from transit_rag.retrieval.search import DEFAULT_K, Retriever
 
 
+def timetable_eras(given: Path | None, discovered: list[Path]) -> list[Path]:
+    """The eras the delay tool may look trains up in: every archived one, and ``--bundle``.
+
+    A bundle passed for station names is a timetable too. Leaving it out made a run
+    whose only era was that file unable to find any train's next stop (found by
+    Cursor Bugbot on #23).
+    """
+    eras = list(discovered)
+    if given is not None and given.resolve() not in {era.resolve() for era in eras}:
+        eras.append(given)
+    return eras
+
+
 def _moment(text: str) -> datetime:
     moment = datetime.fromisoformat(text)
     if moment.tzinfo is None:
@@ -66,7 +79,7 @@ def command_ask(args: argparse.Namespace) -> int:
         tools.rows = detection_rows(feed, incidents)
     if args.delay_model is not None:
         tools.delay_model = DelayModel.load(args.delay_model)
-        tools.bundles = discover()
+        tools.bundles = timetable_eras(args.bundle, discover())
 
     config = ModelConfig.from_env()
     import anthropic

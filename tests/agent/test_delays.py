@@ -204,3 +204,70 @@ def test_a_date_the_model_trained_on_is_said_so(tmp_path: Path) -> None:
     events = _events(("T1", "t1", "B", 400, 3))
     result = expected_delays(events, "T1", AT, model, [_bundle(tmp_path)], {})
     assert result["this_date_was_in_training"] is True
+
+
+def _loop_bundle(tmp_path: Path) -> Path:
+    """A trip that calls at A twice, as a City Circle service would."""
+    path = tmp_path / "gtfs_schedule_20261001_loop.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "stop_times.txt",
+            "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+            "loop,08:00:00,08:00:30,A,1\n"
+            "loop,08:05:00,08:05:30,B,2\n"
+            "loop,08:10:00,08:10:30,A,3\n"
+            "loop,08:15:00,08:15:30,C,4\n",
+        )
+    return path
+
+
+class TestRepeatedCalls:
+    """Found by Cursor Bugbot on #23: keyed by stop, the second visit overwrote the first."""
+
+    def test_every_visit_is_kept_in_timetable_order(self, tmp_path: Path) -> None:
+        schedule = ScheduleIndex.for_trips(_loop_bundle(tmp_path), ["loop"])
+        assert [stop for stop, _ in schedule.stops_of("loop")] == ["A", "B", "A", "C"]
+
+    def test_the_visit_meant_is_the_one_nearest_in_time(self, tmp_path: Path) -> None:
+        schedule = ScheduleIndex.for_trips(_loop_bundle(tmp_path), ["loop"])
+        first_pass = next_call(schedule, "loop", "A", scheduled_estimate_s=8 * 3600 + 60)
+        second_pass = next_call(schedule, "loop", "A", scheduled_estimate_s=8 * 3600 + 10 * 60)
+        assert first_pass is not None and first_pass[0] == "B"
+        assert second_pass is not None and second_pass[0] == "C"
+
+    def test_a_train_seen_on_its_second_pass_is_predicted_at_the_stop_after_it(
+        self, tmp_path: Path
+    ) -> None:
+        # Seen at A at 08:11 Sydney time, a minute late: the 08:10 visit.
+        at = datetime(2026, 10, 1, 22, 13, tzinfo=UTC)
+        events = pd.DataFrame(
+            {
+                "line": "T1",
+                "service_date": "2026-10-02",
+                "trip_id": ["loop"],
+                "stop_id": ["A"],
+                "stops_ahead": 0,
+                "delay_s": pd.array([60.0], dtype="Float64"),
+                "observed_at": pd.to_datetime([at - timedelta(minutes=2)], utc=True),
+            }
+        )
+        result = expected_delays(events, "T1", at, _model(), [_loop_bundle(tmp_path)], {})
+        assert result["trains"][0]["scheduled"] == "08:15"
+
+
+def test_trains_all_at_their_last_stop_are_zero_predictions_not_an_error(
+    tmp_path: Path,
+) -> None:
+    events = _events(("T1", "t1", "C", 400, 3))  # C is t1's last call
+    result = expected_delays(events, "T1", AT, _model(), [_bundle(tmp_path)], {})
+    assert (result["trains_running"], result["trains_predicted"], result["trains"]) == (1, 0, [])
+
+
+def test_a_bundle_given_for_station_names_is_a_timetable_era_too(tmp_path: Path) -> None:
+    """Found by Cursor Bugbot on #23: --bundle was left out of the eras searched."""
+    from transit_rag.agent.cli import timetable_eras
+
+    given = _bundle(tmp_path)
+    assert timetable_eras(given, []) == [given]
+    assert timetable_eras(given, [given]) == [given]  # once, not twice
+    assert timetable_eras(None, [given]) == [given]

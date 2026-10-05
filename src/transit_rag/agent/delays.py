@@ -136,14 +136,41 @@ def running_trains(
 
 
 def next_call(
-    schedule: ScheduleIndex, trip_id: str, last_stop: str
+    schedule: ScheduleIndex,
+    trip_id: str,
+    last_stop: str,
+    scheduled_estimate_s: float | None = None,
 ) -> tuple[str, ScheduledStop] | None:
-    """The call after ``last_stop`` in the trip's timetable, or ``None`` at its last."""
+    """The call after ``last_stop`` in the trip's timetable, or ``None`` at its last.
+
+    A trip can call at one stop twice. The visit meant is then the one whose
+    scheduled time is nearest ``scheduled_estimate_s``: when the train was seen
+    there, less how late it was.
+    """
     calls = schedule.stops_of(trip_id)
-    for position, (stop_id, _) in enumerate(calls):
-        if stop_id == last_stop:
-            return calls[position + 1] if position + 1 < len(calls) else None
-    return None
+    positions = [i for i, (stop_id, _) in enumerate(calls) if stop_id == last_stop]
+    if not positions:
+        return None
+    position = positions[0]
+    if len(positions) > 1 and scheduled_estimate_s is not None:
+        position = min(
+            positions,
+            key=lambda i: abs(_scheduled_s(calls[i][1]) - scheduled_estimate_s),
+        )
+    return calls[position + 1] if position + 1 < len(calls) else None
+
+
+def _scheduled_s(stop: ScheduledStop) -> float:
+    seconds = stop.scheduled_arrival_s
+    if seconds is None:
+        seconds = stop.scheduled_departure_s
+    return float("inf") if seconds is None else float(seconds)
+
+
+def _service_day_seconds(observed_at: pd.Timestamp, service_date: str) -> float:
+    """An instant as seconds after local midnight of its service date, as GTFS times run."""
+    midnight = pd.Timestamp(service_date).tz_localize(SYDNEY)
+    return (observed_at.tz_convert(SYDNEY) - midnight).total_seconds()
 
 
 def _clock(seconds: int | None) -> str:
@@ -170,12 +197,29 @@ def expected_delays(
     for date, group in trains.groupby("service_date"):
         schedule = ScheduleIndex.across_bundles(eras_for(str(date), bundles), group["trip_id"])
         for train in group.itertuples():
-            call = next_call(schedule, str(train.trip_id), str(train.stop_id))
+            estimate = _service_day_seconds(train.observed_at, str(date)) - float(train.delay_s)
+            call = next_call(schedule, str(train.trip_id), str(train.stop_id), estimate)
             if call is None:
                 continue
             stop_id, stop = call
             rows.append(train)
             scheduled.append((stop_id, stop))
+
+    date = str(trains["service_date"].iloc[0])
+    seen = model.provenance
+    in_training = date in seen.get("train_dates", []) or date in seen.get("validation_dates", [])
+    if not rows:
+        # Every running train is at its last call: nothing to predict, which is an
+        # answer, not an error.
+        return {
+            "line": line,
+            "trains_running": len(trains),
+            "trains_predicted": 0,
+            "expected_more_than_5_min_late": 0,
+            "trains": [],
+            "this_date_was_in_training": in_training,
+            "note": "no running train has a next stop to predict",
+        }
 
     local = pd.Timestamp(at).tz_convert(SYDNEY)
     weekend = local.dayofweek >= 5
@@ -196,25 +240,22 @@ def expected_delays(
         }
     )
     listed = []
-    if len(features):
-        predicted = model.predict(features)
-        for train, (stop_id, stop), expected in zip(rows, scheduled, predicted, strict=True):
-            width = model.half_width(line, float(train.delay_s))
-            listed.append(
-                {
-                    "next_station": stations.get(stop_id, stop_id),
-                    "scheduled": _clock(stop.scheduled_arrival_s),
-                    "late_now_minutes": round(float(train.delay_s) / 60, 1),
-                    "expected_delay_minutes": round(expected / 60, 1),
-                    "interval_90_minutes": [
-                        round((expected - width) / 60, 1),
-                        round((expected + width) / 60, 1),
-                    ],
-                }
-            )
+    predicted = model.predict(features)
+    for train, (stop_id, stop), expected in zip(rows, scheduled, predicted, strict=True):
+        width = model.half_width(line, float(train.delay_s))
+        listed.append(
+            {
+                "next_station": stations.get(stop_id, stop_id),
+                "scheduled": _clock(stop.scheduled_arrival_s),
+                "late_now_minutes": round(float(train.delay_s) / 60, 1),
+                "expected_delay_minutes": round(expected / 60, 1),
+                "interval_90_minutes": [
+                    round((expected - width) / 60, 1),
+                    round((expected + width) / 60, 1),
+                ],
+            }
+        )
     listed.sort(key=lambda item: item["expected_delay_minutes"], reverse=True)
-    date = str(trains["service_date"].iloc[0])
-    seen = model.provenance
     return {
         "line": line,
         "trains_running": len(trains),
@@ -222,7 +263,6 @@ def expected_delays(
         "expected_more_than_5_min_late": sum(item["expected_delay_minutes"] > 5 for item in listed),
         "trains": listed[:MAX_TRAINS],
         "interval": "90% prediction interval, split conformal by line and how late the train already is",
-        "this_date_was_in_training": date in seen.get("train_dates", [])
-        or date in seen.get("validation_dates", []),
+        "this_date_was_in_training": in_training,
         "note": "model estimates of each train's delay at its next stop; state each with its interval",
     }

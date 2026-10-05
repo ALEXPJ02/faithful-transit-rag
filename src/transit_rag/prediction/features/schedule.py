@@ -70,9 +70,18 @@ class ScheduleIndex:
     trips it actually observed.
     """
 
-    def __init__(self, stops: dict[tuple[str, str], ScheduledStop], known_trips: set[str]) -> None:
+    def __init__(
+        self,
+        stops: dict[tuple[str, str], ScheduledStop],
+        known_trips: set[str],
+        calls: dict[str, list[tuple[str, ScheduledStop]]] | None = None,
+    ) -> None:
         self._stops = stops
         self._known_trips = known_trips
+        # Every call of each trip in timetable order, repeats included. ``_stops``
+        # is keyed by stop, so a trip calling at one stop twice keeps only one
+        # visit there (found by Cursor Bugbot on #23).
+        self._calls = calls or {}
 
     @classmethod
     def for_trips(cls, bundle: Path, trip_ids: Iterable[str]) -> ScheduleIndex:
@@ -80,6 +89,7 @@ class ScheduleIndex:
         wanted = set(trip_ids)
         stops: dict[tuple[str, str], ScheduledStop] = {}
         known: set[str] = set()
+        calls: dict[str, list[tuple[str, ScheduledStop]]] = {}
 
         with zipfile.ZipFile(bundle) as archive:
             if "stop_times.txt" not in archive.namelist():
@@ -97,12 +107,16 @@ class ScheduleIndex:
                         sequence = int(row["stop_sequence"])
                     except (KeyError, ValueError):
                         continue
-                    stops[(trip_id, row["stop_id"])] = ScheduledStop(
+                    scheduled = ScheduledStop(
                         stop_sequence=sequence,
                         scheduled_arrival_s=parse_gtfs_time(row.get("arrival_time", "")),
                         scheduled_departure_s=parse_gtfs_time(row.get("departure_time", "")),
                     )
-        return cls(stops, known)
+                    stops[(trip_id, row["stop_id"])] = scheduled
+                    calls.setdefault(trip_id, []).append((row["stop_id"], scheduled))
+        for visits in calls.values():
+            visits.sort(key=lambda call: call[1].stop_sequence)
+        return cls(stops, known, calls)
 
     @classmethod
     def across_bundles(cls, bundles: Iterable[Path], trip_ids: Iterable[str]) -> ScheduleIndex:
@@ -124,25 +138,27 @@ class ScheduleIndex:
         wanted = set(trip_ids)
         stops: dict[tuple[str, str], ScheduledStop] = {}
         known: set[str] = set()
+        calls: dict[str, list[tuple[str, ScheduledStop]]] = {}
         for bundle in bundles:
             era = cls.for_trips(bundle, wanted)
             for key, scheduled in era._stops.items():
                 stops.setdefault(key, scheduled)
+            for trip_id, visits in era._calls.items():
+                calls.setdefault(trip_id, visits)
             known |= era._known_trips
-        return cls(stops, known)
+        return cls(stops, known, calls)
 
     def lookup(self, trip_id: str, stop_id: str) -> ScheduledStop | None:
         return self._stops.get((trip_id, stop_id))
 
     def stops_of(self, trip_id: str) -> list[tuple[str, ScheduledStop]]:
-        """A trip's calls in timetable order, as ``(stop_id, scheduled)``.
+        """A trip's calls in timetable order, as ``(stop_id, scheduled)``, repeats included.
 
         The agent's delay tool needs a running train's *next* stop. The feed
         does not say, because its ``stop_sequence`` is always the sentinel, so
         the order has to come from here.
         """
-        calls = [(stop, s) for (trip, stop), s in self._stops.items() if trip == trip_id]
-        return sorted(calls, key=lambda call: call[1].stop_sequence)
+        return list(self._calls.get(trip_id, []))
 
     def knows_trip(self, trip_id: str) -> bool:
         return trip_id in self._known_trips
