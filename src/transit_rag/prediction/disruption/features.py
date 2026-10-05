@@ -157,7 +157,7 @@ def _targets(frame: pd.DataFrame) -> pd.DataFrame:
     any_true = pd.Series(False, index=frame.index)
     rule_a = pd.Series(False, index=frame.index)
     rule_b = pd.Series(False, index=frame.index)
-    same_day = pd.Series(True, index=frame.index)
+    crosses = pd.Series(False, index=frame.index)
     for step in range(1, HORIZON_WINDOWS + 1):
         later = by_line["disrupted"].shift(-step).astype("boolean")
         any_true |= later.fillna(False).astype(bool)
@@ -165,12 +165,17 @@ def _targets(frame: pd.DataFrame) -> pd.DataFrame:
         labelled = later.notna()
         rule_a |= labelled & by_line["rule_a"].shift(-step).fillna(False).astype(bool)
         rule_b |= labelled & by_line["rule_b"].shift(-step).fillna(False).astype(bool)
-        same_day &= by_line["service_date"].shift(-step) == frame["service_date"]
+        # Only a window that exists on another service date crosses the split.
+        # A window past the end of the data is unknown, which Kleene logic
+        # already handles: a disrupted window before it still decides the
+        # target (found by Cursor Bugbot on #19).
+        later_date = by_line["service_date"].shift(-step)
+        crosses |= later_date.notna() & (later_date != frame["service_date"])
 
     target = pd.Series(pd.NA, index=frame.index, dtype="boolean")
     target[any_true] = True
     target[known_false & ~any_true] = False
-    target[~same_day] = pd.NA
+    target[crosses] = pd.NA
     return pd.DataFrame(
         {
             "target": target,

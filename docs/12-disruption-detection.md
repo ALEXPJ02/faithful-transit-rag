@@ -85,12 +85,12 @@ by service date, 70/15/15:
 | --- | --- | --- | --- | --- |
 | Train | 2,706 | 2,538 | 158 | 2026-09-14 to 09-28 (15) |
 | Validation | 576 | 539 | 46 | 2026-09-29 to 10-01 (3) |
-| Test | 554 | 537 | **6** | 2026-10-02 to 10-04 (3) |
+| Test | 554 | 538 | **7** | 2026-10-02 to 10-04 (3) |
 
 | Persistence | AP | Precision | Recall | F1 | False alarms / day | Recall, rule (a) | Recall, rule (b) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Validation | 0.457 | 74% | 57% | 64% | 3.0 | 72% | 45% |
-| Test | 0.011 | 0% | 0% | 0% | 0.7 | n/a | 0% |
+| Test | 0.059 | 33% | 14% | 20% | 0.7 | n/a | 14% |
 
 Persistence is a strong baseline where disruptions last, and they usually do. On
 validation it catches 72% of rule (a)'s targets, because an alert in the feed now is
@@ -130,15 +130,15 @@ delay (29%), services late (16%) and the alert flag (13%).
 
 ## 6. Today's test split is too thin to compare anything
 
-Six positive targets, none from rule (a), on three quiet days. On that, a detector's
-AP is noise: persistence scores 0.011 by missing the six. **No detection result on
+Seven positive targets, none from rule (a), on three quiet days. On that, a detector's
+AP is noise: persistence scores 0.059 by catching one of the seven. **No detection result on
 today's test split should be quoted as a comparison.** The split that counts is drawn
 once, over the data to the cut-off at the end of 2026-10-18. That puts about five dates
 in test. Every scored result is reported with its count of positive targets beside
 it, so a reader can see how much it rests on (`08` §3.1).
 
-On today's test split, both detectors score AP 0.06–0.08 against persistence's
-0.011, on six positives. That is noise and is not quoted as a result.
+On today's test split the detectors score AP 0.08–0.12 against persistence's
+0.059, on seven positives. That is noise and is not quoted as a result.
 
 ## 7. Next
 

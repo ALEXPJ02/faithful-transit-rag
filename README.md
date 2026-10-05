@@ -184,7 +184,7 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   T1 windows and 4.4% of T4 windows. The detectors RQ2 compares, XGBoost and a random
   forest, are built against a persistence baseline written first (`transit-detect`,
   [`docs/12`](./docs/12-disruption-detection.md)). Their scored comparison waits for
-  the split drawn at the cut-off. Today's test dates hold only six positive targets. The delay prediction's **margin** is a
+  the split drawn at the cut-off. Today's test dates hold only seven positive targets. The delay prediction's **margin** is a
   90% conformal interval by line × how late the train already is
   ([`docs/08`](./docs/08-evaluation-plan.md) §4). It holds every lateness band at 90%
   or above, where ± MAE covers 32% of trains already more than 5 minutes late.

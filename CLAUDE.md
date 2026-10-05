@@ -122,7 +122,7 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   by `transit-detect` (`docs/12`). Features look back and the target looks forward.
   The alert feature is re-derived causally, because the label's rule (a) is
   hindsight. Validation figures are selection scores, not results. Today's test split
-  holds 6 positive targets, so the comparison waits for the split at the cut-off.
+  holds 7 positive targets, so the comparison waits for the split at the cut-off.
 
 **Snapshots in `data/` are frozen, never live.** The newest is
 `delay_observations_20261005.db`: 481,084 stop events over 32 service dates

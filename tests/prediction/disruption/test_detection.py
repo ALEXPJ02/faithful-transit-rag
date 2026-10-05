@@ -131,6 +131,13 @@ class TestTarget:
         assert bool(target.iloc[2]) is True  # window 3 unknown, window 4 disrupted
         assert pd.isna(target.iloc[4])  # nothing after the last window
 
+    def test_a_disrupted_last_window_still_decides_the_one_before(self) -> None:
+        """Past the end of the data is unknown, not another service date (Bugbot, #19)."""
+        rows = [_window_of_services(w, late=0) for w in range(3)] + [_window_of_services(3, late=5)]
+        target = _table(4, *rows)["target"]
+        assert bool(target.iloc[2]) is True  # window 3 disrupted; window 4 does not exist
+        assert pd.isna(target.iloc[3])
+
     def test_a_target_crossing_the_service_day_is_unknown(self) -> None:
         """The 02:30 window's target reaches 03:00, which is the next service date."""
         start = datetime(2026, 9, 29, 16, 15, tzinfo=UTC)  # 02:15 Sydney on the 30th
