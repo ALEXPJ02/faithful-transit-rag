@@ -514,9 +514,11 @@ In dependency order.
    (`transit-alerts`, 2026-09-29)
 2. ✅ **Alert retrieval index** — one passage per incident in `tfnsw_alerts`
 3. ✅ **Time-aware retrieval** — the §3.5 leakage guards, time *and* incident
-4. **Realtime tools** over the existing client *(blocks O1 as an agent tool)*
-5. **The agent loop** — the margin requirement is in the system prompt from the first
-   version, never bolted on, or O2's check measures a retrofit
+4. **Realtime tools.** ✅ They exist over frozen snapshots, as of a moment
+   (`14-agent.md`, 2026-10-05). The live feed behind them, and the delay tool with its
+   interval, are next.
+5. ✅ **The agent loop**: `transit-ask` (`14-agent.md`, 2026-10-05). The rules the
+   evaluation checks are in the system prompt from the first version, never bolted on
 6. ✅ **Conformal calibration** on the validation split. `transit-train` fits it
    beside the model, by line × lateness (§4, 2026-10-05)
 7. **The disruption labeller and classifier.** ✅ The labeller: `transit-label`

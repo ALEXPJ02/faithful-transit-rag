@@ -73,6 +73,7 @@ transit-alerts = "transit_rag.ingestion.alerts_cli:main"
 transit-label = "transit_rag.prediction.disruption.cli:main"
 transit-detect = "transit_rag.prediction.disruption.detect_cli:main"
 transit-reasons = "transit_rag.evaluation.reasons_cli:main"
+transit-ask = "transit_rag.agent.cli:main"
 
 [project.urls]
 Repository = "https://github.com/ALEXPJ02/faithful-transit-rag"

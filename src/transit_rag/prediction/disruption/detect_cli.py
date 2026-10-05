@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -36,7 +37,7 @@ from transit_rag.prediction.disruption.labels import (
     load_coverage,
     load_stop_events,
 )
-from transit_rag.prediction.disruption.models import fit_detector
+from transit_rag.prediction.disruption.models import FittedDetector, fit_detector, save_detector
 from transit_rag.prediction.features.quality import Split, time_based_split
 
 
@@ -105,7 +106,22 @@ def command_detect(args: argparse.Namespace) -> int:
         print(_score_line(name, score_detector(part, persistence(part), threshold=0.5)))
 
     if not args.baseline_only:
-        _print_detectors(split)
+        chosen = _print_detectors(split)
+        if args.save is not None:
+            save_detector(
+                chosen,
+                args.save,
+                trained_on={
+                    "snapshot": str(args.db),
+                    "min_services": args.min_services,
+                    **{
+                        f"{name}_dates": sorted(getattr(split, name)["service_date"].unique())
+                        for name in ("train", "validation", "test")
+                    },
+                    "saved_at_utc": datetime.now(UTC).isoformat(),
+                },
+            )
+            print(f"\nsaved the XGBoost detector to {args.save}")
 
     if args.out is not None:
         out = table.copy()
@@ -120,7 +136,9 @@ def command_detect(args: argparse.Namespace) -> int:
 WITHOUT_ALERT: tuple[str, ...] = tuple(c for c in FEATURE_COLUMNS if c != "alert_in_feed")
 
 
-def _print_detectors(split: Split) -> None:
+def _print_detectors(split: Split) -> FittedDetector:
+    """Fit and score each detector; return the full-feature XGBoost one, the headline."""
+    chosen: FittedDetector | None = None
     print()
     print("Detectors -- chosen on validation by average precision; test scored once:")
     print(
@@ -140,8 +158,11 @@ def _print_detectors(split: Split) -> None:
             scores = score_detector(part, fitted.score(part), fitted.threshold)
             print(_score_line(part_name, scores))
         if label == "xgboost":
+            chosen = fitted
             top = fitted.importance().head(6)
             print("    importance: " + ", ".join(f"{k} {v:.0%}" for k, v in top.items()))
+    assert chosen is not None
+    return chosen
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -161,6 +182,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--baseline-only", action="store_true", help="score persistence and fit nothing"
+    )
+    parser.add_argument(
+        "--save", type=Path, default=None, help="write the XGBoost detector, for the agent"
     )
     parser.set_defaults(handler=command_detect)
     return parser
