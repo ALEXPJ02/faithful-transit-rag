@@ -94,6 +94,8 @@ class TestSituationAt:
         events = _events(("T1", "a", "2000331", 600, 20), ("T1", "a", "2000331", 60, 5))
         situation = situation_at(events, ["T1"], AT, station_names(_bundle(tmp_path)))
         assert (situation.services, situation.late) == (1, 0)
+        # Recovered: the worst delay is its present one, not the peak it recovered from.
+        assert situation.max_delay_s == 60
         # Where it *was* late still counts as a place delays were seen.
         assert situation.delayed_stations == (("Central", 1),)
 
@@ -111,7 +113,7 @@ class TestDescribe:
         ).describe()
         assert text.startswith("T1, 16:00 on Monday 21 September 2026 (Sydney time).")
         assert "40 services were observed and 6 were more than five minutes late" in text
-        assert "12 minutes behind timetable" in text
+        assert "The most delayed was 12 minutes behind timetable." in text
         assert "Chatswood (4), Artarmon (2)" in text
 
     def test_no_service_is_said_plainly(self) -> None:

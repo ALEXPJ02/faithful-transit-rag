@@ -85,7 +85,9 @@ class Situation:
             f"{self.late} were more than five minutes late."
         )
         if self.max_delay_s is not None and self.max_delay_s > 0:
-            parts.append(f"The latest was {round(self.max_delay_s / 60)} minutes behind timetable.")
+            parts.append(
+                f"The most delayed was {round(self.max_delay_s / 60)} minutes behind timetable."
+            )
         if self.delayed_stations:
             named = ", ".join(f"{station} ({count})" for station, count in self.delayed_stations)
             parts.append(f"Late services were seen at {named}.")
@@ -135,7 +137,9 @@ def situation_at(
         lookback=lookback,
         services=len(latest),
         late=int((latest["delay_s"] > rule.late_threshold_s).sum()),
-        max_delay_s=float(frame["delay_s"].max()) if len(frame) else None,
+        # From each service's latest observation, like ``late``: a train that has
+        # recovered is not still far behind (found by Cursor Bugbot on #21).
+        max_delay_s=float(latest["delay_s"].max()) if len(latest) else None,
         delayed_stations=tuple(
             (str(station), int(count)) for station, count in by_station.head(TOP_STATIONS).items()
         ),

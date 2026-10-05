@@ -10,13 +10,14 @@ An incident's own alert carries its cause, and that cause is the answer being sc
 ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §3.5). So the reasons stage is
 given a **situation** built from the delay feed alone (`agent/situation.py`). It
 holds the line, the moment of the incident's first alert in Sydney time, how many
-services were observed and late in the 30 minutes before, how late the worst was,
+services were observed and late in the 30 minutes before, how late the worst of
+them was at its latest observation,
 and **where**: the stations where late services were seen, named the way past
 alerts and riders name them ("Central", not `2000331`).
 
 > T1, 13:45 on Sunday 27 September 2026 (Sydney time). In the 30 minutes before, 35
-> services were observed and 6 were more than five minutes late. The latest was 19
-> minutes behind timetable. Late services were seen at Parramatta (4), Harris Park (3),
+> services were observed and 6 were more than five minutes late. The most delayed was
+> 19 minutes behind timetable. Late services were seen at Parramatta (4), Harris Park (3),
 > Lidcombe (3), Auburn (2), Granville (2).
 
 That is the Harris Park signal repairs, with the operator's alert still unread. The
@@ -62,46 +63,51 @@ runs at the default sampling, reported as mean ± sd.
 
 ## 5. A development run, 2026-10-05
 
-`transit-reasons --db data/delay_observations_20261005.db --model`, on all 12
-incidents. Each incident is explained using only the incidents before it. This is a
+`transit-reasons --db data/delay_observations_20261005.db --model --repeats 3`, on all
+12 incidents. Each incident is explained using only the incidents before it. This is a
 development run on every incident, not the scored run on the test split.
 
-| System | Accuracy | Macro-F1 | Answers |
-| --- | --- | --- | --- |
-| Most common cause (time-aware) | **0.42** | **0.20** | n/a |
-| `claude-sonnet-5`, no retrieval | 0.17 | 0.14 | 12, none failed |
-| `claude-sonnet-5` + retrieval | 0.33 | 0.19 | 12, none failed, **no citation of an unshown alert** |
+| System | Accuracy | Macro-F1 |
+| --- | --- | --- |
+| Most common cause (time-aware) | **0.42** | **0.20** |
+| `claude-sonnet-5`, no retrieval | 0.14 ± 0.05 | 0.11 ± 0.05 |
+| `claude-sonnet-5` + retrieval | 0.28 ± 0.05 | 0.17 ± 0.03 |
 
-Retrieval recall@5 is **0.75**. For 9 of 12 incidents, at least one of the five
-past incidents shares the true group, and the first incident has no past at all.
-Macro-F1 averages technical, network incident and other/unknown; no weather
-incident has occurred. Every answer is kept in `data/reasons_dev_20261005.jsonl`.
-The run took 85 s.
+The model rows are the mean ± sd of three runs at the default sampling. There were 72
+answers, none failed, and **no citation of an alert that was not shown**. The run used
+90k input and 15k output tokens. Retrieval recall@5 is **0.75**: for 9 of 12
+incidents, at least one of the five past incidents shares the true group, and the
+first incident has no past at all. Macro-F1 averages technical, network incident and
+other/unknown, since no weather incident has occurred. Every answer is kept, locally,
+in `data/reasons_dev_20261005.jsonl`.
+
+**One run is not enough.** A single run on the same code scored 0.00 and 0.25 for the
+two model systems, against 0.14 and 0.28 averaged over three. At n = 12 a single run
+swings by more than the difference being measured, which is why `08` §3.5 asks for
+repeats.
 
 **What the answers show** (read from that file, not inferred from the scores):
 
-- **Without retrieval, the model declines to name a cause in 9 of 12 cases.** It
-  answers other/unknown, typically with *"no specific fault, incident, or external
-  factor is indicated by the data alone"*. The delay pattern by itself says little
-  about cause.
-- **With retrieval, it reasons by place.** For Harris Park it found *"delays
-  clustered at consecutive stations along the same stretch … typical of a localized
-  signal or track fault"*, which is correct. It matched the 22 Sep Bondi Junction
-  repairs to the Edgecliff police incident on the same corridor, which is wrong. It
-  matched the person on the tracks at Central (1 Oct) to the North Sydney repairs,
-  also wrong. Place-based analogy helps where the same fault recurs at a place, and
-  misleads where different causes share a corridor.
-- **The majority baseline wins at n = 12**, because technical is the commonest group.
-  Its margin over the RAG system is one incident. Nothing at this size is
-  significant, and none of it is a result. The scored run is on the test split at
-  the cut-off.
+- **Without retrieval the model abstains.** It answered other/unknown 30 times in 36,
+  28 of them wrongly, typically saying the delay data alone indicates no specific
+  cause. The delay pattern by itself says little about cause.
+- **With retrieval it reasons by place, and that works for one kind of cause.** It was
+  right in every run on three incidents: the 15 Sep North Shore fault, the North
+  Sydney repairs and Harris Park. All three are technical faults at places with
+  earlier technical incidents. It **never once identified a network incident**
+  (police activity, an accident or a medical emergency, 5 of the 12), because those
+  do not recur by place. Its answers were also more stable, with 10 of 12 incidents
+  answered the same way in all three runs against 7 of 12 without retrieval.
+- **The majority baseline still wins at n = 12**, because technical is the commonest
+  group. Nothing at this size is significant, and none of it is a result. The scored
+  run is on the test split at the cut-off.
 
 **A decision this raises, for before the scored run.** The system prompt lets the
 model answer other/unknown "when nothing indicates a cause". That is honest, but it
-conflates *the evidence does not say* with the operator's own unknown cause, and it
-costs accuracy. Whether to require the most likely group instead is a development
-choice. It should be made on these incidents, and never by looking at the test
-split.
+conflates *the evidence does not say* with the operator's own unknown cause, and
+without retrieval it is most of what the model says. Whether to require the most
+likely group instead is a development choice. It should be made on these incidents,
+and never by looking at the test split.
 
 ## 6. Running it
 

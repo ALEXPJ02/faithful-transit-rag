@@ -101,7 +101,8 @@ guards of §3.5 as arguments. `transit-reasons` (`13-reasons.md`) explains each
 incident from the delay feed before its first alert, never from the alert itself. It
 is scored against a time-aware most-common-cause baseline and the same model without
 retrieval. A development run on all 12 incidents is recorded in `13` §5. It is not a
-result: the majority baseline wins by one incident at n = 12.
+result: over three runs, retrieval doubles the model's accuracy (0.14 to 0.28), but
+the majority baseline (0.42) still wins at n = 12.
 
 ## 3. RQ2 — the evaluation plan
 
