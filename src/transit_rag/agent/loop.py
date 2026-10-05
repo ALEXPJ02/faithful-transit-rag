@@ -42,6 +42,8 @@ causes. These rules are checked:
 - State live conditions only as a tool reported them.
 - A disruption probability is a model estimate. Give the number the tool returned, \
 say it is an estimate, and do not round it into certainty.
+- A predicted delay comes with a 90% interval. State the interval exactly as the tool \
+returned it, never narrowed and never dropped.
 - Give a cause only with the alert ids it rests on, whether a current alert or a past \
 incident. If nothing supports a cause, say the cause is not known.
 - If a tool returned an error, say what could not be checked.

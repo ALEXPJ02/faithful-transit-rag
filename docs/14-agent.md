@@ -31,6 +31,7 @@ outputs, so they are stored as the model saw them, byte for byte.
 | --- | --- | --- |
 | `line_status` | O1 | Services observed and late in the last 30 minutes, the worst delay, the stations where late trains were seen, and the operator's alerts in the feed |
 | `disruption_risk` | O2 | The saved detector's probability that the line is disrupted in the next 30 minutes (`12`), its threshold and validation AP, and **whether the date was in its training** |
+| `predict_delays` | O2 | For each train running now, its next station, how late it is, and its expected delay there **with the 90% interval** (`08` §4) |
 | `similar_past_incidents` | O3 | The five past incidents most like the present, first seen before now, with the alert ids to cite (`13` §2) |
 
 The schemas are `strict`, so a line other than T1 or T4 cannot be asked for. A handler
@@ -62,6 +63,8 @@ time and four rules the evaluation checks:
 
 - live conditions only as a tool reported them;
 - a probability as the estimate the tool returned, never rounded into certainty;
+- **a predicted delay with its 90% interval, exactly as the tool returned it**, which
+  is `01` §2's hard requirement;
 - a cause only with the alert ids it rests on, otherwise said to be unknown;
 - a failed tool said to have failed.
 
@@ -87,12 +90,34 @@ T4 incidents by alert id. It then declined to attribute the present delays to an
 those causes, because no current alert linked them. That is the behaviour rule three
 asks for.
 
+**"How late are T4 trains running right now, and how late will they be at their next
+stops?" at the same moment, with the delay model.** `predict_delays` found 23 trains
+running, predicted 21, and expected 5 to be more than five minutes late. The answer
+stated **every** prediction with its interval exactly as returned, for example
+"Caringbah 15.0 min [12.4, 17.6], Heathcote 9.2 min [6.6, 11.8]", and called them model
+estimates with 90% intervals. With no alert to support one, it said the cause was not
+known.
+
+### How `predict_delays` decides what to predict
+
+A train is running if it was observed in the ten minutes before the moment. Its delay
+now is its last completed stop's, its latest reliable observation before the moment.
+Its next stop and scheduled time come from the timetable, because the feed's
+`stop_sequence` is always the sentinel. The era used is the newest fetched on or before
+the service date, then up to two older ones. The features are assembled exactly as
+training built them. A stop the model never saw is made missing explicitly rather than
+coerced, because pandas will refuse that coercion in a later version. The interval is
+the one calibrated beside the model: line × how late the train already is.
+
 ## 6. Running it
 
 ```bash
 transit-detect --db data/delay_observations_20261005.db --save models/detector_20261005.joblib
+transit-train --table data/training_table_20261005.csv \
+    --model-out models/delay_model_20261005.joblib --metrics-out models/delay_model_20261005_metrics.json
 transit-ask --db data/delay_observations_20261005.db --at 2026-10-02T10:30+10:00 \
-    --detector models/detector_20261005.joblib --out data/transcripts/q.json \
+    --detector models/detector_20261005.joblib \
+    --delay-model models/delay_model_20261005.joblib --out data/transcripts/q.json \
     "Is the T4 likely to be disrupted in the next half hour?"
 ```
 
@@ -102,9 +127,6 @@ answer, and the answer has to say so.
 
 ## 7. Not built yet
 
-- **The delay tool with its 90% interval.** It is the numeric half of O2, and the
-  answer must state its interval unnarrowed (`01` §2's hard requirement). The interval
-  exists (`08` §4). The tool that serves it per train is next.
 - **The MCP server** (`mcp_server/`), which exposes the same tools to any MCP client.
 - **Live mode**: the same tools over the realtime client instead of a snapshot.
 - **Scoring the orchestrator**: a fixed question set on test dates, with

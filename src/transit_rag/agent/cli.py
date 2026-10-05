@@ -20,6 +20,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from transit_rag.agent.delays import DelayModel
 from transit_rag.agent.feed import SnapshotFeed
 from transit_rag.agent.loop import ask
 from transit_rag.agent.tools import ToolBox, detection_rows
@@ -63,6 +64,9 @@ def command_ask(args: argparse.Namespace) -> int:
     if args.detector is not None:
         tools.detector, tools.detector_provenance = load_detector(args.detector)
         tools.rows = detection_rows(feed, incidents)
+    if args.delay_model is not None:
+        tools.delay_model = DelayModel.load(args.delay_model)
+        tools.bundles = discover()
 
     config = ModelConfig.from_env()
     import anthropic
@@ -97,6 +101,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--db", type=Path, required=True, help="a collection snapshot (read-only)")
     parser.add_argument("--at", required=True, help="the moment, with its UTC offset")
     parser.add_argument("--detector", type=Path, default=None, help="from transit-detect --save")
+    parser.add_argument(
+        "--delay-model", type=Path, default=None, help="transit-train's artefact, with its interval"
+    )
     parser.add_argument("--bundle", type=Path, default=None, help="for station names")
     parser.add_argument("--overrides", type=Path, default=DEFAULT_OVERRIDES)
     parser.add_argument("--persist-dir", type=Path, default=chroma_persist_dir())

@@ -134,6 +134,16 @@ class ScheduleIndex:
     def lookup(self, trip_id: str, stop_id: str) -> ScheduledStop | None:
         return self._stops.get((trip_id, stop_id))
 
+    def stops_of(self, trip_id: str) -> list[tuple[str, ScheduledStop]]:
+        """A trip's calls in timetable order, as ``(stop_id, scheduled)``.
+
+        The agent's delay tool needs a running train's *next* stop. The feed
+        does not say, because its ``stop_sequence`` is always the sentinel, so
+        the order has to come from here.
+        """
+        calls = [(stop, s) for (trip, stop), s in self._stops.items() if trip == trip_id]
+        return sorted(calls, key=lambda call: call[1].stop_sequence)
+
     def knows_trip(self, trip_id: str) -> bool:
         return trip_id in self._known_trips
 

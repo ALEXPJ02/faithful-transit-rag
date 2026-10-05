@@ -11,6 +11,7 @@ unfaithfulness the evaluation looks for.
 | --- | --- | --- |
 | ``line_status`` | O1 | Services observed and late in the last 30 minutes, the worst delay, where late trains were seen, and the operator's alerts in the feed |
 | ``disruption_risk`` | O2 | The detector's probability that the line is disrupted in the next 30 minutes, and its threshold |
+| ``predict_delays`` | O2 | Each running train's expected delay at its next stop, with its 90% interval |
 | ``similar_past_incidents`` | O3 | Past incidents most like the present, first seen before now, with the alert ids to cite |
 """
 
@@ -20,10 +21,12 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from transit_rag.agent.delays import DelayModel, expected_delays
 from transit_rag.agent.feed import SnapshotFeed
 from transit_rag.ingestion.alerts import Incident, sydney_time
 from transit_rag.prediction.disruption.features import detection_table
@@ -64,6 +67,12 @@ TOOL_SPECS: list[dict[str, Any]] = [
         "flags a disruption. A model estimate, not an observation.",
     ),
     _line_tool(
+        "predict_delays",
+        "For trains now running on the line: each one's next station, how late it is now, and "
+        "its expected delay there with a 90% prediction interval. Model estimates; the interval "
+        "is the margin to state with each.",
+    ),
+    _line_tool(
         "similar_past_incidents",
         "Past disruptions most similar to what the line shows now, each with its cause and the "
         "alert ids to cite. Only incidents first reported before now are returned.",
@@ -88,6 +97,8 @@ class ToolBox:
     rows: pd.DataFrame | None = None
     retriever: Retriever | None = None
     k: int = 5
+    delay_model: DelayModel | None = None
+    bundles: list[Path] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.at.tzinfo is None:
@@ -98,6 +109,7 @@ class ToolBox:
         handlers: dict[str, Callable[[str], dict[str, Any]]] = {
             "line_status": self.line_status,
             "disruption_risk": self.disruption_risk,
+            "predict_delays": self.predict_delays,
             "similar_past_incidents": self.similar_past_incidents,
         }
         if name not in handlers:
@@ -161,6 +173,15 @@ class ToolBox:
             or date in seen.get("validation_dates", []),
             "note": "a model estimate of the next 30 minutes, not an observation",
         }
+
+    def predict_delays(self, line: str) -> dict[str, Any]:
+        if self.delay_model is None:
+            raise ValueError("no delay model is loaded; pass transit-train's artefact")
+        if not self.bundles:
+            raise ValueError("no timetable bundles to find each train's next stop in")
+        return expected_delays(
+            self.feed.events, line, self.at, self.delay_model, self.bundles, self.feed.stations
+        )
 
     def similar_past_incidents(self, line: str) -> dict[str, Any]:
         if self.retriever is None:

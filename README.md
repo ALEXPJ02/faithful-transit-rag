@@ -207,13 +207,12 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   incidents, with checked citations. In a development run, retrieval doubled the
   model's accuracy, but neither beat the majority baseline at n = 12.
 - **Orchestrator (RQ1)** — `transit-ask` ([`docs/14`](./docs/14-agent.md)) is a
-  hand-rolled Claude tool-use loop over line status, disruption risk and past
-  incidents. It answers as of a moment in a frozen snapshot and records every tool
+  hand-rolled Claude tool-use loop over line status, disruption risk, each train's
+  expected delay with its 90% interval, and past incidents. It answers as of a moment in a frozen snapshot and records every tool
   call for scoring. The checked rules (estimates stated as estimates, causes only with
   cited alerts) are in its prompt from the first version.
-- **Next** — the delay tool with its interval, the MCP server, then the rest of the
-  evaluation harness: the faithfulness judge and its κ validation, lead time, and the
-  scored runs at the cut-off.
+- **Next** — the MCP server, then the rest of the evaluation harness: the faithfulness
+  judge and its κ validation, lead time, and the scored runs at the cut-off.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.
