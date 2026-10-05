@@ -81,6 +81,11 @@ first incident has no past at all. Macro-F1 averages technical, network incident
 other/unknown, since no weather incident has occurred. Every answer is kept, locally,
 in `data/reasons_dev_20261005.jsonl`.
 
+**At this size the three systems cannot be told apart.** Macro-F1 with 95% intervals
+from resampling the 8 incident dates (`evaluation/stats.py`) is 0.20 [0.11, 0.39] for
+the baseline, 0.11 [0.02, 0.25] without retrieval, and 0.17 [0.07, 0.35] with it. The
+intervals overlap almost entirely.
+
 **One run is not enough.** A single run on the same code scored 0.00 and 0.25 for the
 two model systems, against 0.14 and 0.28 averaged over three. At n = 12 a single run
 swings by more than the difference being measured, which is why `08` §3.5 asks for

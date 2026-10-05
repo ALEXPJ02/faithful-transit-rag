@@ -243,11 +243,19 @@ class TestScoring:
 
     def test_the_threshold_maximises_f1_and_prefers_fewer_alarms_on_a_tie(self) -> None:
         table = _scored([True, False, True, False], [0.9, 0.7, 0.6, 0.2])
-        # >=0.9: F1 2/3; >=0.6: F1 0.8; >=0.2: F1 2/3.
-        assert best_f1_threshold(table, table["score"]) == pytest.approx(0.6)
+        # >=0.9: F1 2/3; >=0.6: F1 0.8; >=0.2: F1 2/3. Best at 0.6, placed between it and 0.2.
+        assert best_f1_threshold(table, table["score"]) == pytest.approx(0.4)
         # >=0.9: 2 x 1 / (1 + 2) = 2/3; >=0.5: 2 x 2 / (4 + 2) = 2/3.
         tie = _scored([True, False, False, True], [0.9, 0.5, 0.5, 0.5])
-        assert best_f1_threshold(tie, tie["score"]) == pytest.approx(0.9)
+        assert best_f1_threshold(tie, tie["score"]) == pytest.approx(0.7)  # between 0.9 and 0.5
+
+    def test_a_score_that_differs_in_its_last_bit_cannot_flip_its_row(self) -> None:
+        """Found 2026-10-05: a forest re-run moved a score by 1e-16 at the threshold."""
+        table = _scored([True, False, True, False], [0.9, 0.7, 0.6, 0.2])
+        threshold = best_f1_threshold(table, table["score"])
+        wobbled = table["score"] - 1e-16
+        assert list(table["score"] >= threshold) == list(wobbled >= threshold)
+        assert list(table["score"] >= threshold) == [True, True, True, False]
 
 
 def test_persistence_reads_the_current_window_as_not_disrupted_when_nothing_ran() -> None:
