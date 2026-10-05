@@ -28,7 +28,7 @@ from datetime import datetime
 from typing import Any
 
 from transit_rag.agent.tools import TOOL_SPECS, ToolBox
-from transit_rag.realtime.parsing import SYDNEY
+from transit_rag.ingestion.alerts import sydney_moment
 
 #: A question needs at most one call per stage per line, and a follow-up or two.
 MAX_TURNS = 8
@@ -80,8 +80,7 @@ class Transcript:
 
 
 def system_prompt(at: datetime) -> str:
-    local = at.astimezone(SYDNEY)
-    return SYSTEM_TEMPLATE.format(as_of=f"{local:%H:%M} on {local:%A} {local.day} {local:%B %Y}")
+    return SYSTEM_TEMPLATE.format(as_of=sydney_moment(at))
 
 
 def _text(content: Any) -> str:

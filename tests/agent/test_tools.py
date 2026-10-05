@@ -99,8 +99,9 @@ class TestLineStatus:
         status = json.loads(output)
         assert not is_error
         assert status["as_of"] == "2026-10-02 08:50"
-        assert (status["services_observed_last_30_min"], status["more_than_5_min_late"]) == (6, 2)
-        assert status["late_at_stations"] == {"Central": 2}
+        assert status["services_observed_last_30_min"] == 6
+        assert status["more_than_5_min_late_when_last_reported"] == 2
+        assert status["more_than_5_min_late_at_some_point_by_station"] == {"Central": 2}
         assert [alert["alert_id"] for alert in status["alerts_in_feed"]] == ["aaaa1111"]
 
 

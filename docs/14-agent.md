@@ -29,7 +29,7 @@ outputs, so they are stored as the model saw them, byte for byte.
 
 | Tool | Stage | Returns |
 | --- | --- | --- |
-| `line_status` | O1 | Services observed and late in the last 30 minutes, the worst delay, the stations where late trains were seen, and the operator's alerts in the feed |
+| `line_status` | O1 | Services observed in the last 30 minutes. How many were late, and the worst delay, when last reported. The stations where services were late at any point in that half hour, and the operator's alerts in the feed |
 | `disruption_risk` | O2 | The saved detector's probability that the line is disrupted in the next 30 minutes (`12`), its threshold and validation AP, and **whether the date was in its training** |
 | `predict_delays` | O2 | For each train running now, its next station, how late it is, and its expected delay there **with the 90% interval** (`08` §4) |
 | `similar_past_incidents` | O3 | The five past incidents most like the present, first seen before now, with the alert ids to cite (`13` §2) |
@@ -130,4 +130,6 @@ answer, and the answer has to say so.
 - **The MCP server** (`mcp_server/`), which exposes the same tools to any MCP client.
 - **Live mode**: the same tools over the realtime client instead of a snapshot.
 - **Scoring the orchestrator**: a fixed question set on test dates, with
-  tool-faithfulness and citation checks by the judge (`08` §3.4).
+  tool-faithfulness and citation coverage from the judge
+  ([`15`](./15-faithfulness-judge.md)). Four questions are already in the judge's
+  validation set.

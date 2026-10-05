@@ -111,10 +111,22 @@ class TestDescribe:
             max_delay_s=720,
             delayed_stations=(("Chatswood", 4), ("Artarmon", 2)),
         ).describe()
-        assert text.startswith("T1, 16:00 on Monday 21 September 2026 (Sydney time).")
-        assert "40 services were observed and 6 were more than five minutes late" in text
-        assert "The most delayed was 12 minutes behind timetable." in text
-        assert "Chatswood (4), Artarmon (2)" in text
+        assert text == (
+            "T1, 16:00 on Monday 21 September 2026 (Sydney time). In the 30 minutes before, "
+            "40 services were observed. When last reported, 6 were more than five minutes late "
+            "and the most delayed was 12 minutes behind. At some point in those 30 minutes, "
+            "services were reported more than five minutes late at Chatswood (4), Artarmon (2)."
+        )
+
+    def test_a_station_may_count_more_services_than_are_late_now_and_says_why(self) -> None:
+        text = Situation(
+            ("T4",), AT, timedelta(minutes=30), 38, 0, None, (("Bondi Junction", 5),)
+        ).describe()
+        assert "When last reported, 0 were more than five minutes late." in text
+        assert text.endswith(
+            "At some point in those 30 minutes, services were reported more than five minutes "
+            "late at Bondi Junction (5)."
+        )
 
     def test_no_service_is_said_plainly(self) -> None:
         text = Situation(("T4",), AT, timedelta(minutes=30), 0, 0, None, ()).describe()

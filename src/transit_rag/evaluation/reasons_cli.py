@@ -26,7 +26,13 @@ from typing import Any
 
 import pandas as pd
 
-from transit_rag.agent.reasons import ClaudeReasoner, LanguageModel, ReasonAnswer, explain
+from transit_rag.agent.reasons import (
+    ClaudeReasoner,
+    LanguageModel,
+    ReasonAnswer,
+    explain,
+    user_prompt,
+)
 from transit_rag.agent.situation import station_names
 from transit_rag.config import (
     ConfigError,
@@ -184,6 +190,11 @@ def command_reasons(args: argparse.Namespace) -> int:
                             "truth": case.truth,
                             "situation": case.situation.describe(),
                             "retrieved": [p.chunk_id for p in passages] if with_retrieval else [],
+                            # Verbatim, so the faithfulness judge sees exactly what
+                            # the model was shown and nothing else.
+                            "prompt": user_prompt(
+                                case.situation, passages if with_retrieval else None
+                            ),
                             **result,
                         }
                     )

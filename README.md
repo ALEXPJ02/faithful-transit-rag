@@ -141,7 +141,7 @@ src/transit_rag/
   prediction/      delay collection, reconciliation, XGBoost model
   agent/           hand-rolled Anthropic tool-use loop
   mcp_server/      MCP tool interface + FastAPI
-  evaluation/      Ragas + custom LLM-as-judge harness
+  evaluation/      scoring, intervals, and the faithfulness judge + its κ
 ```
 
 Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
@@ -163,6 +163,7 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 - [`docs/12-disruption-detection.md`](./docs/12-disruption-detection.md) — what a detector may see, how it is scored, and the baseline
 - [`docs/13-reasons.md`](./docs/13-reasons.md) — explaining a disruption from past alerts, and scoring it
 - [`docs/14-agent.md`](./docs/14-agent.md) — the orchestrator: the loop, its tools, and answering as of a moment
+- [`docs/15-faithfulness-judge.md`](./docs/15-faithfulness-judge.md) — the faithfulness judge: per-statement verdicts, its frozen rubric, and κ against the author
 
 ## Status
 
@@ -214,9 +215,12 @@ on 2026-09-24, and decisions updated on 2026-09-28.
 - **Evaluation harness (RQ2)** — detection is scored with average precision, lead time
   against the operator's alerts, and 95% intervals from resampling whole service
   dates. Reasons are scored with macro-F1 and its interval. At today's sizes every
-  interval is wide, and that is reported rather than hidden.
-- **Next** — the faithfulness judge and its κ validation, the k sweep, and the scored
-  runs at the cut-off. Then the MCP server.
+  interval is wide, and that is reported rather than hidden. Explanations are judged
+  per statement against exactly what each system was shown (`transit-judge`,
+  [`docs/15`](./docs/15-faithfulness-judge.md)). The judge's rubric is frozen before
+  validation.
+- **Next** — the judge's κ validation on the author's labels, the k sweep, and the
+  scored runs at the cut-off. Then the MCP server.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.

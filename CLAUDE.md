@@ -128,11 +128,15 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   answering as of a moment in a frozen snapshot, with every tool call recorded
   verbatim. A fourth tool gives each running train's expected delay with its 90%
   interval, which the prompt requires stated unnarrowed.
-- The rest of the **RQ2 harness** in `evaluation/`: the faithfulness judge and its
-  Cohen's κ validation, the k sweep, and the scored runs at the cut-off. Lead time
-  and date-resampled 95% intervals are built (`evaluation/lead_time.py`,
-  `evaluation/stats.py`). Detection re-runs reproduce byte for byte, because the
-  forest predicts on one thread and thresholds sit between scores.
+- The rest of the **RQ2 harness** in `evaluation/`: the k sweep and the scored runs
+  at the cut-off. Lead time and date-resampled 95% intervals are built
+  (`evaluation/lead_time.py`, `evaluation/stats.py`). Detection re-runs reproduce byte
+  for byte, because the forest predicts on one thread and thresholds sit between
+  scores. **The faithfulness judge is built** (`transit-judge`, `docs/15`). It judges
+  each statement against exactly what its system was shown, and every verdict carries
+  the fingerprint of the rubric it applied. The rubric is frozen at `e926f55c0cf7`. Its
+  Cohen's κ waits on the author's labels for the 21-statement blind sample
+  `data/judge_sample_20261005.csv`, drawn from answers generated after the freeze.
 - **The scored detection run** — the detectors (XGBoost and random forest,
   `prediction/disruption/models.py`) and the persistence baseline are built and run
   by `transit-detect` (`docs/12`). Features look back and the target looks forward.

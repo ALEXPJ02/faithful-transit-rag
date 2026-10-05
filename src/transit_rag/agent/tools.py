@@ -129,11 +129,12 @@ class ToolBox:
             "as_of": sydney_time(self.at),
             "summary": situation.describe(),
             "services_observed_last_30_min": situation.services,
-            "more_than_5_min_late": situation.late,
-            "worst_delay_minutes": (
+            # Named for which report each figure reads, as the summary says it.
+            "more_than_5_min_late_when_last_reported": situation.late,
+            "worst_delay_minutes_when_last_reported": (
                 None if situation.max_delay_s is None else round(situation.max_delay_s / 60)
             ),
-            "late_at_stations": dict(situation.delayed_stations),
+            "more_than_5_min_late_at_some_point_by_station": dict(situation.delayed_stations),
             "alerts_in_feed": [
                 {
                     "alert_id": alert.short_id,
