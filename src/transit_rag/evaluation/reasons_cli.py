@@ -24,6 +24,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from transit_rag.agent.reasons import ClaudeReasoner, LanguageModel, ReasonAnswer, explain
 from transit_rag.agent.situation import station_names
 from transit_rag.config import (
@@ -40,11 +42,13 @@ from transit_rag.evaluation.reasons import (
     retrieval_recall,
     score_reasons,
 )
+from transit_rag.evaluation.stats import Interval, bootstrap_by_date
 from transit_rag.ingestion.alerts import (
     DEFAULT_OVERRIDES,
     audit,
     load_alerts,
     load_overrides,
+    sydney_date,
     sydney_time,
 )
 from transit_rag.prediction.collection.bundles import discover
@@ -79,7 +83,29 @@ def _ask(
     }
 
 
-def _print_scores(name: str, truth: list[str], runs: list[list[str | None]]) -> None:
+def macro_f1_interval(truth: list[str], runs: list[list[str | None]], dates: list[str]) -> Interval:
+    """Mean macro-F1 over repeats, with a 95% interval from resampling incident dates.
+
+    Each resample keeps whole dates, and so whole incidents with all their repeats
+    (``docs/08`` §3.5). The mean over repeats is taken inside each resample, so the
+    interval covers sampling the incidents, not the model's own sampling twice.
+    """
+    frame = pd.DataFrame({"date": dates, "truth": truth})
+    for index, run in enumerate(runs):
+        frame[f"run{index}"] = [p or "none" for p in run]
+
+    def mean_macro(rows: pd.DataFrame) -> float:
+        truths = list(rows["truth"])
+        return statistics.mean(
+            score_reasons(truths, list(rows[f"run{i}"])).macro_f1 for i in range(len(runs))
+        )
+
+    return bootstrap_by_date(frame, mean_macro, date_column="date")
+
+
+def _print_scores(
+    name: str, truth: list[str], runs: list[list[str | None]], dates: list[str]
+) -> None:
     """One line per system: mean and spread over repeats. A failed answer counts as wrong."""
     scored = [score_reasons(truth, [p or "none" for p in run]) for run in runs]
     accuracy = [s.accuracy for s in scored]
@@ -94,6 +120,7 @@ def _print_scores(name: str, truth: list[str], runs: list[list[str | None]]) -> 
         f"  {name:<28}{spread(accuracy):>14}{spread(macro):>14}   "
         f"over {', '.join(scored[0].groups)}"
     )
+    print(f"      macro-F1 {macro_f1_interval(truth, runs, dates).describe(2)}")
 
 
 def command_reasons(args: argparse.Namespace) -> int:
@@ -165,8 +192,9 @@ def command_reasons(args: argparse.Namespace) -> int:
 
     print(f"\nRetrieval recall@{args.k}: {retrieval_recall(truth, retrieved_groups):.2f}")
     print(f"\n  {'system':<28}{'accuracy':>14}{'macro-F1':>14}")
+    dates = [sydney_date(case.incident.first_seen) for case in cases]
     for name, runs in systems.items():
-        _print_scores(name, truth, runs)
+        _print_scores(name, truth, runs, dates)
     unsupported = sum(len(r.get("unsupported_citations", [])) for r in records)
     errors = sum(1 for r in records if r.get("error"))
     if args.model:

@@ -22,9 +22,18 @@ from pathlib import Path
 
 import pandas as pd
 
-from transit_rag.ingestion.alerts import DEFAULT_OVERRIDES, audit, load_alerts, load_overrides
+from transit_rag.evaluation.lead_time import lead_times, summarise
+from transit_rag.evaluation.stats import bootstrap_by_date
+from transit_rag.ingestion.alerts import (
+    DEFAULT_OVERRIDES,
+    Incident,
+    audit,
+    load_alerts,
+    load_overrides,
+)
 from transit_rag.prediction.disruption.detection import (
     DetectionScores,
+    average_precision,
     persistence,
     score_detector,
 )
@@ -41,13 +50,30 @@ from transit_rag.prediction.disruption.models import FittedDetector, fit_detecto
 from transit_rag.prediction.features.quality import Split, time_based_split
 
 
-def build(db: Path, overrides: Path, rule: LabelRule) -> pd.DataFrame:
-    """The detection table for one snapshot, labels and alerts from the same file."""
+def build(db: Path, overrides: Path, rule: LabelRule) -> tuple[pd.DataFrame, list[Incident]]:
+    """The detection table for one snapshot, and its incidents, from the same file."""
     alerts = load_alerts(db)
     _, incidents = audit(alerts, load_overrides(overrides))
     events = load_stop_events(db)
     labels = label_windows(events, incidents, load_coverage(db), rule)
-    return detection_table(labels, events, alerts, load_alert_polls(db), rule)
+    table = detection_table(labels, events, alerts, load_alert_polls(db), rule)
+    return table, incidents
+
+
+def _extras(
+    part: pd.DataFrame, score: pd.Series, threshold: float, incidents: list[Incident]
+) -> list[str]:
+    """The AP's date-resampled 95% interval, and lead time against the operator's alerts."""
+    known = part["target"].notna()
+    scored = part.loc[known].assign(_score=score[known])
+    interval = bootstrap_by_date(
+        scored,
+        lambda rows: average_precision(
+            rows["target"].to_numpy(dtype=bool), rows["_score"].to_numpy(dtype=float)
+        ),
+    )
+    leads = summarise(lead_times(part, score >= threshold, incidents))
+    return [f"      AP {interval.describe()}", f"      lead time: {leads.describe()}"]
 
 
 def _split_lines(split: Split) -> list[str]:
@@ -80,7 +106,7 @@ def _score_line(name: str, scores: DetectionScores) -> str:
 
 def command_detect(args: argparse.Namespace) -> int:
     rule = LabelRule(min_services=args.min_services)
-    table = build(args.db, args.overrides, rule)
+    table, incidents = build(args.db, args.overrides, rule)
     split = time_based_split(table)
 
     known = table["target"].notna()
@@ -104,9 +130,10 @@ def command_detect(args: argparse.Namespace) -> int:
     for name in ("validation", "test"):
         part = getattr(split, name)
         print(_score_line(name, score_detector(part, persistence(part), threshold=0.5)))
+        print("\n".join(_extras(part, persistence(part), 0.5, incidents)))
 
     if not args.baseline_only:
-        chosen = _print_detectors(split)
+        chosen = _print_detectors(split, incidents)
         if args.save is not None:
             save_detector(
                 chosen,
@@ -136,7 +163,7 @@ def command_detect(args: argparse.Namespace) -> int:
 WITHOUT_ALERT: tuple[str, ...] = tuple(c for c in FEATURE_COLUMNS if c != "alert_in_feed")
 
 
-def _print_detectors(split: Split) -> FittedDetector:
+def _print_detectors(split: Split, incidents: list[Incident]) -> FittedDetector:
     """Fit and score each detector; return the full-feature XGBoost one, the headline."""
     chosen: FittedDetector | None = None
     print()
@@ -155,8 +182,9 @@ def _print_detectors(split: Split) -> FittedDetector:
         print(f"  {label} (threshold {fitted.threshold:.3f}, {fitted.params})")
         for part_name in ("validation", "test"):
             part = getattr(split, part_name)
-            scores = score_detector(part, fitted.score(part), fitted.threshold)
-            print(_score_line(part_name, scores))
+            score = fitted.score(part)
+            print(_score_line(part_name, score_detector(part, score, fitted.threshold)))
+            print("\n".join(_extras(part, score, fitted.threshold, incidents)))
         if label == "xgboost":
             chosen = fitted
             top = fitted.importance().head(6)

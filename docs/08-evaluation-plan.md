@@ -527,7 +527,9 @@ In dependency order.
    `transit-detect` (`12-disruption-detection.md`). ✅ The detectors, XGBoost and
    random forest, chosen on validation, with the no-alert ablation (`12` §5). Their
    scored comparison waits for the split drawn at the cut-off
-8. **The evaluation harness** — detection metrics, cause macro-F1, the judge, then
-   judge validation, then the scored run on data to the §3.1 cut-off
+8. **The evaluation harness.** ✅ Detection metrics, lead time, cause macro-F1, and
+   95% intervals from resampling whole service dates (`12`, `13`, 2026-10-05). Next
+   come the judge, then judge validation, then the scored run on data to the §3.1
+   cut-off
 
 Items 6 and 7 do not depend on 1–5 and can proceed in parallel.

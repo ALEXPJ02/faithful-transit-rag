@@ -129,7 +129,10 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   verbatim. A fourth tool gives each running train's expected delay with its 90%
   interval, which the prompt requires stated unnarrowed.
 - The rest of the **RQ2 harness** in `evaluation/`: the faithfulness judge and its
-  Cohen's κ validation, lead time, the k sweep, and the scored runs at the cut-off.
+  Cohen's κ validation, the k sweep, and the scored runs at the cut-off. Lead time
+  and date-resampled 95% intervals are built (`evaluation/lead_time.py`,
+  `evaluation/stats.py`). Detection re-runs reproduce byte for byte, because the
+  forest predicts on one thread and thresholds sit between scores.
 - **The scored detection run** — the detectors (XGBoost and random forest,
   `prediction/disruption/models.py`) and the persistence baseline are built and run
   by `transit-detect` (`docs/12`). Features look back and the target looks forward.

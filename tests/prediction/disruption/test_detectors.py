@@ -86,3 +86,13 @@ def test_no_detector_is_fitted_when_train_holds_one_class() -> None:
     train["target"] = pd.array([True] * 100, dtype="boolean")
     with pytest.raises(ValueError, match="only one class"):
         fit_detector("xgboost", train, _table(50, seed=7))
+
+
+def test_a_forest_refitted_gives_bit_identical_scores() -> None:
+    """docs/08 §3.5: a re-run must reproduce. Parallel prediction did not, by 1e-16."""
+    train, validation = _table(400, seed=8), _table(200, seed=9)
+    first = fit_detector("random forest", train, validation)
+    second = fit_detector("random forest", train, validation)
+    fresh = known(_table(200, seed=10))
+    assert np.array_equal(first.score(fresh).to_numpy(), second.score(fresh).to_numpy())
+    assert first.threshold == second.threshold

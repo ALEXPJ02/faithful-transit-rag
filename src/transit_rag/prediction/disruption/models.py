@@ -119,6 +119,11 @@ def _fit_forest(
 
     model = RandomForestClassifier(**{**FOREST_BASE, **params})
     model.fit(feature_matrix(train, columns), train["target"].astype(bool))
+    # Fitted in parallel, predicted on one thread. Parallel prediction sums the
+    # trees' probabilities in whatever order threads finish, so a score could
+    # differ in its last bit between runs, and docs/08 §3.5 needs re-runs to
+    # reproduce. The fit itself is deterministic under its random_state.
+    model.set_params(n_jobs=1)
     return model
 
 

@@ -64,12 +64,14 @@ hindsight rule (a) marks 111.
 | Metric | Why |
 | --- | --- |
 | **Average precision** (headline) | Summarises every threshold. Negatives make up 94% of windows, and they cannot inflate it the way they inflate accuracy |
-| Precision, recall, F1 | At one threshold, the best F1 **on validation**, with ties going to the higher threshold (fewer alarms) |
+| Precision, recall, F1 | At one threshold, the best F1 **on validation**, with ties going to the higher threshold (fewer alarms). The threshold is placed midway to the next lower score, never on one (§5) |
+| Lead time | Minutes between the detector's first flag and the operator's alert, for each incident (`evaluation/lead_time.py`) |
 | False alarms per day | Whether anyone could live with the detector |
 | Recall split by rule | The target's two rules measure different things (`11` §5). A detector built on delay features can only be expected to find what rule (b) sees |
 
-Lead time needs each flag lined up against the operator's alert, so it is scored in
-the evaluation harness.
+Every AP is reported with a **95% interval from resampling whole service dates**
+(`evaluation/stats.py`, `08` §3.5). Windows within a day are not independent, and
+resampling them would report an interval far narrower than the evidence allows.
 
 ## 4. The baseline: persistence
 
@@ -116,7 +118,7 @@ On the 2026-10-05 snapshot:
 | XGBoost | 0.631 | 62% | 6.7 | 67% | 62% |
 | Random forest | 0.592 | 65% | 5.3 | 72% | 59% |
 | XGBoost, no alert feature | 0.489 | 53% | 8.0 | 28% | 69% |
-| Random forest, no alert feature | 0.477 | 52% | 3.7 | 22% | 55% |
+| Random forest, no alert feature | 0.477 | 54% | 3.7 | 22% | 59% |
 
 **These validation figures are selection scores, not results.** The detectors'
 settings, early stopping and thresholds were all chosen on these rows, so their AP is
@@ -127,6 +129,39 @@ rule (a)'s targets collapses from about 70% to about 25%, while rule (b)'s holds
 Delay features find what rule (b) sees. Seeing what rule (a) sees needs the
 operator, as `11` §5 predicted. In XGBoost the most important features are mean
 delay (29%), services late (16%) and the alert flag (13%).
+
+### Lead time, intervals, and a reproducibility fix
+
+**Lead time** is scored for every incident on each line it names. It is the
+operator's first alert minus the detector's first flag, searched from 60 minutes
+before the alert to the incident's last window, so positive means earlier. The
+60-minute lookback is fixed a priori: the detector's claim reaches 30 minutes ahead,
+and the alert's own time is uncertain by one 30-minute poll. A lead time is
+therefore good to about 30 minutes. On validation, which has 3 incidents:
+
+| | Flagged | Before the alert | Median lead |
+| --- | --- | --- | --- |
+| Persistence, and both alert-fed detectors | 3 of 3 | 1 | −8 min |
+| XGBoost, no alert feature | 2 of 3 | 2 | +8 min |
+| Random forest, no alert feature | 1 of 3 | 1 | +9 min |
+
+The detectors that read the operator's alert mostly flag **when it appears**. The
+ones that cannot see it flag **before** it on what they catch, but they catch less.
+That is the trade-off rule (a) and rule (b) already suggested (`11` §5). With three
+incidents, it is a direction, not a finding. Today's test split holds no incident.
+
+**The intervals are wide, as they should be at three dates.** For example, the
+validation AP is 0.631 [0.473, 0.789] for XGBoost and 0.457 [0.204, 0.607] for
+persistence.
+
+**Re-runs now reproduce byte for byte.** Comparing two runs showed the no-alert
+forest's precision and recall moving at an unchanged threshold. The forest predicted
+in parallel, summing tree probabilities in thread order, so scores differed in their
+last bit (1e-16). One validation row sat within 1e-12 of a threshold that was
+*equal* to a score, so it flipped. The forest now predicts on one thread, and every
+threshold sits midway between two scores. Validation flags are unchanged by
+construction, and two runs of `transit-detect` now give identical output. The table
+above is from the fixed code.
 
 ## 6. Today's test split is too thin to compare anything
 
@@ -143,9 +178,8 @@ On today's test split the detectors score AP 0.08–0.12 against persistence's
 ## 7. Next
 
 - **The scored run**, on the split drawn at the cut-off, with every figure reported
-  beside its count of positive targets and with confidence intervals from resampling
-  whole service dates (`08` §3.5). Add an LSTM if time allows.
-- **Lead time**, in the evaluation harness.
+  beside its count of positive targets and its date-resampled interval. Add an LSTM
+  if time allows.
 - **Timetabled services and cancellations as features.** They need a calendar-aware
   reading of the static timetable, the same one the label's cancellation check needs
   (`11` §7). Until that exists, a thinned service shows up only as fewer services

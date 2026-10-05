@@ -211,8 +211,12 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   expected delay with its 90% interval, and past incidents. It answers as of a moment in a frozen snapshot and records every tool
   call for scoring. The checked rules (estimates stated as estimates, causes only with
   cited alerts) are in its prompt from the first version.
-- **Next** — the MCP server, then the rest of the evaluation harness: the faithfulness
-  judge and its κ validation, lead time, and the scored runs at the cut-off.
+- **Evaluation harness (RQ2)** — detection is scored with average precision, lead time
+  against the operator's alerts, and 95% intervals from resampling whole service
+  dates. Reasons are scored with macro-F1 and its interval. At today's sizes every
+  interval is wide, and that is reported rather than hidden.
+- **Next** — the faithfulness judge and its κ validation, the k sweep, and the scored
+  runs at the cut-off. Then the MCP server.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.

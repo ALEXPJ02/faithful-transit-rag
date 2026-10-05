@@ -111,14 +111,28 @@ def best_f1_threshold(table: pd.DataFrame, score: pd.Series) -> float:
     """The threshold with the highest F1 on ``table``. Pass validation, never test.
 
     Ties go to the higher threshold: fewer alarms for the same F1.
+
+    **The threshold sits between two scores, never on one.** It is the midpoint
+    between the chosen score and the next lower distinct score, so it flags
+    exactly the same validation rows. But a score that differs in its last bit,
+    from another machine or another thread's summation order, cannot flip the
+    row it would otherwise be sitting on. Measured 2026-10-05: one validation
+    row lay within 1e-12 of the forest's threshold, and re-runs moved its
+    precision and recall.
     """
     known = table["target"].notna().to_numpy()
     target = table["target"].to_numpy(dtype=bool, na_value=False)[known]
     scores = score.to_numpy(dtype=float)[known]
-    best_threshold, best_f1 = 0.5, -1.0
-    for threshold in np.unique(scores)[::-1]:
+    candidates = np.unique(scores)[::-1]
+    best_index, best_f1 = -1, -1.0
+    for index, threshold in enumerate(candidates):
         flagged = scores >= threshold
         f1 = _f1(int((flagged & target).sum()), int(flagged.sum()), int(target.sum()))
         if f1 > best_f1:
-            best_threshold, best_f1 = float(threshold), f1
-    return best_threshold
+            best_index, best_f1 = index, f1
+    if best_index < 0:
+        return 0.5
+    chosen = float(candidates[best_index])
+    if best_index + 1 < len(candidates):
+        return (chosen + float(candidates[best_index + 1])) / 2
+    return chosen / 2  # the lowest score: flag everything, with margin below it
