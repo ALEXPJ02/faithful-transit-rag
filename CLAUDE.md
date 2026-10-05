@@ -126,8 +126,10 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
 
 **Not started:**
 
-- `mcp_server/`, the MCP tool interface and FastAPI, and the **live feed** behind the
-  agent's tools. The **agent loop** itself is built (`transit-ask`, `docs/14`). It is a
+- The **live feed** behind the agent's tools. The **MCP server** is built
+  (`transit-mcp`, `docs/16`). It serves the four tools through `ToolBox.call`, with the
+  agent's system prompt as its instructions, and needs the `serve` extra (`mcp` 2.x,
+  where `FastMCP` became `MCPServer`). CI installs that extra. The **agent loop** itself is built (`transit-ask`, `docs/14`). It is a
   hand-rolled tool-use loop over line status, disruption risk and past incidents,
   answering as of a moment in a frozen snapshot, with every tool call recorded
   verbatim. A fourth tool gives each running train's expected delay with its 90%

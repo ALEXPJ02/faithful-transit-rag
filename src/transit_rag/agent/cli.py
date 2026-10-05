@@ -62,7 +62,11 @@ def _moment(text: str) -> datetime:
     return moment
 
 
-def command_ask(args: argparse.Namespace) -> int:
+def build_toolbox(args: argparse.Namespace) -> ToolBox:
+    """The tools for one snapshot and one moment, with whichever models were given.
+
+    Shared with ``transit-mcp``, so the agent and an MCP client get the same tools.
+    """
     at = _moment(args.at)
     bundle = args.bundle or max(discover(), key=lambda path: path.name)
     feed = SnapshotFeed.open(args.db, bundle)
@@ -80,7 +84,11 @@ def command_ask(args: argparse.Namespace) -> int:
     if args.delay_model is not None:
         tools.delay_model = DelayModel.load(args.delay_model)
         tools.bundles = timetable_eras(args.bundle, discover())
+    return tools
 
+
+def command_ask(args: argparse.Namespace) -> int:
+    tools = build_toolbox(args)
     config = ModelConfig.from_env()
     import anthropic
 
@@ -111,6 +119,14 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("question")
+    add_toolbox_arguments(parser)
+    parser.add_argument("--out", type=Path, default=None, help="write the transcript as JSON")
+    parser.set_defaults(handler=command_ask)
+    return parser
+
+
+def add_toolbox_arguments(parser: argparse.ArgumentParser) -> None:
+    """What :func:`build_toolbox` reads: the snapshot, the moment, and the models."""
     parser.add_argument("--db", type=Path, required=True, help="a collection snapshot (read-only)")
     parser.add_argument("--at", required=True, help="the moment, with its UTC offset")
     parser.add_argument("--detector", type=Path, default=None, help="from transit-detect --save")
@@ -121,9 +137,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--overrides", type=Path, default=DEFAULT_OVERRIDES)
     parser.add_argument("--persist-dir", type=Path, default=chroma_persist_dir())
     parser.add_argument("--k", type=int, default=DEFAULT_K)
-    parser.add_argument("--out", type=Path, default=None, help="write the transcript as JSON")
-    parser.set_defaults(handler=command_ask)
-    return parser
 
 
 def main(argv: list[str] | None = None) -> int:

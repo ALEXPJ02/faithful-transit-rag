@@ -140,7 +140,7 @@ src/transit_rag/
   realtime/        TfNSW GTFS-Realtime client + parsers
   prediction/      delay collection, reconciliation, XGBoost model
   agent/           hand-rolled Anthropic tool-use loop
-  mcp_server/      MCP tool interface + FastAPI
+  mcp_server/      the agent's tools as an MCP server (transit-mcp)
   evaluation/      scoring, intervals, and the faithfulness judge + its κ
 ```
 
@@ -164,6 +164,7 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 - [`docs/13-reasons.md`](./docs/13-reasons.md) — explaining a disruption from past alerts, and scoring it
 - [`docs/14-agent.md`](./docs/14-agent.md) — the orchestrator: the loop, its tools, and answering as of a moment
 - [`docs/15-faithfulness-judge.md`](./docs/15-faithfulness-judge.md) — the faithfulness judge: per-statement verdicts, its frozen rubric, and κ against the author
+- [`docs/16-mcp-server.md`](./docs/16-mcp-server.md) — the agent's tools served to any MCP client, as of a moment
 
 ## Status
 
@@ -222,7 +223,8 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   [`docs/15`](./docs/15-faithfulness-judge.md)). The judge's rubric is frozen before
   validation.
 - **Next** — the judge's κ validation on the author's labels, freezing k by the sweep's
-  rule (`docs/13` §7), and the scored runs at the cut-off. Then the MCP server.
+  rule (`docs/13` §7), and the scored runs at the cut-off. Then the live feed behind the
+  tools. The MCP server is built (`transit-mcp`, [`docs/16`](./docs/16-mcp-server.md)).
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.

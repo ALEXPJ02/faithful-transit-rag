@@ -127,7 +127,8 @@ answer, and the answer has to say so.
 
 ## 7. Not built yet
 
-- **The MCP server** (`mcp_server/`), which exposes the same tools to any MCP client.
+- ~~**The MCP server**~~: built (`transit-mcp`, [`16`](./16-mcp-server.md)). It serves
+  these four tools to any MCP client through the same `ToolBox.call`.
 - **Live mode**: the same tools over the realtime client instead of a snapshot.
 - **Scoring the orchestrator**: a fixed question set on test dates, with
   tool-faithfulness and citation coverage from the judge
