@@ -161,6 +161,7 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 - [`docs/10-retrieval.md`](./docs/10-retrieval.md) — chunking, the index fingerprint, and the retrieval decisions
 - [`docs/11-disruption-labels.md`](./docs/11-disruption-labels.md) — the disruption label RQ2's detectors are scored against
 - [`docs/12-disruption-detection.md`](./docs/12-disruption-detection.md) — what a detector may see, how it is scored, and the baseline
+- [`docs/13-reasons.md`](./docs/13-reasons.md) — explaining a disruption from past alerts, and scoring it
 
 ## Status
 
@@ -200,8 +201,13 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   dates**. The incident rule agreed with all 8 alerts it was not written from, but
   none was `UNKNOWN_CAUSE`, so the description markers are still untested out of
   sample. One urgent repair that TfNSW published as `MAINTENANCE` is in by override.
-- **Next** — the reasons agent, then the agent loop and MCP tools, then the evaluation
-  harness.
+  The **reasons stage** is built (`transit-reasons`, [`docs/13`](./docs/13-reasons.md)).
+  It explains each incident from the delay feed before its alert and five guarded past
+  incidents, with checked citations. In a development run, retrieval doubled the
+  model's accuracy, but neither beat the majority baseline at n = 12.
+- **Next** — the agent loop and MCP tools, then the rest of the evaluation harness: the
+  faithfulness judge and its κ validation, lead time, and the scored runs at the
+  cut-off.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.

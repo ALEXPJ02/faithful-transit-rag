@@ -55,7 +55,7 @@ The objectives are the stages, in the order the workflow runs. An orchestrator a
 | --- | --- | --- | --- | --- |
 | **O1** Retrieval | Live T1/T4 trip updates and service alerts, joined to the static timetable. **Deterministic Python, not an LLM** | Trip updates (120 s), alerts (30 min), timetable → per-stop delay observations; active alerts with cause, effect, scope, text | Tool-faithfulness: share of the agent's statements about live conditions matching the logged tool response. Feed currency: lag between tool timestamp and snapshot | **Working** |
 | **O2** Prediction | Is T1/T4 disrupted, or about to be, and by how much. **XGBoost inside the tool handler** | *Delay half, per stop event:* the nine features in `dataset.FEATURE_COLUMNS` — scheduled arrival, stop sequence, previous-stop delay, hour, day, weekend, peak, line, stop — plus an active-alert flag *(once overlap allows)* → expected delay with a 90% interval. *Disruption half, per line × 15-minute window:* line-level window features (§3.3) → probability the line is disrupted in the next 30 minutes, and a flag | The answer states the interval the tool returned, unnarrowed. Calibration: a 90% interval contains the truth ~90% of the time on held-out days | **Delay half working; disruption label built, classifier not** |
-| **O3** Reasons | Likely cause of a predicted or detected disruption. **Retrieval agent over past alerts + Claude writing the reason** | O2's prediction with context, plus the five most similar past alerts → a cause category and a one/two-sentence explanation citing alert ids | Faithfulness: every statement supported by a retrieved alert or a tool output (Papageorgiou et al., 2025) | **Corpus and retrieval built; reasons agent not built** |
+| **O3** Reasons | Likely cause of a predicted or detected disruption. **Retrieval agent over past alerts + Claude writing the reason** | O2's prediction with context, plus the five most similar past alerts → a cause category and a one/two-sentence explanation citing alert ids | Faithfulness: every statement supported by a retrieved alert or a tool output (Papageorgiou et al., 2025) | **Built; the scored run waits for the cut-off** |
 
 ### Where each objective actually stands
 
@@ -91,13 +91,18 @@ and the Bondi Junction repairs of 22 Sep. It fires on one window of Chatswood an
 none of the other seven. It also fires on 56 windows that no alert covers. That is the case for keeping both rules
 (`11` §5).
 
-**O3 — the corpus and retrieval are built; the reasons agent is not.**
+**O3 — built, 2026-10-05.**
 `transit-alerts audit` turns collected alerts into incidents — which alerts are
 disruptions, and which are republications of one — with every decision printed and
 reasoned (`09-service-alerts.md` §7). `transit-index build --source alerts` indexes one
 passage per incident, cited by its alert ids since an alert has no page
 (`10-retrieval.md` §5): **8 incidents to 2026-09-28**. Retrieval takes the two leakage
-guards of §3.5 as arguments. What remains is the Claude agent that writes the reason.
+guards of §3.5 as arguments. `transit-reasons` (`13-reasons.md`) explains each
+incident from the delay feed before its first alert, never from the alert itself. It
+is scored against a time-aware most-common-cause baseline and the same model without
+retrieval. A development run on all 12 incidents is recorded in `13` §5. It is not a
+result: over three runs, retrieval doubles the model's accuracy (0.14 to 0.28), but
+the majority baseline (0.42) still wins at n = 12.
 
 ## 3. RQ2 — the evaluation plan
 

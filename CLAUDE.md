@@ -110,13 +110,22 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   are `pd.NA`, never `False`. To 2026-10-04 it marks 4.7% of T1 windows and 4.4% of
   T4 windows disrupted.
 
-**Not started — these packages contain only an empty `__init__.py`:**
+- **The reasons stage** (RQ1 O3) — `transit-reasons` (`agent/situation.py`,
+  `agent/reasons.py`, `evaluation/reasons.py`, `docs/13`). It explains each incident
+  from a *situation* built from the delay feed alone, never the incident's own alert,
+  plus five past incidents retrieved under both leakage guards. The answer is
+  structured output with four cause groups, and its citations are checked against
+  the passages shown. It is scored against a time-aware most-common-cause baseline
+  and the same model without retrieval. The run refuses an alert index that does not
+  match the snapshot. A development run on 2026-10-05 is recorded in `docs/13` §5. It
+  is not a result.
 
-- `agent/` — hand-rolled Anthropic tool-use loop, the RQ1 orchestrator
-- `mcp_server/` — MCP tool interface + FastAPI
-- `evaluation/` — the RQ2 harness
-- **The reasons agent** — Claude writing a cause from the retrieved incidents. The
-  corpus and guarded retrieval it needs exist.
+**Not started:**
+
+- The **agent loop** in `agent/`, the RQ1 orchestrator that calls the three stages as
+  tools, and `mcp_server/`, the MCP tool interface and FastAPI.
+- The rest of the **RQ2 harness** in `evaluation/`: the faithfulness judge and its
+  Cohen's κ validation, lead time, the k sweep, and the scored runs at the cut-off.
 - **The scored detection run** — the detectors (XGBoost and random forest,
   `prediction/disruption/models.py`) and the persistence baseline are built and run
   by `transit-detect` (`docs/12`). Features look back and the target looks forward.
