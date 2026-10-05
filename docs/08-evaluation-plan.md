@@ -530,7 +530,8 @@ In dependency order.
 8. **The evaluation harness.** ✅ Detection metrics, lead time, cause macro-F1, and
    95% intervals from resampling whole service dates (`12`, `13`, 2026-10-05). ✅ The
    faithfulness judge, per statement, with its rubric frozen before validation (`15`,
-   2026-10-05). Next is judge validation: the blind 21-statement sample awaits the
+   2026-10-05). ✅ The k sweep, with chance as its baseline (`13` §7). k is frozen at
+   the cut-off. Next is judge validation: the blind 21-statement sample awaits the
    author's labels. Then comes the scored run on data to the §3.1 cut-off
 
 Items 6 and 7 do not depend on 1–5 and can proceed in parallel.

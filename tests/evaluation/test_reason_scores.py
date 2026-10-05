@@ -25,9 +25,12 @@ from transit_rag.evaluation import reasons_cli
 from transit_rag.evaluation.reasons import (
     ReasonCase,
     build_cases,
+    chance_recall,
+    earlier_groups,
     most_common_cause,
     retrieval_recall,
     score_reasons,
+    sweep_k,
 )
 from transit_rag.ingestion.alerts import (
     AlertRecord,
@@ -113,6 +116,53 @@ class TestMostCommonCause:
         assert most_common_cause(_case(incidents[0]), incidents) == "other_unknown"
 
 
+class TestKSweep:
+    def test_chance_is_a_draw_without_replacement_from_the_pool(self) -> None:
+        pool = ["technical", "network_incident", "network_incident"]
+        assert chance_recall("technical", pool, 1) == pytest.approx(1 / 3)
+        assert chance_recall("technical", pool, 2) == pytest.approx(2 / 3)  # 1 - C(2,2)/C(3,2)
+        assert chance_recall("technical", pool, 3) == 1
+        assert chance_recall("technical", pool, 10) == 1  # never more than the pool
+        assert chance_recall("weather_external", pool, 2) == 0
+        assert chance_recall("technical", [], 5) == 0
+
+    def test_a_ranking_can_lose_to_chance_and_the_sweep_says_so(self) -> None:
+        truth = ["technical", "network_incident", "technical"]
+        pools = [[], ["technical"], ["technical", "network_incident"]]
+        ranked = [[], ["technical"], ["network_incident", "technical"]]  # wrong group first
+        one, two = sweep_k(truth, ranked, pools, [2, 1, 2])
+        # k=1: nothing on cause is shown, where a random pick finds it for case 3 half the time.
+        assert (one.k, one.recall, one.on_cause) == (1, 0.0, 0.0)
+        assert (one.chance, one.shown) == pytest.approx((1 / 6, 2 / 3))
+        # k=2 shows the whole pool, so the ranking no longer matters.
+        assert two.k == 2
+        assert (two.recall, two.chance, two.on_cause, two.shown) == pytest.approx(
+            (1 / 3, 1 / 3, 0.25, 1.0)
+        )
+
+    def test_the_table_shows_lift_as_recall_less_chance(self) -> None:
+        table = reasons_cli.format_sweep(
+            sweep_k(["technical"], [["network_incident"]], [["network_incident", "technical"]], [1])
+        )
+        # Recall 0 against a coin-flip chance of 0.5: the ranking lost by half.
+        assert table.splitlines()[1].split() == ["1", "0.00", "0.50", "-0.50", "0.00", "1.0"]
+
+    def test_retrieval_must_draw_from_the_same_pool_as_chance(self) -> None:
+        with pytest.raises(ValueError, match="guarded pool holds 0"):
+            sweep_k(["technical"], [["technical"]], [[]], [1])
+        with pytest.raises(ValueError, match="at least 1"):
+            sweep_k(["technical"], [[]], [[]], [0])
+
+    def test_the_pool_is_what_the_baseline_counts(self) -> None:
+        incidents = [
+            _incident("a", "TECHNICAL_PROBLEM", DAY),
+            _incident("b", "POLICE_ACTIVITY", DAY + timedelta(days=1)),
+            _incident("c", "OTHER_CAUSE", DAY + timedelta(days=2)),
+        ]
+        assert earlier_groups(_case(incidents[1]), incidents) == ["technical"]
+        assert earlier_groups(_case(incidents[0]), incidents) == []
+
+
 def test_cases_start_from_a_sydney_date() -> None:
     incidents = [
         _incident("a", "TECHNICAL_PROBLEM", DAY),
@@ -132,6 +182,9 @@ def test_cases_start_from_a_sydney_date() -> None:
     cases = build_cases(incidents, events, {}, since="2026-09-29")
     assert [case.incident.incident_id for case in cases] == [incidents[1].incident_id]
     assert cases[0].truth == "network_incident"
+    # ...and end before another, so a sweep can stop short of the test dates.
+    cases = build_cases(incidents, events, {}, until="2026-09-29")
+    assert [case.incident.incident_id for case in cases] == [incidents[0].incident_id]
 
 
 def test_an_index_from_other_incidents_is_refused_with_the_rebuild_command() -> None:
@@ -283,3 +336,38 @@ def test_the_command_guards_retrieval_scores_three_systems_and_keeps_every_answe
     assert "police" not in " ".join(reasoners[0].questions).lower()
     assert with_retrieval["retrieved"] and not without["retrieved"]
     assert with_retrieval["unsupported_citations"] == ["invented"]
+
+
+def test_the_sweep_scores_retrieval_against_chance_without_a_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = _snapshot(tmp_path)
+    persist = tmp_path / "chroma"
+    overrides = tmp_path / "none.csv"
+    overrides.write_text("alert_id,is_incident,reason\n", encoding="utf-8")
+    _index(db, persist, overrides)
+    monkeypatch.setattr(reasons_cli, "VoyageEmbedder", lambda **_: HashingEmbedder())
+    monkeypatch.setattr(
+        reasons_cli.VoyageConfig, "from_env", classmethod(lambda cls: SimpleNamespace(api_key="k"))
+    )
+    monkeypatch.setattr(reasons_cli, "configured_embedding_model", lambda: "fake-embed-1")
+    monkeypatch.setattr(alert_index, "configured_embedding_model", lambda: "fake-embed-1")
+    monkeypatch.setattr(reasons_cli, "ClaudeReasoner", None)  # any model call would fail
+    base = ["--db", str(db), "--overrides", str(overrides), "--persist-dir", str(persist),
+            "--bundle", str(_bundle(tmp_path))]  # fmt: skip
+
+    assert reasons_cli.main([*base, "--sweep-k", "2,1"]) == 0
+    printed = capsys.readouterr().out
+    assert "k sweep on 2 incident(s), retrieved once at k=2" in printed
+    # The police incident sees only the earlier repairs: shown, off cause, and no better
+    # than chance, because a pool of one is all there is to draw.
+    lines = [line.split() for line in printed.splitlines()]
+    assert ["1", "0.00", "0.00", "+0.00", "0.00", "0.5"] in lines
+    assert ["2", "0.00", "0.00", "+0.00", "0.00", "0.5"] in lines
+
+    assert reasons_cli.main([*base, "--sweep-k", "1", "--until", "2026-09-22"]) == 0
+    assert "k sweep on 1 incident(s)" in capsys.readouterr().out
+    assert reasons_cli.main([*base, "--sweep-k", "1", "--model"]) == 1
+    assert "retrieval only" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        reasons_cli.main([*base, "--sweep-k", "0,3"])

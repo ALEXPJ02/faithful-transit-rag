@@ -219,8 +219,8 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   per statement against exactly what each system was shown (`transit-judge`,
   [`docs/15`](./docs/15-faithfulness-judge.md)). The judge's rubric is frozen before
   validation.
-- **Next** — the judge's κ validation on the author's labels, the k sweep, and the
-  scored runs at the cut-off. Then the MCP server.
+- **Next** — the judge's κ validation on the author's labels, freezing k by the sweep's
+  rule (`docs/13` §7), and the scored runs at the cut-off. Then the MCP server.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.

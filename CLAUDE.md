@@ -128,8 +128,11 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   answering as of a moment in a frozen snapshot, with every tool call recorded
   verbatim. A fourth tool gives each running train's expected delay with its 90%
   interval, which the prompt requires stated unnarrowed.
-- The rest of the **RQ2 harness** in `evaluation/`: the k sweep and the scored runs
-  at the cut-off. Lead time and date-resampled 95% intervals are built
+- The rest of the **RQ2 harness** in `evaluation/`: freezing k and the scored runs
+  at the cut-off. The k sweep is built (`transit-reasons --sweep-k`, `docs/13` §7). It
+  compares recall@k with chance, a random draw from the same guarded pool. On the 12
+  development incidents, the ranking is no better than chance, and recall@5 (0.75)
+  equals chance (0.74), so never quote it alone. Lead time and date-resampled 95% intervals are built
   (`evaluation/lead_time.py`, `evaluation/stats.py`). Detection re-runs reproduce byte
   for byte, because the forest predicts on one thread and thresholds sit between
   scores. **The faithfulness judge is built** (`transit-judge`, `docs/15`). It judges

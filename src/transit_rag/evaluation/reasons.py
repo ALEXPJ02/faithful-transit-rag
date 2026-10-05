@@ -15,10 +15,18 @@ absent group still costs: it is a missed case of the true group.
 group among incidents first seen *before* the one being explained. A baseline
 allowed to count the future would be leakier than the system it is compared
 against.
+
+**k is swept against chance, not on recall alone** (``docs/08`` §3.5). Recall@k can
+only rise with k, so on its own it always picks the largest k. :func:`sweep_k` sets
+it beside the recall of k earlier incidents drawn at random from the same guarded
+pool, which is what the ranking has to beat, and beside the share of what is shown
+that is on cause, which is what each extra passage costs.
 """
 
 from __future__ import annotations
 
+import math
+import statistics
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -49,18 +57,30 @@ def build_cases(
     stations: dict[str, str],
     *,
     since: str | None = None,
+    until: str | None = None,
     lookback: timedelta = DEFAULT_LOOKBACK,
 ) -> list[ReasonCase]:
-    """A case per incident first seen on or after ``since`` (a Sydney date)."""
+    """A case per incident first seen on or after ``since`` and before ``until`` (Sydney dates)."""
     cases = []
     for incident in incidents:
         if since is not None and sydney_date(incident.first_seen) < since:
+            continue
+        if until is not None and sydney_date(incident.first_seen) >= until:
             continue
         situation = situation_at(
             events, incident.lines, incident.first_seen, stations, lookback=lookback
         )
         cases.append(ReasonCase(incident=incident, situation=situation))
     return cases
+
+
+def earlier_groups(case: ReasonCase, incidents: Sequence[Incident]) -> list[str]:
+    """The cause group of every incident first seen before this case's: the guarded pool."""
+    return [
+        incident.cause_group
+        for incident in incidents
+        if incident.first_seen < case.incident.first_seen
+    ]
 
 
 def most_common_cause(case: ReasonCase, incidents: Sequence[Incident]) -> str:
@@ -70,11 +90,7 @@ def most_common_cause(case: ReasonCase, incidents: Sequence[Incident]) -> str:
     no history behind it gets ``other_unknown``. Both rules are arbitrary but
     fixed, and stated so the baseline cannot be tuned.
     """
-    earlier = Counter(
-        incident.cause_group
-        for incident in incidents
-        if incident.first_seen < case.incident.first_seen
-    )
+    earlier = Counter(earlier_groups(case, incidents))
     if not earlier:
         return "other_unknown"
     return max(CAUSE_GROUPS, key=lambda group: (earlier[group], -CAUSE_GROUPS.index(group)))
@@ -124,3 +140,73 @@ def retrieval_recall(truth: Sequence[str], retrieved: Sequence[Sequence[str]]) -
     if not truth:
         return float("nan")
     return sum(t in set(groups) for t, groups in zip(truth, retrieved, strict=True)) / len(truth)
+
+
+def chance_recall(truth: str, earlier: Sequence[str], k: int) -> float:
+    """Recall@k if the incidents shown were drawn at random from the guarded pool.
+
+    The probability that at least one of ``min(k, m)`` incidents, drawn without
+    replacement from the ``m`` earlier ones, shares the true group. With nothing
+    earlier it is 0, as retrieval's is, since C(0, 0) / C(0, 0) is 1.
+    """
+    drawn = min(k, len(earlier))
+    off_cause = sum(group != truth for group in earlier)
+    return 1 - math.comb(off_cause, drawn) / math.comb(len(earlier), drawn)
+
+
+@dataclass(frozen=True)
+class KRow:
+    """Retrieval at one k, over every case."""
+
+    k: int
+    recall: float
+    #: Recall@k from a random draw of the same size from the same pool.
+    chance: float
+    #: Mean share of the passages shown that share the true group, over cases shown any.
+    on_cause: float
+    #: Mean passages shown, which falls short of k while few incidents came before.
+    shown: float
+
+
+def sweep_k(
+    truth: Sequence[str],
+    ranked: Sequence[Sequence[str]],
+    earlier: Sequence[Sequence[str]],
+    ks: Sequence[int],
+) -> list[KRow]:
+    """Recall@k against chance, and the on-cause share of what is shown, at each k.
+
+    ``ranked`` holds each case's retrieved cause groups, best first, retrieved
+    once at the largest k, so a smaller k reads the top of the same ranking.
+    ``earlier`` holds each case's guarded pool (:func:`earlier_groups`).
+    """
+    if not len(truth) == len(ranked) == len(earlier):
+        raise ValueError(f"{len(truth)} cases, {len(ranked)} rankings, {len(earlier)} pools")
+    if not truth:
+        raise ValueError("no cases to sweep")
+    if not ks or min(ks) < 1:
+        raise ValueError(f"every k must be at least 1, got {list(ks)}")
+    largest = max(ks)
+    for groups, pool in zip(ranked, earlier, strict=True):
+        # Retrieval and the pool must be the same incidents, or chance is not a baseline.
+        if len(groups) != min(largest, len(pool)):
+            raise ValueError(
+                f"retrieval returned {len(groups)} incident(s) where the guarded pool "
+                f"holds {len(pool)} and k is {largest}"
+            )
+    rows = []
+    for k in sorted(set(ks)):
+        shown = [list(groups[:k]) for groups in ranked]
+        shares = [sum(g == t for g in s) / len(s) for t, s in zip(truth, shown, strict=True) if s]
+        rows.append(
+            KRow(
+                k=k,
+                recall=retrieval_recall(truth, shown),
+                chance=statistics.fmean(
+                    chance_recall(t, pool, k) for t, pool in zip(truth, earlier, strict=True)
+                ),
+                on_cause=statistics.fmean(shares) if shares else float("nan"),
+                shown=statistics.fmean(len(s) for s in shown),
+            )
+        )
+    return rows
