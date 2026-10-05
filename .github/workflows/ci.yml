@@ -30,7 +30,7 @@ jobs:
       # would instead target whatever interpreter the runner image happens to
       # ship, silently ignoring the pin.
       - name: Install dependencies
-        run: uv sync --frozen --extra dev --extra realtime --extra prediction --extra rag
+        run: uv sync --frozen --extra dev --extra realtime --extra prediction --extra rag --extra serve
 
       - name: Lint
         run: uv run ruff check .

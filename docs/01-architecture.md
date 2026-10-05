@@ -8,8 +8,9 @@
 > **Built vs planned.** The boxes marked `*` were **not built** as of 2026-09-24.
 > Since then, these have been built: the alert corpus and its ingestion, the
 > disruption flag (`12`), the 90% interval (`08` §4), and the orchestrator with its
-> tools over frozen snapshots (`14`). These are still not built: the MCP server, the
-> live feed behind the tools, and the evaluation harness's judge.
+> tools over frozen snapshots (`14`), the MCP server that serves those tools (`16`), and
+> the evaluation harness's faithfulness judge (`15`). Still not built: the live feed
+> behind the tools.
 > [`04-implementation-plan.md`](./04-implementation-plan.md) has the status table.
 
 ```mermaid
@@ -88,7 +89,7 @@ src/transit_rag/
     features/                  reconciliation -> the training table
     model/                     XGBoost delay regressor + its naive baseline
   agent/                       The hand-rolled tool-use loop
-  mcp_server/                  MCP tool interface + FastAPI surface
+  mcp_server/                  The agent's tools as an MCP server (transit-mcp)
   evaluation/                  Scoring, intervals, and the faithfulness judge + its κ
 
 tests/                         Mirrors src/. Live-API tests are marked `live`

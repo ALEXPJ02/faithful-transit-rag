@@ -75,6 +75,7 @@ transit-detect = "transit_rag.prediction.disruption.detect_cli:main"
 transit-reasons = "transit_rag.evaluation.reasons_cli:main"
 transit-ask = "transit_rag.agent.cli:main"
 transit-judge = "transit_rag.evaluation.judge_cli:main"
+transit-mcp = "transit_rag.mcp_server.server:main"
 
 [project.urls]
 Repository = "https://github.com/ALEXPJ02/faithful-transit-rag"
