@@ -89,7 +89,7 @@ src/transit_rag/
     model/                     XGBoost delay regressor + its naive baseline
   agent/                       The hand-rolled tool-use loop
   mcp_server/                  MCP tool interface + FastAPI surface
-  evaluation/                  Ragas + custom LLM-as-judge harness
+  evaluation/                  Scoring, intervals, and the faithfulness judge + its κ
 
 tests/                         Mirrors src/. Live-API tests are marked `live`
                                and skipped by default.

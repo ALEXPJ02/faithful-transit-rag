@@ -403,6 +403,12 @@ def sydney_time(instant: datetime) -> str:
     return instant.astimezone(SYDNEY).strftime("%Y-%m-%d %H:%M")
 
 
+def sydney_moment(instant: datetime) -> str:
+    """A moment as the agent is told it, e.g. ``08:50 on Friday 2 October 2026``."""
+    local = instant.astimezone(SYDNEY)
+    return f"{local:%H:%M} on {local:%A} {local.day} {local:%B %Y}"
+
+
 #: How incident passages identify themselves in the index, beside the PDFs'
 #: document keys and titles.
 ALERT_DOCUMENT_KEY = "tfnsw_alerts"

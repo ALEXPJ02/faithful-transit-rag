@@ -17,7 +17,7 @@
 | Realtime | `gtfs-realtime-bindings` + TfNSW Open Data Hub | The feeds are protobuf; there is no JSON alternative |
 | Prediction | **XGBoost** — regressor, classifier to follow | See §3 |
 | Tool interface | **Anthropic MCP Python SDK** + FastAPI | Makes the tools callable from any MCP client, not just this agent |
-| Evaluation | **Ragas** + a custom LLM-as-judge | Ragas covers statement-level faithfulness over retrieved alerts; detection metrics (average precision, lead time), cause macro-F1 and interval coverage are hand-written |
+| Evaluation | **A custom LLM-as-judge**, not Ragas | Planned as Ragas, changed 2026-10-05 ([`15`](./15-faithfulness-judge.md)). Ragas splits an answer into claims with an LLM, so the units the author labels for κ would change between runs. Its prompts live in the library, so the rubric could not be frozen, and an upgrade could change the metric unseen. The judge splits deterministically, fingerprints its rubric, and judges agent answers against tool outputs as well as retrieved alerts. Detection metrics, cause macro-F1 and interval coverage are hand-written. `ragas` is still listed in the `evaluation` extra, unused |
 | Lint/format | **Ruff** | One tool replacing flake8 + isort + black |
 | Types | **mypy**, `disallow_untyped_defs` | Catches feed-parsing mistakes that unit tests miss |
 | CI | **GitHub Actions** | Free and unmetered on public repos |
@@ -136,7 +136,7 @@ actually scan.
 
 ~**USD $50–90 for the semester** (~AUD 75–140), almost entirely Anthropic API:
 Sonnet generation across development queries plus Haiku judge calls across eval runs.
-Embeddings (Voyage free tier), Chroma, Ragas, the TfNSW API, GitHub, and Phase 2
+Embeddings (Voyage free tier), Chroma, the TfNSW API, GitHub, and Phase 2
 hosting are all effectively $0. Verified against Anthropic's and Voyage's own pricing
 pages rather than third-party summaries.
 

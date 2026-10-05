@@ -9,16 +9,21 @@
 An incident's own alert carries its cause, and that cause is the answer being scored
 ([`08-evaluation-plan.md`](./08-evaluation-plan.md) §3.5). So the reasons stage is
 given a **situation** built from the delay feed alone (`agent/situation.py`). It
-holds the line, the moment of the incident's first alert in Sydney time, how many
-services were observed and late in the 30 minutes before, how late the worst of
-them was at its latest observation,
-and **where**: the stations where late services were seen, named the way past
-alerts and riders name them ("Central", not `2000331`).
+holds the line, the moment of the incident's first alert in Sydney time, and how many
+services were observed in the 30 minutes before. It also holds how many were late and
+how late the worst was, when last reported. Last comes **where**: the stations where
+services were reported late at any point in that half hour, named the way past alerts
+and riders name them ("Central", not `2000331`).
 
 > T1, 13:45 on Sunday 27 September 2026 (Sydney time). In the 30 minutes before, 35
-> services were observed and 6 were more than five minutes late. The most delayed was
-> 19 minutes behind timetable. Late services were seen at Parramatta (4), Harris Park (3),
+> services were observed. When last reported, 6 were more than five minutes late and
+> the most delayed was 19 minutes behind. At some point in those 30 minutes, services
+> were reported more than five minutes late at Parramatta (4), Harris Park (3),
 > Lidcombe (3), Auburn (2), Granville (2).
+
+The wording says which report each figure reads. Until 2026-10-05 it did not, so a
+station could seem to hold more late services than the total
+([`15`](./15-faithfulness-judge.md) §5).
 
 That is the Harris Park signal repairs, with the operator's alert still unread. The
 situation uses the label's own bounds: the final observation within one stop, and
@@ -79,7 +84,10 @@ answers, none failed, and **no citation of an alert that was not shown**. The ru
 incidents, at least one of the five past incidents shares the true group, and the
 first incident has no past at all. Macro-F1 averages technical, network incident and
 other/unknown, since no weather incident has occurred. Every answer is kept, locally,
-in `data/reasons_dev_20261005.jsonl`.
+in `data/reasons_dev_20261005.jsonl`. The run used the situation's earlier wording
+(§1). A second run after the wording changed is the faithfulness judge's validation
+set (`15` §4). Its accuracy, 0.17 ± 0.08 without retrieval and 0.25 ± 0.00 with it,
+is in line with this one.
 
 **At this size the three systems cannot be told apart.** Macro-F1 with 95% intervals
 from resampling the 8 incident dates (`evaluation/stats.py`) is 0.20 [0.11, 0.39] for
@@ -125,9 +133,8 @@ transit-reasons --db ... --model --since 2026-10-14                            #
 
 ## 7. Not built yet
 
-- **The judge**: faithfulness and citation coverage, per statement, by
-  `ANTHROPIC_JUDGE_MODEL`, validated by Cohen's κ against a hand-labelled 20% subsample
-  before the full run (`08` §3.5).
+- **The judge's validation.** The judge is built ([`15`](./15-faithfulness-judge.md)).
+  Its Cohen's κ against the author waits on the author's labels for a blind sample.
 - **The k sweep**, on a development subset, frozen before the test dates are scored.
 - **The scored run**, on the incidents in the test split drawn at the cut-off, with the
   count of incidents and cause groups beside every number.

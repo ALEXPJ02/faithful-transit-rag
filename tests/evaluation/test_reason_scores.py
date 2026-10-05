@@ -273,6 +273,8 @@ def test_the_command_guards_retrieval_scores_three_systems_and_keeps_every_answe
 
     records = [json.loads(line) for line in out.read_text().splitlines()]
     assert len(records) == 4  # two incidents x two model systems
+    # Each record keeps the question exactly as the model received it, for the judge.
+    assert [record["prompt"] for record in records] == reasoners[0].questions
     police = [r for r in records if r["truth"] == "network_incident"]
     without = next(r for r in police if r["system"] == "model, no retrieval")
     with_retrieval = next(r for r in police if r["system"] == "model + retrieval")
