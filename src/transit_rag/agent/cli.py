@@ -62,12 +62,13 @@ def _moment(text: str) -> datetime:
     return moment
 
 
-def build_toolbox(args: argparse.Namespace) -> ToolBox:
+def build_toolbox(args: argparse.Namespace, at: datetime | None = None) -> ToolBox:
     """The tools for one snapshot and one moment, with whichever models were given.
 
-    Shared with ``transit-mcp``, so the agent and an MCP client get the same tools.
+    Shared with ``transit-mcp`` and ``transit-questions``, so the agent, an MCP client
+    and the scored question set all get the same tools. ``at`` overrides ``--at``.
     """
-    at = _moment(args.at)
+    at = at if at is not None else _moment(args.at)
     bundle = args.bundle or max(discover(), key=lambda path: path.name)
     feed = SnapshotFeed.open(args.db, bundle)
     _, incidents = audit(feed.alerts, load_overrides(args.overrides))
@@ -125,10 +126,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def add_toolbox_arguments(parser: argparse.ArgumentParser) -> None:
-    """What :func:`build_toolbox` reads: the snapshot, the moment, and the models."""
+def add_toolbox_arguments(parser: argparse.ArgumentParser, *, moment: bool = True) -> None:
+    """What :func:`build_toolbox` reads: the snapshot, the moment, and the models.
+
+    ``moment=False`` leaves out ``--at``, for a caller that gives each question its own.
+    """
     parser.add_argument("--db", type=Path, required=True, help="a collection snapshot (read-only)")
-    parser.add_argument("--at", required=True, help="the moment, with its UTC offset")
+    if moment:
+        parser.add_argument("--at", required=True, help="the moment, with its UTC offset")
     parser.add_argument("--detector", type=Path, default=None, help="from transit-detect --save")
     parser.add_argument(
         "--delay-model", type=Path, default=None, help="transit-train's artefact, with its interval"
