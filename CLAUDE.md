@@ -155,6 +155,11 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   hindsight. Validation figures are selection scores, not results. Today's test split
   holds 7 positive targets, so the comparison waits for the split at the cut-off.
 
+**The scored runs read one frozen file.** No scoring command takes an end date, so
+`transit-freeze --db <final snapshot> --cutoff 2026-10-18 --out
+data/evaluation_20261018.db` prunes a copy to the cut-off (`docs/08` §3.1). Freeze it
+after 03:00 Sydney time on 2026-10-19: it refuses a snapshot that ends earlier.
+
 **Snapshots in `data/` are frozen, never live.** The newest is
 `delay_observations_20261011.db`: 569,441 stop events over 39 service dates
 (2026-09-03..10-11, the last partial), T1 341,776 · T4 227,665. It also has 239 alerts,
