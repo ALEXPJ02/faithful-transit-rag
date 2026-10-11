@@ -142,7 +142,7 @@ When it is built, two constraints are already known:
 `transit-alerts audit --db <snapshot>` (`ingestion/alerts.py`) answers the two
 questions under both the disruption label (`docs/08` §3.2 rule (a)) and the
 reasons corpus: **which alerts are disruptions, and which alerts are the same
-disruption.** Decided 2026-09-29, pending the supervisor's confirmation. It
+disruption.** Decided 2026-09-29 and confirmed by the supervisor. It
 opens the snapshot read-only.
 
 ### Which alerts are disruptions
@@ -237,6 +237,34 @@ incidents on 8 Sydney dates**. They are the 8 above, plus 27 Sep (T1), 29 Sep (T
 and 1 Oct (two, both T1). By line that is T1 9 and T4 4. Cause groups are
 technical 6, network incident 5, other/unknown 1 and weather/external 0. The 12
 come from 18 alerts.
+
+### The held-out check continued, to 2026-10-11
+
+On the snapshot of 2026-10-11 (sha256 `cf1cdad4…6322`), 22 alerts naming T1 or T4
+were first seen from 2026-10-05. Cause alone decided 20 of them: eight `MAINTENANCE`
+notices were excluded, and twelve naming a specific cause (police activity, a
+technical problem) form six incidents. Two were `UNKNOWN_CAUSE`:
+
+| First seen (Sydney) | Alert | What the description says | Rule | Read as |
+| --- | --- | --- | --- | --- |
+| 2026-10-07 12:37 | `f69d379d` | "Due to an incident requiring emergency services at Croydon, trains are currently unable to stop at Croydon" | excluded: no effect on train running stated | **incident** |
+| 2026-10-09 08:36 | `5892554e` | the Mt Druitt lift closed for upgrades, 12 Oct–16 Dec | excluded: standing notice (60 h) | planned |
+
+**The description markers have now decided one alert out of sample, and got it
+wrong.** The Mt Druitt notice was decided by its duration, correctly. The Croydon
+notice was decided by the markers. "Unable to stop" is an effect on train running that
+the impact markers do not contain. The miss is corrected by an override in
+`data/alert_overrides.csv`, not by a new marker, because the markers were frozen on
+the alerts to 2026-09-28. With the override, the notice joins the Croydon police
+incident as a republication: it appeared as that incident's first alert left the feed.
+The error changed no incident, no cause and none of the 5,142 label windows, because
+the police alerts cover the same span. It is reported as a miss all the same.
+
+With these, the rule gives **18 incidents on 11 Sydney dates**, from 31 alerts. By line
+that is T1 14 and T4 5, one naming both. Cause groups are technical 8, network
+incident 9, other/unknown 1 and weather/external 0. The one unknown is still the
+25 Sep "operational issue at Chatswood", which TfNSW never gave a cause for
+(`08` §3.3). The check continues to the cut-off.
 
 Two observations from the same snapshot:
 

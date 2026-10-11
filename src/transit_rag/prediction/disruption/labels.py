@@ -1,7 +1,7 @@
 """Was a line disrupted in a 15-minute window? The ground truth for RQ2 detection.
 
-``docs/08`` §3.2 defines it, decided 2026-09-28 and pending the supervisor's
-confirmation. A line x window is disrupted if either rule holds:
+``docs/08`` §3.2 defines it, decided 2026-09-28 and confirmed by the supervisor.
+A line x window is disrupted if either rule holds:
 
 (a) an *incident* names the line while the feed carries it. An incident is an
     alert the incident rule calls a disruption, with its republications merged
@@ -47,7 +47,7 @@ repairs, when T4 ran three and then four services.
 Below the minimum, rule (b) is ``False``, but the window stays in the
 population, so rule (a) can still mark it. An incident thins the service, and
 the 11:00 window above is exactly the one a population filter would have
-dropped. *Proposed 2026-10-05, pending confirmation alongside the rest of §3.2.*
+dropped. *Proposed 2026-10-05, confirmed by the supervisor with the rest of §3.2.*
 """
 
 from __future__ import annotations

@@ -172,16 +172,16 @@ Collection figures are from the snapshot of 2026-10-05. Model figures were recon
 on 2026-09-24, and decisions updated on 2026-09-28.
 
 - **Collection (RQ1 O1)** — live since 3 September 2026, plus the scheduled-Action
-  backup. **481,084 stop events over 32 service dates** to 2026-10-04, T1 286,765 ·
-  T4 194,319. There are 184 service alerts, 54 of which touch T1 or T4, and 22,325 of
-  22,326 polls succeeded. Cancelled and altered trips are collected from 2026-09-29
+  backup. **569,441 stop events over 39 service dates** to 2026-10-11, T1 341,776 ·
+  T4 227,665. There are 239 service alerts, 76 of which touch T1 or T4, and 27,175 of
+  27,176 polls succeeded. Cancelled and altered trips are collected from 2026-09-29
   (`trip_statuses`). TfNSW publishes a cancellation with no stop updates, so none
   were collected before then.
 - **Prediction (RQ1 O2)** — `transit-train` fits the delay model against a
   naive-persistence baseline written first. On the 17 schedule-covered dates:
   **test MAE 15.45 s vs 18.67 s, MASE 0.828**. The **disruption label** is built
   (`transit-label`, [`docs/11`](./docs/11-disruption-labels.md)) from the definition
-  decided on 2026-09-28, pending the supervisor's confirmation
+  decided on 2026-09-28 and confirmed by the supervisor
   ([`docs/08`](./docs/08-evaluation-plan.md) §3.2). A window is disrupted by an
   unplanned alert, timed by feed presence with a 24-hour cap, or by a quarter of a
   line's services running more than 5 minutes late. To 2026-10-04 that marks 4.7% of
@@ -223,8 +223,9 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   [`docs/15`](./docs/15-faithfulness-judge.md)). The judge's rubric is frozen before
   validation.
 - **Next** — the judge's κ validation on the author's labels, freezing k by the sweep's
-  rule (`docs/13` §7), and the scored runs at the cut-off. Then the live feed behind the
-  tools. The MCP server is built (`transit-mcp`, [`docs/16`](./docs/16-mcp-server.md)).
+  rule (`docs/13` §7), and the scored runs at the cut-off. The MCP server is built
+  (`transit-mcp`, [`docs/16`](./docs/16-mcp-server.md)). A live feed behind the tools is
+  future work.
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.

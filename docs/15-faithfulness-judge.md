@@ -110,7 +110,7 @@ Citation coverage does not depend on the judge: 30%, 53% and 0% throughout.
 argument for validating the judge before trusting it, and for freezing it before
 scoring. The development numbers are not results.
 
-**Two choices in the rubric are the author's to overturn**, before labelling:
+**Two choices in the rubric, both confirmed by the supervisor:**
 
 1. **Network geography is outside knowledge.** "Lindfield, Chatswood and Roseville are
    North Shore Line stations" is unsupported unless the evidence says so. A lenient

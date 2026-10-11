@@ -10,6 +10,10 @@
 > and reinforcement learning. Each is marked *pending the supervisor's confirmation*
 > until she agrees it. The 30-minute horizon and the 15-minute window are agreed.
 >
+> **Updated 2026-10-11** with her confirmations: the disruption definition, the
+> cut-off, rule (b)'s five-service minimum, the description test for alerts, the
+> interval bins, the judge's rubric and the k rule (§5). The rest stay marked.
+>
 > The academic source of truth is `RQ_List_and_Evaluation_Methods_v3.docx`, one level
 > up in `Capstone/`. This file is the engineering half: what has to be built, what has
 > been measured, and what is still assumed.
@@ -83,8 +87,8 @@ score the identical 41,022 rows, and MASE moves 0.834 → 0.828. See
 
 **The disruption label is built** (`transit-label`,
 [`11-disruption-labels.md`](./11-disruption-labels.md)) from the definition in §3.2,
-which is pending the supervisor's confirmation. Its thresholds are parameters, so it
-can be re-run unchanged if she moves one. To 2026-10-04 it marks 4.7% of T1 windows
+which the supervisor has confirmed. Its thresholds are parameters, so it can be re-run
+unchanged if a threshold ever moves. To 2026-10-04 it marks 4.7% of T1 windows
 and 4.4% of T4 windows disrupted. The two rules agree less than one might expect.
 Rule (b) fires on most windows of four incidents: Edgecliff, North Sydney, Harris Park
 and the Bondi Junction repairs of 22 Sep. It fires on one window of Chatswood and on
@@ -114,8 +118,8 @@ other source and a day not collected is gone.
 
 - **Unit of observation:** one line (T1 or T4) in one 15-minute window. *Agreed with
   the supervisor.* The prediction horizon is 30 minutes, also agreed.
-- **Data cut-off: the end of service date 2026-10-18** *(decided 2026-09-28, pending
-  the supervisor's confirmation)*. Everything collected to then is the evaluation
+- **Data cut-off: the end of service date 2026-10-18** *(decided 2026-09-28,
+  confirmed by the supervisor)*. Everything collected to then is the evaluation
   dataset, and the split is drawn over it once. Collection keeps running afterwards,
   but nothing after the cut-off enters a scored result. The date leaves two weeks to
   score and write before the final report is due on 2026-11-02.
@@ -129,7 +133,7 @@ other source and a day not collected is gone.
 
 ### 3.2 What counts as a disruption, and as its reason
 
-**Decided 2026-09-28, pending the supervisor's confirmation.** The thresholds are
+**Decided 2026-09-28 and confirmed by the supervisor.** The thresholds are
 parameters of the labeller, so a change she asks for is a re-run, not a rebuild. They
 are fixed before the test dates are scored.
 
@@ -160,8 +164,8 @@ trains reach their destination, so rule (b) applies the threshold per window: a 
 counts as late in a window if its **latest observed delay in that window** is above
 300 s. That is the labeller's default, and the write-up states it as an adaptation.
 
-**Why the description test** *(added 2026-09-29, pending the supervisor's
-confirmation)*. Cause and duration alone admitted three planned-trackwork notices and
+**Why the description test** *(added 2026-09-29, confirmed by the
+supervisor)*. Cause and duration alone admitted three planned-trackwork notices and
 a police operation that closed streets, all published as `UNKNOWN_CAUSE` and all under
 24 hours — and cause alone would also delete the Edgecliff closure, which is
 `UNKNOWN_CAUSE` too. The description separates them. The rule was written by reading
@@ -217,8 +221,8 @@ case it gets wrong is corrected in a tracked overrides file with a written reaso
 > description.**
 
 **Reason (ground truth).** The cause of the *incident*: the first specific cause any
-of its alerts names, and unknown only if none ever does *(decided 2026-09-29, pending
-the supervisor's confirmation)*. Edgecliff was first posted as unknown and then as
+of its alerts names, and unknown only if none ever does *(decided 2026-09-29, confirmed by
+the supervisor)*. Edgecliff was first posted as unknown and then as
 police activity; the correction is the answer. Planned trackwork is excluded because it
 is scheduled, not predicted. Windows flagged only by rule (b) have no recorded cause,
 so they count for detection but not for reasons.
@@ -320,6 +324,32 @@ or rescheduling trains). Detecting a disruption and naming its cause are predict
 problems with a known right answer for every past window, which is what supervised
 learning is for. With ~6 distinct incidents there would also be far too few reward
 signals to learn a policy from. RL for disruption response is recorded as future work.
+
+**A random forest for the unknown alerts — considered, not used** *(suggested by the
+supervisor; answered 2026-10-11)*. The suggestion was to try a random forest to find
+out what the alerts of unknown cause are. Measured on the snapshot of 2026-10-11, there
+is almost nothing for it to find:
+
+- **Unknown-cause alerts.** Of 76 alerts naming T1 or T4, 13 are published as
+  `UNKNOWN_CAUSE`. Eight are notices the description test excludes, each with a stated
+  reason: planned trackwork, a standing notice, or no effect on trains (`09` §7). Two
+  are republications inside police incidents, whose other alerts name the cause.
+- **What is truly unknown.** That leaves **one incident**: three alerts on 25 Sep that
+  say only "an operational issue at Chatswood earlier".
+- **No ground truth.** The operator never published that cause, so no model can recover
+  it, and nothing could check a model's answer. Reporting one would assert a cause
+  nobody gave, which is the failure the faithfulness metric exists to catch (`15`).
+- **Too few examples.** As a classifier of cause from the delay pattern, a forest would
+  have 17 incidents of known cause to learn from, too few to train or validate.
+- **Little signal in the pattern.** The evidence in hand says the delay pattern carries
+  little cause signal. Claude without retrieval scores 0.14–0.17 accuracy against the
+  majority baseline's 0.42 (`13` §5). The retrieval ranking does no better than chance
+  at every k (`13` §7).
+
+The random forest is used where it has data: it is one of the two disruption detectors,
+trained on thousands of labelled line-windows (`12`). What resolves an unknown alert is
+its text, and the description test is checked against new alerts to the cut-off (`09`
+§7).
 
 ### 3.4 Metrics
 
@@ -423,8 +453,8 @@ the other two, both ways round:
 | The plan's bins + lateness | 86% / 67% | 31 s |
 
 Line × lateness was chosen on that evidence, before the test split was looked at.
-*Proposed 2026-10-05, pending confirmation (§5).* The plan's bins remain available as a
-key.
+*Proposed 2026-10-05 and confirmed by the supervisor (§5).* The plan's bins remain
+available as a key.
 
 **On the test dates**, in a development run on the 2026-10-05 table (test 10-01..04).
 This is not the scored run, which comes after the cut-off:
@@ -451,44 +481,56 @@ on 27–28 Sep and checking on 29–30 Sep, which was the start of T4's late wee
 
 **Agreed with her:** the 30-minute prediction horizon and the 15-minute window (§3.1).
 
-**Decided by the student on 2026-09-28 and 2026-09-29, each needing her confirmation:**
+**Confirmed by her, recorded 2026-10-11:**
 
-1. **The disruption definition** (§3.2) — an unplanned alert timed by feed presence,
-   with alerts present longer than 24 hours treated as standing notices; or a quarter
-   of the line's services more than 5 minutes late. Rule (a) as first written labelled
-   **100%** of windows disrupted, because no unplanned alert carries an end time.
-2. **A fixed data cut-off** at the end of 2026-10-18 (§3.1), with any shortfall in the
-   reasons evaluation reported with its consequences, rather than waiting for a target
-   number of incidents.
-3. **Weather stays** as the fourth cause group, with macro-F1 over the groups that
-   occur (§3.2).
-4. **"Other transport events" become future work** (§1).
-5. **Reinforcement learning assessed and not used** (§3.3), in answer to her question
-   whether an LLM or reinforcement learning works for the model.
-6. **Which alerts are disruptions** is decided by their description as well as their
-   cause (§3.2): planned-trackwork notices published as unknown cause are excluded, and
-   unknown-cause closures kept. Republished alerts are grouped into one incident, whose
-   cause is the first specific cause any of its alerts names.
-7. **Cancellations are collected from 2026-09-29** and used as a check on rule (b), not
-   in the main label (§3.2). The check is built (`11` §7). Their use as a detector
-   feature is not built yet (`12` §7).
+- (1) **The disruption definition** (§3.2) — an unplanned alert timed by feed presence,
+  with alerts present longer than 24 hours treated as standing notices; or a quarter
+  of the line's services more than 5 minutes late. Rule (a) as first written labelled
+  **100%** of windows disrupted, because no unplanned alert carries an end time.
+- (2) **A fixed data cut-off** at the end of 2026-10-18 (§3.1), with any shortfall in the
+  reasons evaluation reported with its consequences, rather than waiting for a target
+  number of incidents.
+- (6) **Which alerts are disruptions** is decided by their description as well as their
+  cause (§3.2): planned-trackwork notices published as unknown cause are excluded, and
+  unknown-cause closures kept. Republished alerts are grouped into one incident, whose
+  cause is the first specific cause any of its alerts names.
+- (9) **Rule (b) fires only on five or more observed services** (`11` §3). Five is the
+  smallest count at which one late train cannot reach a quarter on its own. With no
+  minimum, 26 of the 28 extra windows it marks are between 01:00 and 04:30, with one
+  to four trains running.
+- (10) **The prediction interval is binned by line × lateness, not hour band × peak ×
+  line** (§4). On validation alone, the planned bins covered trains already more than
+  5 minutes late 61% and 49% of the time. These bins covered them 89% and 75%, with
+  a narrower interval.
+- (11) **The judge's rubric** (`15` §3), with its two choices: which line a station is
+  on is outside knowledge unless the evidence says so, and a hedged analogy to a
+  past incident may carry a cause when the connection is in the evidence.
+- (12) **The k rule** (`13` §7): k is frozen at the smallest value whose recall@k
+  reaches the sweep's highest recall, applied once at the cut-off to the
+  incidents before the test split.
 
-**Proposed on 2026-10-05, needing the student's and then her confirmation:**
+**Decided by the student, still needing her confirmation:**
 
-9. **Rule (b) fires only on five or more observed services** (`11` §3). Five is the
-   smallest count at which one late train cannot reach a quarter on its own. With no
-   minimum, 26 of the 28 extra windows it marks are between 01:00 and 04:30, with one
-   to four trains running.
-10. **The prediction interval is binned by line × lateness, not hour band × peak ×
-    line** (§4). On validation alone, the planned bins covered trains already more than
-    5 minutes late 61% and 49% of the time. These bins covered them 89% and 75%, with
-    a narrower interval.
+- (3) **Weather stays** as the fourth cause group, with macro-F1 over the groups that
+  occur (§3.2).
+- (4) **"Other transport events" become future work** (§1).
+- (5) **Reinforcement learning assessed and not used** (§3.3), in answer to her question
+  whether an LLM or reinforcement learning works for the model.
+- (7) **Cancellations are collected from 2026-09-29** and used as a check on rule (b), not
+  in the main label (§3.2). The check is built (`11` §7). Their use as a detector
+  feature is not built yet (`12` §7).
+
+**Suggested by her, and answered:**
+
+- (13) **A random forest to find out what the unknown alerts are.** Considered and not
+  adopted, with the evidence, in §3.3. The one incident with no published cause
+  leaves nothing a model's answer could be checked against.
 
 **Still open:**
 
-8. **The retrain window.** The 5 schedule-blind dates split the collection into
-   2026-09-03..10 and 09-16..24. Current models exclude them, which puts the gap
-   inside training and leaves validation and test clean and contiguous.
+- (8) **The retrain window.** The 5 schedule-blind dates split the collection into
+  2026-09-03..10 and 09-16..24. Current models exclude them, which puts the gap
+  inside training and leaves validation and test clean and contiguous.
 
 ## 6. Threats to validity
 
@@ -519,7 +561,8 @@ In dependency order.
 3. ✅ **Time-aware retrieval** — the §3.5 leakage guards, time *and* incident
 4. **Realtime tools.** ✅ They exist over frozen snapshots, as of a moment
    (`14-agent.md`, 2026-10-05), including the delay tool, which serves each
-   prediction with its 90% interval. The live feed behind them is next.
+   prediction with its 90% interval. A live feed behind them is future work
+   (decided 2026-10-11): every scored result reads frozen snapshots.
 5. ✅ **The agent loop**: `transit-ask` (`14-agent.md`, 2026-10-05). The rules the
    evaluation checks are in the system prompt from the first version, never bolted on
 6. ✅ **Conformal calibration** on the validation split. `transit-train` fits it

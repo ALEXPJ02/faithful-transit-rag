@@ -3,8 +3,8 @@
 > The ground truth that RQ2's detectors are scored against. For each line, T1 or T4,
 > and each 15-minute window: was the line disrupted? Built on 2026-10-05 from the
 > definition decided on 2026-09-28 ([`08-evaluation-plan.md`](./08-evaluation-plan.md)
-> §3.2). The definition is pending the supervisor's confirmation, so every threshold is
-> a parameter, and a change she asks for is a re-run.
+> §3.2). The supervisor has confirmed the definition. Every threshold stays a
+> parameter, so any change is a re-run.
 
 ## 1. The definition, as built
 
@@ -22,7 +22,7 @@ A line × window is **disrupted** if either rule holds:
 | Window | 15 min | Agreed with the supervisor |
 | Late | **more than** 300 s | TfNSW's on-time tolerance (Audit Office of NSW, 2017) |
 | Share late | at least a quarter | Modelling choice, decided 2026-09-28 |
-| Fewest services rule (b) may fire on | 5 | **Proposed 2026-10-05** (§3) |
+| Fewest services rule (b) may fire on | 5 | Proposed 2026-10-05, **confirmed** (§3) |
 | Observations used | final observation within 1 stop of the event, and \|delay\| ≤ 2 h | The delay model's own bounds (`quality.py`) |
 
 ## 2. How each rule is computed
@@ -63,8 +63,8 @@ label is `pd.NA`, never `False`.
   overnight, and **none of them is an incident window**. A closure would put one here,
   and the audit counts them so that one cannot vanish unnoticed.
 
-**Rule (b) cannot fire on fewer than five services.** *Proposed 2026-10-05, pending
-confirmation with the rest of §3.2.* "A quarter of the line's services" is degenerate on
+**Rule (b) cannot fire on fewer than five services.** *Proposed 2026-10-05 and
+confirmed by the supervisor with the rest of §3.2.* "A quarter of the line's services" is degenerate on
 a thin window: at 02:00, one late train out of one is 100%. Five is the smallest count
 at which one late train cannot reach a quarter on its own. It is an a priori bound, not
 fitted to the data.
