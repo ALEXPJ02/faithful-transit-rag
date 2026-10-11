@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from transit_rag.prediction.collection import freeze as freeze_module
 from transit_rag.prediction.collection.freeze import cutoff_instant, freeze, main, sha256
 from transit_rag.prediction.collection.store import SqliteObservationStore
 from transit_rag.realtime.parsing import AlertScope, ServiceAlert, StopDelayObservation, TripStatus
@@ -75,6 +76,8 @@ def _snapshot(tmp_path: Path) -> Path:
             store.record_poll((start + timedelta(minutes=2 * step)).isoformat(), 5, 5, "ok")
         for when in (_at(15, 30), _at(16), _at(16, 30)):  # one exactly on the instant
             store.record_alert_poll(when, 1, 1, "ok")
+        # A failed alert poll read nothing: it cannot be an alert's last sighting.
+        store.record_alert_poll(_at(15, 45), 0, 0, "error: 502 Server Error")
         for alerts, scopes in (
             _alert("kept", _at(10), _at(12))
             + _alert("spanning", _at(15, 30), _at(16, 30))
@@ -138,6 +141,36 @@ def test_an_existing_output_and_a_snapshot_that_ends_early_are_refused(tmp_path:
     with pytest.raises(ValueError, match="pull a snapshot after it"):
         freeze(db, "2026-10-09", tmp_path / "early.db")
     assert not (tmp_path / "early.db").exists()
+
+
+def test_a_failed_poll_does_not_count_as_reaching_the_cut_off(tmp_path: Path) -> None:
+    db = _snapshot(tmp_path)
+    connection = sqlite3.connect(db)
+    connection.execute(
+        "UPDATE poll_log SET status = 'error: 502' WHERE poll_time_utc >= ?", (INSTANT.isoformat(),)
+    )
+    connection.commit()
+    connection.close()
+    with pytest.raises(ValueError, match="last successful poll"):
+        freeze(db, CUTOFF, tmp_path / "frozen.db")
+
+
+def test_a_freeze_that_fails_part_way_leaves_nothing_to_block_a_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = _snapshot(tmp_path)
+    out = tmp_path / "frozen.db"
+
+    def broken(*_: Any) -> list[int]:
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(freeze_module, "_rows_at_or_after", broken)
+    with pytest.raises(RuntimeError, match="disk full"):
+        freeze(db, CUTOFF, out)
+    # Neither the output nor its partial copy is left (the source's own WAL files may be).
+    assert [p.name for p in tmp_path.iterdir() if "frozen.db" in p.name] == []
+    monkeypatch.undo()
+    assert freeze(db, CUTOFF, out).last_service_date == CUTOFF
 
 
 def test_the_command_reports_what_it_kept_and_refuses_without_a_traceback(

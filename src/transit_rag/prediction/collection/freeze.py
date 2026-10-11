@@ -22,17 +22,20 @@ time on the day after the cut-off date.
   ``docs/10`` §5 already states.
 
 **The source is never written.** It is read through a read-only connection, its sha256
-is checked before and after, and an existing output is refused. **A snapshot that ends
-before the instant is refused**, because a frozen dataset missing the cut-off date's
-last hours could not be told apart from a complete one later.
+is checked before and after, and an existing output is refused. **A snapshot whose last
+successful poll is before the instant is refused**, because a frozen dataset missing the
+cut-off date's last hours could not be told apart from a complete one later. A failed
+poll read nothing, so it counts neither for completeness nor as an alert's last sighting.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import sqlite3
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -87,25 +90,21 @@ def _delete(connection: sqlite3.Connection, table: str, rowids: list[int]) -> in
     return len(rowids)
 
 
-def freeze(db: Path, cutoff: str, out: Path) -> Frozen:
-    """Write ``out``: ``db`` with nothing after ``cutoff``. ``db`` is never written."""
-    if not db.exists():
-        raise FileNotFoundError(f"{db} does not exist")
-    if out.exists():  # the source included: it exists
-        raise ValueError(f"{out} already exists; a frozen dataset is never overwritten")
-    instant = cutoff_instant(cutoff)
-    before = sha256(db)
+def _last_ok_poll(connection: sqlite3.Connection, table: str) -> str | None:
+    """The last poll that read the feed. A failed poll saw nothing, so it covers nothing."""
+    (last,) = connection.execute(
+        f"SELECT MAX(poll_time_utc) FROM {table} WHERE status = 'ok'"
+    ).fetchone()
+    return None if last is None else str(last)
 
+
+def _write_pruned(
+    db: Path, target_path: Path, cutoff: str, instant: datetime
+) -> tuple[dict[str, int], int, str]:
+    """Copy ``db`` into ``target_path`` and prune it. Returns removals, clips, last date."""
     source = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
-        (last_poll,) = source.execute("SELECT MAX(poll_time_utc) FROM poll_log").fetchone()
-        if last_poll is None or datetime.fromisoformat(last_poll) < instant:
-            raise ValueError(
-                f"{db} ends at {last_poll}, before the cut-off instant {instant.isoformat()}; "
-                "pull a snapshot after it"
-            )
-        out.parent.mkdir(parents=True, exist_ok=True)
-        target = sqlite3.connect(out)
+        target = sqlite3.connect(target_path)
         try:
             source.backup(target)
         finally:
@@ -113,7 +112,7 @@ def freeze(db: Path, cutoff: str, out: Path) -> Frozen:
     finally:
         source.close()
 
-    target = sqlite3.connect(out)
+    target = sqlite3.connect(target_path)
     try:
         removed: dict[str, int] = {}
         for table in BY_SERVICE_DATE:
@@ -127,13 +126,13 @@ def freeze(db: Path, cutoff: str, out: Path) -> Frozen:
             removed[table] = _delete(
                 target, table, _rows_at_or_after(target, table, "first_seen_utc", instant)
             )
-        # What the feed showed by the cut-off: the last alert poll before it.
-        (last_alert_poll,) = target.execute(
-            "SELECT MAX(poll_time_utc) FROM alert_poll_log"
-        ).fetchone()
+        # What the feed showed by the cut-off: the last alert poll before it that read it.
+        last_alert_poll = _last_ok_poll(target, "alert_poll_log")
         clipped = 0
         for table in ALERT_TABLES:
             late = _rows_at_or_after(target, table, "last_seen_utc", instant)
+            if late and last_alert_poll is None:
+                raise ValueError(f"{db} has no successful alert poll before the cut-off")
             target.executemany(
                 f"UPDATE {table} SET last_seen_utc = ? WHERE rowid = ?",
                 [(last_alert_poll, rowid) for rowid in late],
@@ -146,14 +145,49 @@ def freeze(db: Path, cutoff: str, out: Path) -> Frozen:
         target.execute("VACUUM")
         (integrity,) = target.execute("PRAGMA integrity_check").fetchone()
         if integrity != "ok":
-            raise ValueError(f"{out} failed its integrity check: {integrity}")
+            raise ValueError(f"the frozen copy failed its integrity check: {integrity}")
         (last_date,) = target.execute("SELECT MAX(service_date) FROM stop_observations").fetchone()
     finally:
         target.close()
+    return removed, clipped, str(last_date)
+
+
+def freeze(db: Path, cutoff: str, out: Path) -> Frozen:
+    """Write ``out``: ``db`` with nothing after ``cutoff``. ``db`` is never written."""
+    if not db.exists():
+        raise FileNotFoundError(f"{db} does not exist")
+    if out.exists():  # the source included: it exists
+        raise ValueError(f"{out} already exists; a frozen dataset is never overwritten")
+    instant = cutoff_instant(cutoff)
+    before = sha256(db)
+
+    source = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        last_poll = _last_ok_poll(source, "poll_log")
+    finally:
+        source.close()
+    if last_poll is None or datetime.fromisoformat(last_poll) < instant:
+        raise ValueError(
+            f"{db}'s last successful poll is {last_poll}, before the cut-off instant "
+            f"{instant.isoformat()}; pull a snapshot after it"
+        )
+
+    # Built under a temporary name and renamed once complete, so a run that fails part
+    # way leaves nothing to block a retry (found by Cursor Bugbot on #31).
+    out.parent.mkdir(parents=True, exist_ok=True)
+    handle, name = tempfile.mkstemp(prefix=f".{out.name}.", suffix=".partial", dir=out.parent)
+    os.close(handle)
+    partial = Path(name)
+    try:
+        removed, clipped, last_date = _write_pruned(db, partial, cutoff, instant)
+        partial.replace(out)
+    finally:
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            Path(f"{partial}{suffix}").unlink(missing_ok=True)
 
     if sha256(db) != before:  # pragma: no cover - a read-only connection cannot write
         raise RuntimeError(f"{db} changed while it was frozen; restore it from the VM")
-    return Frozen(out, instant, removed, clipped, str(last_date), sha256(out))
+    return Frozen(out, instant, removed, clipped, last_date, sha256(out))
 
 
 def build_parser() -> argparse.ArgumentParser:
