@@ -155,6 +155,11 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   hindsight. Validation figures are selection scores, not results. Today's test split
   holds 7 positive targets, so the comparison waits for the split at the cut-off.
 
+**The orchestrator is scored on a fixed question set** (`transit-questions`,
+`docs/14` §7): both peaks per test date and line, plus each test-date incident 15
+minutes after its first sighting, on the detection split's test dates. Write it from
+the frozen file at the cut-off, never after seeing answers.
+
 **The scored runs read one frozen file.** No scoring command takes an end date, so
 `transit-freeze --db <final snapshot> --cutoff 2026-10-18 --out
 data/evaluation_20261018.db` prunes a copy to the cut-off (`docs/08` §3.1). Freeze it

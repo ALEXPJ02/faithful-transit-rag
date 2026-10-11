@@ -216,6 +216,9 @@ its checked rules, is near 94%.
 ```bash
 transit-reasons --db ... --model --repeats 3 --out data/reasons_runs.jsonl   # records each prompt
 transit-ask --db ... --at 2026-10-01T08:50+10:00 --out data/transcripts/q1.json "..."
+transit-questions write --db data/evaluation_20261018.db --out data/questions_test.csv
+transit-questions ask --questions data/questions_test.csv --out-dir data/transcripts_test \
+                      --db data/evaluation_20261018.db --detector ... --delay-model ...
 transit-judge judge  --reasons data/reasons_runs.jsonl --transcripts data/transcripts \
                      --out data/judged.jsonl                                   # calls the judge
 transit-judge report --judged data/judged.jsonl                                # rates per system

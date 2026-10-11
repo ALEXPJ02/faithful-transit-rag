@@ -132,7 +132,15 @@ answer, and the answer has to say so.
 - **Live mode**, future work (decided 2026-10-11): the same tools over the realtime
   client instead of a snapshot. Every scored result reads frozen snapshots, so nothing
   in the evaluation depends on it.
-- **Scoring the orchestrator**: a fixed question set on test dates, with
-  tool-faithfulness and citation coverage from the judge
-  ([`15`](./15-faithfulness-judge.md)). Four questions are already in the judge's
-  validation set.
+- ~~**The question set for scoring the orchestrator**~~: built (`transit-questions`,
+  `evaluation/questions.py`). It is fixed by rules written before the test dates
+  exist:
+  - each test date and line at the 08:30 and 17:30 peaks;
+  - each test-date incident a quarter of an hour after its first sighting;
+  - three fixed questions in turn.
+
+  The test dates are the detection split's, so the risk tool never answers for a
+  date its detector trained on. `ask` builds the tools once, moves them to each
+  question's moment, and refuses to write over a previous run. What remains is the
+  scored run itself, at the cut-off, judged for tool-faithfulness and citation
+  coverage ([`15`](./15-faithfulness-judge.md)).
