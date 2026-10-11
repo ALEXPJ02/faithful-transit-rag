@@ -129,7 +129,9 @@ answer, and the answer has to say so.
 
 - ~~**The MCP server**~~: built (`transit-mcp`, [`16`](./16-mcp-server.md)). It serves
   these four tools to any MCP client through the same `ToolBox.call`.
-- **Live mode**: the same tools over the realtime client instead of a snapshot.
+- **Live mode**, future work (decided 2026-10-11): the same tools over the realtime
+  client instead of a snapshot. Every scored result reads frozen snapshots, so nothing
+  in the evaluation depends on it.
 - **Scoring the orchestrator**: a fixed question set on test dates, with
   tool-faithfulness and citation coverage from the judge
   ([`15`](./15-faithfulness-judge.md)). Four questions are already in the judge's

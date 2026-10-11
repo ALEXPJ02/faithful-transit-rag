@@ -38,7 +38,7 @@ reused as-is. Only the corpus changes, from fare PDFs to past service alerts.
 
 If build work overruns, scope comes out of the *system*, not out of evaluation.
 
-## State as of 2026-10-05 (verified against the repo and the live VM, not recalled)
+## State as of 2026-10-11 (verified against the repo and the live VM, not recalled)
 
 **Built, tested, running:**
 
@@ -80,7 +80,7 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   interval** (`model/conformal.py`), calibrated on validation and saved in the
   artefact. It is binned by line × how late the train already is, because validation
   error varies nine-fold that way and ± MAE covers 32% of already-late trains
-  (`docs/08` §4). The bins are proposed and pending confirmation.
+  (`docs/08` §4). The supervisor has confirmed the bins.
 - Corpus ingestion — the three Opal PDFs pinned to content hashes and chunked
   page-by-page into **144 cited passages** (`src/transit_rag/ingestion/`).
   **Retired from the research questions, retained as code** (see "Design
@@ -96,8 +96,9 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   republications into incidents, printing every decision with its reason
   (`docs/09` §7). `transit-index build --source alerts --db <snapshot>` indexes one
   passage per incident into `tfnsw_alerts`, cited by alert ids; `search` takes the
-  leakage guards `seen_before` and `exclude_incident` (`docs/10` §5). Built
-  2026-09-28: **8 incidents on 5 dates**, `voyage-4-lite`, 1024-d. Snapshots are
+  leakage guards `seen_before` and `exclude_incident` (`docs/10` §5). On the
+  2026-10-11 snapshot the rule gives **18 incidents on 11 Sydney dates**: technical 8,
+  network 9 and other/unknown 1. The index is `voyage-4-lite`, 1024-d. Snapshots are
   opened read-only.
 - Repo scaffolding: tests passing, CI green (ruff + mypy + pytest) plus
   CodeQL and a SHA-pinned Trivy workflow. Tests mirror the source tree, so
@@ -109,8 +110,8 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
 - **The disruption label** (RQ2 ground truth) — `transit-label --db <snapshot>`
   (`prediction/disruption/`, `docs/11`) labels every T1/T4 15-minute window from the
   §3.2 definition, with every threshold as a parameter. Rule (b) fires only on five or
-  more observed services. That minimum was proposed on 2026-10-05 and is pending
-  confirmation. Windows with no observed service, or from before alert collection,
+  more observed services. That minimum, proposed on 2026-10-05, is confirmed
+  by the supervisor. Windows with no observed service, or from before alert collection,
   are `pd.NA`, never `False`. To 2026-10-04 it marks 4.7% of T1 windows and 4.4% of
   T4 windows disrupted.
 
@@ -126,7 +127,8 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
 
 **Not started:**
 
-- The **live feed** behind the agent's tools. The **MCP server** is built
+- The **live feed** behind the agent's tools is **future work** (decided 2026-10-11).
+  The **MCP server** is built
   (`transit-mcp`, `docs/16`). It serves the four tools through `ToolBox.call`, with the
   agent's system prompt as its instructions, and needs the `serve` extra (`mcp` 2.x,
   where `FastMCP` became `MCPServer`). CI installs that extra. The **agent loop** itself is built (`transit-ask`, `docs/14`). It is a
@@ -134,8 +136,8 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   answering as of a moment in a frozen snapshot, with every tool call recorded
   verbatim. A fourth tool gives each running train's expected delay with its 90%
   interval, which the prompt requires stated unnarrowed.
-- The rest of the **RQ2 harness** in `evaluation/`: freezing k and the scored runs
-  at the cut-off. The k sweep is built (`transit-reasons --sweep-k`, `docs/13` §7). It
+- The rest of the **RQ2 harness** in `evaluation/`: freezing k by the confirmed rule
+  and the scored runs at the cut-off. The k sweep is built (`transit-reasons --sweep-k`, `docs/13` §7). It
   compares recall@k with chance, a random draw from the same guarded pool. On the 12
   development incidents, the ranking is no better than chance, and recall@5 (0.75)
   equals chance (0.74), so never quote it alone. Lead time and date-resampled 95% intervals are built
@@ -143,7 +145,7 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   for byte, because the forest predicts on one thread and thresholds sit between
   scores. **The faithfulness judge is built** (`transit-judge`, `docs/15`). It judges
   each statement against exactly what its system was shown, and every verdict carries
-  the fingerprint of the rubric it applied. The rubric is frozen at `e926f55c0cf7`. Its
+  the fingerprint of the rubric it applied. The rubric is frozen at `e926f55c0cf7` and confirmed by the supervisor. Its
   Cohen's κ waits on the author's labels for the 21-statement blind sample
   `data/judge_sample_20261005.csv`, drawn from answers generated after the freeze.
 - **The scored detection run** — the detectors (XGBoost and random forest,
@@ -154,10 +156,11 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   holds 7 positive targets, so the comparison waits for the split at the cut-off.
 
 **Snapshots in `data/` are frozen, never live.** The newest is
-`delay_observations_20261005.db`: 481,084 stop events over 32 service dates
-(2026-09-03..10-04), T1 286,765 · T4 194,319. It also has 184 alerts, 5,624 scopes,
-and 628 trip statuses over 6 dates. Integrity is `ok`, and its sha256 matches the
-VM's copy. 19 bundle eras (to 20261004) are in `data/bundles/`. Re-pull from the VM
+`delay_observations_20261011.db`: 569,441 stop events over 39 service dates
+(2026-09-03..10-11, the last partial), T1 341,776 · T4 227,665. It also has 239 alerts,
+7,122 scopes and 1,436 trip statuses over 13 dates. Integrity is `ok`, and its sha256
+(`cf1cdad4…6322`) matches the VM's copy. 26 bundle eras (to 20261011) are in
+`data/bundles/`. Re-pull from the VM
 before quoting any number, **and pull `data/bundles/` in the same pass** — the
 instance archives a timetable era daily and nothing else does.
 
@@ -241,8 +244,8 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
   of a single cause group, so cause macro-F1 is not yet computable. That is a
   scheduling constraint on RQ2, not a reason to avoid the question — but do not
   quote "about one a day", which is wrong.
-- **The disruption definition, decided 2026-09-28 by the student, pending the
-  supervisor's confirmation** (`docs/08` §3.2). A line × 15-minute window is
+- **The disruption definition, decided 2026-09-28 by the student and confirmed by
+  the supervisor** (`docs/08` §3.2). A line × 15-minute window is
   disrupted if (a) an unplanned (non-`MAINTENANCE`) alert is in the feed for the
   line, timed by feed presence (`first_seen_utc`..`last_seen_utc`), and present
   no longer than 24 hours — longer is a standing notice; or (b) at least a quarter
@@ -250,21 +253,27 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
   3-minute rider's standard was considered and rejected, because 5 is TfNSW's own
   definition and citable. The 30-minute horizon and 15-minute window are agreed
   with the supervisor.
-- **Evaluation data has a fixed cut-off: the end of service date 2026-10-18.**
+- **Evaluation data has a fixed cut-off: the end of service date 2026-10-18**,
+  confirmed by the supervisor.
   Nothing after it enters a scored result. If the reasons evaluation is
   under-powered, report the shortfall and its consequences; do not move the date.
 - **Four cause groups, weather kept although empty.** Macro-F1 averages over the
   groups present in the test split's ground truth, and the report names any left
   out.
 - **Which alerts are disruptions is decided by the description, not the cause
-  alone** (`docs/09` §7, decided 2026-09-29 pending the supervisor). Planned
+  alone** (`docs/09` §7, decided 2026-09-29 and confirmed by the supervisor). Planned
   trackwork notices are published as `UNKNOWN_CAUSE` and so is the Edgecliff
   closure; only the wording separates them. The markers were fitted on the 22
   alerts to 2026-09-28 — alerts from 2026-09-29 are the held-out check, and a wrong
   call goes in `data/alert_overrides.csv` with a reason, **never** into edited
   markers. An incident's cause is the first specific cause any of its alerts names.
+  The markers' first out-of-sample decision, Croydon on 2026-10-07, was wrong:
+  "unable to stop" is an effect they miss. It is overridden, and it changed no label.
 - **"Other transport events" are future work; reinforcement learning was assessed
   and not used** (`docs/08` §1, §3.3). Both pending the supervisor's confirmation.
+  **A random forest for the unknown alerts**, which the supervisor suggested, was
+  answered as not useful (`docs/08` §3.3). One incident has no published cause, so there
+  is no ground truth to learn or check, and 17 known-cause incidents are too few.
 - **Opal fare policy is out of scope**, set 2026-09-22. RAG stays; the corpus
   becomes past T1/T4 service alerts. The Opal PDFs, `ingestion/corpus.py` and the
   built `opal_policy` collection are **retained, not deleted** — they are working,

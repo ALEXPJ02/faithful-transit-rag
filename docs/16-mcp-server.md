@@ -26,8 +26,8 @@ alert ids. A client's model that never saw them could misstate what the tools re
 ## 2. One moment per server
 
 Like `transit-ask`, the server answers as of `--at` in a frozen snapshot. The tools see
-what the snapshot recorded before then and nothing after. The live feed behind the tools
-is not built (`14` §7), so the server replays a moment rather than reporting the
+what the snapshot recorded before then and nothing after. A live feed behind the tools
+is future work (`14` §7), so the server replays a moment rather than reporting the
 present. The same arguments as `transit-ask` choose the snapshot and the models, through
 the same function (`agent/cli.py: build_toolbox`), so the two cannot drift apart.
 
@@ -61,7 +61,8 @@ returned the same 68 services and 13 late that the agent saw (`14` §5).
 
 ## 4. Not built yet
 
-- **Live mode**: the same tools over the realtime client instead of a snapshot (`14` §7).
+- **Live mode**, future work: the same tools over the realtime client instead of a
+  snapshot (`14` §7).
 - **An HTTP transport.** `MCPServer` can serve streamable HTTP without FastAPI, so the
   FastAPI surface in `02` may be unnecessary. That is a decision for the deployment
   phase, and nothing here depends on it.

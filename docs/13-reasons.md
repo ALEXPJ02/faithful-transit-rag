@@ -170,10 +170,10 @@ incidents were admissible.
   incident (§5). On-cause share stays near 0.4 at every k, which is about the base
   rate.
 
-**The proposed rule, for the author's confirmation.** At the cut-off, re-run the sweep
-on every incident before the test split (`--until` the first test date). Freeze k as
-the smallest value whose recall@k reaches the sweep's highest recall. Today that gives
-3. The plan's 5 stays in force until the rule is confirmed and applied. A smaller k
+**The rule, confirmed by the supervisor.** At the cut-off, re-run the sweep on every
+incident before the test split (`--until` the first test date). Freeze k as the
+smallest value whose recall@k reaches the sweep's highest recall. Today that gives 3.
+The plan's 5 stays in force until the rule is applied at the cut-off. A smaller k
 might also help faithfulness, since retrieval lowered it in development (`15` §6). That
 is a question for the validated judge, not something to assume.
 
@@ -181,6 +181,6 @@ is a question for the validated judge, not something to assume.
 
 - **The judge's validation.** The judge is built ([`15`](./15-faithfulness-judge.md)).
   Its Cohen's κ against the author waits on the author's labels for a blind sample.
-- **Freezing k** at the cut-off, by the rule in §7, once the author confirms it.
+- **Freezing k** at the cut-off, by the confirmed rule in §7.
 - **The scored run**, on the incidents in the test split drawn at the cut-off, with the
   count of incidents and cause groups beside every number.
