@@ -123,6 +123,18 @@ other source and a day not collected is gone.
   dataset, and the split is drawn over it once. Collection keeps running afterwards,
   but nothing after the cut-off enters a scored result. The date leaves two weeks to
   score and write before the final report is due on 2026-11-02.
+- **One frozen file is the evaluation dataset.** No scoring command takes an end date,
+  so `transit-freeze --cutoff 2026-10-18` writes a pruned copy of the final snapshot,
+  and every scored run reads that copy (`prediction/collection/freeze.py`):
+  - observations and trip statuses keep their service dates up to the cut-off;
+  - polls, and alerts first seen, keep what came before 03:00 Sydney time on the 19th;
+  - an alert still in the feed then is clipped to the last alert poll before it, so the
+    24-hour standing-notice rule sees only what the feed showed by the cut-off.
+
+  The source is opened read-only and checked unchanged. A snapshot that ends before the
+  cut-off is refused, and the frozen file's sha256 goes in the report. Rehearsed on the
+  11 Oct snapshot at a cut-off of 8 Oct: labels and the detection split ended on 8 Oct,
+  and the source's checksum did not move.
 - **A shortfall is reported, not hidden.** If the reasons evaluation comes out
   under-powered for lack of alerts, the write-up states how many incidents and dates
   the test split held, which metrics could not be computed and why, and what that does
