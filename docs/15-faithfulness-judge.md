@@ -48,12 +48,15 @@ faithfulness, never alone.
 
 ## 2. The judge
 
-- **The model** is `ANTHROPIC_JUDGE_MODEL`, currently `claude-haiku-4-5`. It answers
-  through structured output (`JudgeVerdict`: supported, and a one-sentence rationale).
+- **The model** is `ANTHROPIC_JUDGE_MODEL`, now `claude-opus-4-6`, chosen by validation
+  (§4). The first judge, `claude-haiku-4-5`, failed it. The judge answers through
+  structured output (`JudgeVerdict`: supported, and a one-sentence rationale).
 - **Temperature 0.** The Python SDK's 1.x signatures dropped sampling parameters, but
-  Haiku 4.5 still accepts them. The judge sends `temperature: 0` through `extra_body`,
-  as the SDK's upgrade guide prescribes. Newer models reject any sampling parameter.
-  For those it is left out, and the run prints "default sampling: re-runs may differ".
+  Opus 4.6, Sonnet 4.6 and Haiku 4.5 still accept them. The judge sends `temperature: 0`
+  through `extra_body`, as the SDK's upgrade guide prescribes. Newer models reject any
+  sampling parameter, and for those it is left out, with the run printing "default
+  sampling: re-runs may differ". This is why the judge is not a newer model: a judge
+  whose verdicts change between runs cannot be validated once and trusted afterwards.
 - **A failed verdict is never guessed.** A refusal, a cut-off answer or an API error is
   recorded with `supported: null`, left out of the rate, and counted in `report`.
 - **Every verdict names the rules it applied.** Each judged row carries the judge model
@@ -161,9 +164,40 @@ transit-judge kappa --judged data/judged_val_20261005.jsonl --labels data/judge_
 ```
 
 This prints κ, the raw agreement, and every disagreement with the judge's rationale. It
-exits 2 below the floor. If κ < 0.6, the rubric is revised, the subsample is re-scored,
-and both κs are reported. **Status: awaiting the author's labels.** At 21 statements, κ
-has a wide interval of its own, roughly ±0.3, and it is reported as such.
+exits 2 below the floor. If κ < 0.6, the judge is revised, `transit-judge rescore`
+re-judges exactly the labelled statements, and both κs are reported.
+
+### The result, 2026-10-13
+
+The author labelled all 21: 10 supported and 11 not, each with a note.
+
+**Against `claude-haiku-4-5`, κ was 0.52**, below the floor. Its 95% bootstrap interval
+over the statements is [0.13, 0.88], and 16 of 21 agreed. All five disagreements were
+the judge misapplying its own rubric. None came from the rubric being unclear:
+
+- **Congestion, twice.** It passed two statements naming congestion as the cause.
+  The rubric gives congestion as its own example of an unsupported cause.
+- **"Within 3 minutes".** It failed "all 13 services were within 3 minutes of
+  schedule" when the most delayed was 3 minutes behind. The paraphrase rule covers this.
+- **A hedged analogy.** It failed an analogy that named the same stations and was
+  hedged, which the past-incident rule allows.
+- **A current alert.** It failed a statement attributing delays to a current alert
+  that says "due to urgent train repairs". Only a past incident needs hedging.
+
+**The remedy was the one §8 named in advance: a stronger judge under the same frozen
+rubric.** Rewriting the rubric around these 21 statements would have fitted κ to its own
+sample. Of the stronger models, only Claude Opus 4.6 and Sonnet 4.6 still take
+`temperature: 0`. Opus 4.6 was chosen before its κ was seen.
+
+**Against `claude-opus-4-6`, κ is 0.71**, which passes: [0.36, 1.00], with 18 of 21 in
+agreement. It still fails the statement attributing delays to the current Martin Place
+alert. It also passes two analogies the author found unsupported: a "system-wide
+knock-on effect" from an earlier incident, and a close match to the Edgecliff
+incident. **The judge is now Opus 4.6.**
+
+At 21 statements κ is noisy, and the interval still reaches below the floor. Labelling
+a blind sample of the scored run's statements would show whether κ holds on test answers.
+It is recommended if time allows.
 
 ## 5. Found along the way: the situation contradicted itself
 
@@ -192,24 +226,21 @@ The agent's `line_status` keys were renamed to match:
 `more_than_5_min_late_at_some_point_by_station`. The development run in `13` §5 used the
 old wording. The validation set uses the new one.
 
-## 6. What the validation set shows, before κ
+## 6. What the validation set shows
 
-These are unvalidated rates under `e926f55c0cf7`. They are not results.
+These are rates under `e926f55c0cf7`. They are development figures, not results.
 
-| System | Statements | Faithful | Cited |
-| --- | --- | --- | --- |
-| Agent | 16 | 94% | 25% |
-| Model + retrieval | 36 | 19% | 64% |
-| Model, no retrieval | 40 | 48% | 0% |
+| System | Statements | Faithful, Opus 4.6 (validated) | Faithful, Haiku 4.5 (failed κ) | Cited |
+| --- | --- | --- | --- | --- |
+| Agent | 16 | 94% | 94% | 25% |
+| Model + retrieval | 36 | **47%** | 19% | 64% |
+| Model, no retrieval | 40 | 45% | 48% | 0% |
 
-**A pattern to test once κ passes:** retrieval lowers faithfulness. Without retrieval,
-the model mostly says that the delays point to no cause, and that is faithful. With
-retrieval, it draws analogies to past incidents that run past what the evidence
-connects. The development verdicts show how, with examples such as "lingering knock-on
-effects" from an incident at another station, and corridors the evidence never names.
-If this holds on the test split, it is the faithful-but-wrong against
-unfaithful-but-right tension that `01` §2 anticipates, measured. The agent, held to
-its checked rules, is near 94%.
+**The pattern flagged before validation did not survive it.** Under Haiku, retrieval
+seemed to lower faithfulness, 19% against 48%. Under the validated judge, the two are
+level at 47% and 45%. Haiku was failing the past-incident analogies the rubric allows.
+Without the κ check, the evaluation would have reported a judge's misreading as a
+finding about retrieval. The agent, held to its checked rules, stays at 94%.
 
 ## 7. Running it
 
@@ -224,6 +255,8 @@ transit-judge judge  --reasons data/reasons_runs.jsonl --transcripts data/transc
 transit-judge report --judged data/judged.jsonl                                # rates per system
 transit-judge sample --judged data/judged.jsonl --out data/judge_sample.csv    # blind, to label
 transit-judge kappa  --judged data/judged.jsonl --labels data/judge_sample.csv
+transit-judge rescore --judged data/judged.jsonl --labels data/labels.csv \
+                      --model claude-opus-4-6 --out data/rescored.jsonl         # the same sample, again
 ```
 
 `judge` refuses a reasons record without its prompt and names the fix. A prompt rebuilt
@@ -234,8 +267,9 @@ after checking that the index still matched the snapshot and was built before th
 wrote its file. That rebuild is what made its development verdicts possible. The
 validation set needed no rebuild.
 
-The development and validation sets took about 430k input and 30k output judge tokens
-across the four judge runs.
+The development and validation sets took about 430k input and 30k output Haiku tokens
+across the four judge runs. Opus 4.6 then took 162k input and 11k output, about $1.10,
+for the re-scored sample and the validation set.
 
 ## 8. Limits, and what is not built yet
 
@@ -244,8 +278,8 @@ across the four judge runs.
   are one sentence (77 statements from 72 answers in the development set), but the
   agent's answers run to five. If κ fails on such statements, the fix is to show the
   whole answer as context.
-- **One judge model.** If Haiku falls short, whether a stronger judge agrees with the
-  author more is a question κ can answer, by re-scoring the 21 labelled statements for
-  well under a dollar.
+- **One judge model, Opus 4.6.** It is validated together with the fingerprint
+  `e926f55c0cf7`. A different model, or a changed rubric, needs its own κ. The
+  `judge_model` and `judge_prompt` every judged row carries make the pair checkable.
 - **The scored run** is judged at the cut-off with the fingerprint κ validated. A new
   fingerprint needs its own κ.

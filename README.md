@@ -220,10 +220,10 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   dates. Reasons are scored with macro-F1 and its interval. At today's sizes every
   interval is wide, and that is reported rather than hidden. Explanations are judged
   per statement against exactly what each system was shown (`transit-judge`,
-  [`docs/15`](./docs/15-faithfulness-judge.md)). The judge's rubric is frozen before
-  validation.
-- **Next** — the judge's κ validation on the author's labels, freezing k by the sweep's
-  rule (`docs/13` §7), and the scored runs at the cut-off. The MCP server is built
+  [`docs/15`](./docs/15-faithfulness-judge.md)). The judge's rubric was frozen before
+  validation, and the judge agrees with the author at κ 0.71 (Claude Opus 4.6).
+- **Next** — freezing k by the sweep's rule (`docs/13` §7), and the scored runs at the
+  cut-off. The MCP server is built
   (`transit-mcp`, [`docs/16`](./docs/16-mcp-server.md)). A live feed behind the tools is
   future work.
 

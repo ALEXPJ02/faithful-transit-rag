@@ -19,15 +19,16 @@ instructions and that moment. The judge asks *does the evidence support this?*, 
 right?*: a faithful wrong answer and an unfaithful right one are both possible, and
 the evaluation must tell them apart (``docs/01`` §2).
 
-**A cheaper model, validated before it is trusted.** The judge is
-``ANTHROPIC_JUDGE_MODEL`` (``claude-haiku-4-5``). An unvalidated judge is an
-unvalidated instrument, so ``kappa.py`` checks it against the author's own labels on
-a blind, stratified 20% sample. A κ below 0.6 sends the prompt back for revision
-before any full run (``docs/08`` §3.5).
+**A model validated before it is trusted.** The judge is ``ANTHROPIC_JUDGE_MODEL``,
+``claude-opus-4-6``. An unvalidated judge is an unvalidated instrument, so ``kappa.py``
+checks it against the author's own labels on a blind, stratified 20% sample. A κ below
+0.6 sends the judge back for revision before any full run (``docs/08`` §3.5). The first
+judge, ``claude-haiku-4-5``, failed at 0.52 by misapplying its rules. Opus 4.6, under
+the same rubric, passed at 0.71 (``docs/15`` §4).
 
 **Temperature 0, where the model still honours it.** The SDK's 1.x signatures dropped
-sampling parameters, but the API did not. Haiku 4.5 and the 4.5/4.6 line accept
-them, so the judge sends ``temperature: 0`` through ``extra_body``, as the SDK's
+sampling parameters, but the API did not. Opus 4.6, Sonnet 4.6, Haiku 4.5 and the 4.5
+line accept them, so the judge sends ``temperature: 0`` through ``extra_body``, as the SDK's
 upgrade guide prescribes for code that depends on it. Newer models reject any
 sampling parameter with a 400, so for them it is omitted, and
 :attr:`ClaudeJudge.deterministic` says so.
@@ -235,17 +236,21 @@ class Answer:
     cited_outside_text: frozenset[str] = frozenset()
 
 
+def judge_statement(judge: Judge, evidence: str, statement: str) -> tuple[bool | None, str]:
+    """One verdict and its rationale. A failure is recorded as ``None``, never guessed."""
+    try:
+        verdict = judge.verdict(evidence, statement)
+    except Exception as exc:  # recorded and counted, never guessed
+        return None, f"judge failed: {type(exc).__name__}: {exc}"
+    return verdict.supported, verdict.rationale
+
+
 def judge_answer(answer: Answer, judge: Judge) -> list[JudgedStatement]:
     """Split ``answer`` and judge each statement against its evidence."""
     judged = []
     for index, statement in enumerate(split_statements(answer.text)):
         cited = cited_alert_ids(statement) | answer.cited_outside_text
-        try:
-            verdict = judge.verdict(answer.evidence, statement)
-            supported: bool | None = verdict.supported
-            rationale = verdict.rationale
-        except Exception as exc:  # recorded and counted, never guessed
-            supported, rationale = None, f"judge failed: {type(exc).__name__}: {exc}"
+        supported, rationale = judge_statement(judge, answer.evidence, statement)
         judged.append(
             JudgedStatement(
                 statement_id=f"{answer.answer_id}#{index}",

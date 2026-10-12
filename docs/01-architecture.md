@@ -46,7 +46,7 @@ flowchart TB
     ANS --> EVAL
 
     subgraph HARNESS["Evaluation — RQ2"]
-        EVAL["* Metrics + LLM-as-judge (Haiku)"]
+        EVAL["* Metrics + LLM-as-judge (Opus 4.6)"]
         EVAL --> M["Detection: average precision · lead time<br/>Reasons: cause macro-F1 · recall@5<br/>Explanation: faithfulness · citation coverage"]
     end
 ```

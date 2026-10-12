@@ -173,14 +173,14 @@ incidents were admissible.
 **The rule, confirmed by the supervisor.** At the cut-off, re-run the sweep on every
 incident before the test split (`--until` the first test date). Freeze k as the
 smallest value whose recall@k reaches the sweep's highest recall. Today that gives 3.
-The plan's 5 stays in force until the rule is applied at the cut-off. A smaller k
-might also help faithfulness, since retrieval lowered it in development (`15` §6). That
-is a question for the validated judge, not something to assume.
+The plan's 5 stays in force until the rule is applied at the cut-off. Faithfulness
+gives no reason to prefer a smaller k: under the validated judge, retrieval and no
+retrieval were equally faithful in development (`15` §6).
 
 ## 8. Not built yet
 
-- **The judge's validation.** The judge is built ([`15`](./15-faithfulness-judge.md)).
-  Its Cohen's κ against the author waits on the author's labels for a blind sample.
+- ~~**The judge's validation**~~: done ([`15`](./15-faithfulness-judge.md) §4). κ is
+  0.71 against the author with Claude Opus 4.6, now the judge. Haiku 4.5 failed at 0.52.
 - **Freezing k** at the cut-off, by the confirmed rule in §7.
 - **The scored run**, on the incidents in the test split drawn at the cut-off, with the
   count of incidents and cause groups beside every number.
