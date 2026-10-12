@@ -195,9 +195,41 @@ alert. It also passes two analogies the author found unsupported: a "system-wide
 knock-on effect" from an earlier incident, and a close match to the Edgecliff
 incident. **The judge is now Opus 4.6.**
 
-At 21 statements κ is noisy, and the interval still reaches below the floor. Labelling
-a blind sample of the scored run's statements would show whether κ holds on test answers.
-It is recommended if time allows.
+At 21 statements κ is noisy, and the interval still reaches below the floor. Round 2,
+below, checks it on held-out statements. Labelling a blind sample of the scored run's
+statements would also show whether κ holds on test answers. It is recommended if time
+allows.
+
+### Round 2: a held-out check, drawn 2026-10-13
+
+Round 1's 21 statements rejected Haiku and led to Opus, so Opus's κ on them is not
+independent of its choice. The author labels a second blind sample, with nothing an
+earlier round drew:
+
+```bash
+transit-judge sample --judged data/judged_val_opus46_20261013.jsonl \
+                     --exclude data/judge_labels_20261013.csv --share 0.4 --seed 1 \
+                     --out data/judge_sample_round2_20261013.csv
+```
+
+It draws 30 of the 71 statements round 1 left, stratified by Opus 4.6's verdicts. The
+share is 40% of each stratum, rounded up, which gives the 30 the author had time for:
+
+| System | Judged supported | Judged unsupported |
+| --- | --- | --- |
+| Agent | 5 of 12 | none left |
+| Model + retrieval | 5 of 12 | 7 of 16 |
+| Model, no retrieval | 6 of 15 | 7 of 16 |
+
+The agent's one unsupported statement was in round 1, so round 2 cannot test that case.
+
+**The rule, fixed before any label exists.**
+- **Round 2 alone gives κ ≥ 0.6:** the Opus 4.6 judge stands.
+- **Below 0.6:** the judge has failed on held-out statements and is revised before the
+  cut-off run (`08` §3.5).
+
+Either way, round 2's κ is reported, and so is κ over all 51 statements, each with its
+bootstrap interval.
 
 ## 5. Found along the way: the situation contradicted itself
 
@@ -254,10 +286,16 @@ transit-judge judge  --reasons data/reasons_runs.jsonl --transcripts data/transc
                      --out data/judged.jsonl                                   # calls the judge
 transit-judge report --judged data/judged.jsonl                                # rates per system
 transit-judge sample --judged data/judged.jsonl --out data/judge_sample.csv    # blind, to label
+transit-judge sample --judged data/judged.jsonl --exclude data/judge_sample.csv \
+                     --seed 1 --out data/judge_sample_2.csv                     # a second round
 transit-judge kappa  --judged data/judged.jsonl --labels data/judge_sample.csv
 transit-judge rescore --judged data/judged.jsonl --labels data/labels.csv \
                       --model claude-opus-4-6 --out data/rescored.jsonl         # the same sample, again
 ```
+
+`sample` never writes over a sheet, because the author may have labelled it in place.
+`--exclude` refuses a sheet naming statements the judged file lacks. If they were
+ignored, a wrong sheet would exclude nothing.
 
 `judge` refuses a reasons record without its prompt and names the fix. A prompt rebuilt
 later could differ from the one sent, if the index has changed since. The development

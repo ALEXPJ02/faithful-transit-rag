@@ -90,6 +90,15 @@ def write_blind_sheet(
             )
 
 
+def read_statement_ids(path: Path) -> set[str]:
+    """Every statement a sheet names, labelled or not: once drawn, a statement has been seen."""
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        if "statement_id" not in (reader.fieldnames or []):
+            raise ValueError(f"{path} has no statement_id column")
+        return {row["statement_id"] for row in reader}
+
+
 def read_labels(path: Path) -> dict[str, bool]:
     """The author's labels: ``yes`` or ``no`` per statement. Anything else is an error."""
     labels: dict[str, bool] = {}

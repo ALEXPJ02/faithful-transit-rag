@@ -31,7 +31,12 @@ from transit_rag.evaluation.judge import (
     split_statements,
     transcript_answer,
 )
-from transit_rag.evaluation.kappa import cohens_kappa, read_labels, stratified_sample
+from transit_rag.evaluation.kappa import (
+    cohens_kappa,
+    read_labels,
+    read_statement_ids,
+    stratified_sample,
+)
 
 
 class TestStatements:
@@ -342,6 +347,61 @@ def test_an_unlabelled_sheet_is_refused(tmp_path: Path) -> None:
     sheet.write_text("statement_id,system,statement,evidence,human_supported\nx,agent,s,e,\n")
     with pytest.raises(ValueError, match="yes or no"):
         read_labels(sheet)
+
+
+def test_a_later_round_draws_nothing_an_earlier_round_drew(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    judged = _judged_file(tmp_path, [True] * 6 + [False] * 4)
+    supported = {f"agent|q#{i}": i < 6 for i in range(10)}
+    first, second, third = (tmp_path / f"{name}.csv" for name in ("first", "second", "third"))
+    draw = ["sample", "--judged", str(judged), "--share", "0.5"]
+    assert judge_cli.main([*draw, "--out", str(first)]) == 0
+    capsys.readouterr()
+
+    # The first sheet is still blank: a statement once drawn is out, labelled or not.
+    assert judge_cli.main([*draw, "--exclude", str(first), "--out", str(second)]) == 0
+    # Half of each stratum left, rounded up: 1.5 -> 2 supported, 1 -> 1 unsupported.
+    assert "wrote 3 of 5 statement(s) (after leaving out 5 already drawn)" in (
+        capsys.readouterr().out
+    )
+    rounds = [read_statement_ids(first), read_statement_ids(second)]
+    assert rounds[0].isdisjoint(rounds[1])
+    assert {supported[i] for i in rounds[1]} == {True, False}
+
+    both = ["--exclude", str(first), "--exclude", str(second)]
+    assert judge_cli.main([*draw, *both, "--share", "1", "--out", str(third)]) == 0
+    rounds.append(read_statement_ids(third))
+    assert sorted(len(r) for r in rounds) == [2, 3, 5]
+    assert set().union(*rounds) == set(supported)
+    capsys.readouterr()
+
+    every = [*both, "--exclude", str(third), "--out", str(tmp_path / "fourth.csv")]
+    assert judge_cli.main([*draw, *every]) == 1
+    assert "no statement with a verdict left to draw" in capsys.readouterr().err
+    assert not (tmp_path / "fourth.csv").exists()
+
+
+def test_sample_refuses_a_sheet_from_other_answers_and_never_overwrites(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    judged = _judged_file(tmp_path, [True, False])
+    out = tmp_path / "sample.csv"
+    draw = ["sample", "--judged", str(judged), "--out", str(out)]
+    stranger = tmp_path / "stranger.csv"
+    stranger.write_text("statement_id,human_supported\nagent|other#0,yes\n", encoding="utf-8")
+    assert judge_cli.main([*draw, "--exclude", str(stranger)]) == 1
+    assert "1 statement(s) in --exclude are not in" in capsys.readouterr().err
+    unnamed = tmp_path / "unnamed.csv"
+    unnamed.write_text("id,human_supported\nagent|q#0,yes\n", encoding="utf-8")
+    assert judge_cli.main([*draw, "--exclude", str(unnamed)]) == 1
+    assert "has no statement_id column" in capsys.readouterr().err
+    assert not out.exists()
+
+    out.write_text("labelled by hand\n", encoding="utf-8")
+    assert judge_cli.main(draw) == 1
+    assert "written once" in capsys.readouterr().err
+    assert out.read_text(encoding="utf-8") == "labelled by hand\n"
 
 
 def test_the_judge_writes_rows_that_report_and_sample_read(

@@ -4,8 +4,10 @@
                          --out data/judged.jsonl                       # calls the judge model
     transit-judge report --judged data/judged.jsonl                    # rates per system
     transit-judge sample --judged data/judged.jsonl --out data/judge_sample.csv   # blind, to label
+    transit-judge sample --judged data/judged.jsonl --exclude data/judge_sample.csv \\
+                         --seed 1 --out data/judge_sample_2.csv   # a second round, none repeated
     transit-judge kappa  --judged data/judged.jsonl --labels data/judge_sample.csv
-    transit-judge rescore --judged data/judged.jsonl --labels data/judge_sample.csv \
+    transit-judge rescore --judged data/judged.jsonl --labels data/judge_sample.csv \\
                           --model claude-opus-4-6 --out data/rescored.jsonl   # the same sample, again
 
 The order matters (``docs/08`` §3.5). Judge a development set, have the author label
@@ -13,6 +15,9 @@ the blind sample, and check κ. Only then trust ``report``. Below κ = 0.6 the j
 revised and the sample re-scored, before the full run and never after seeing its
 results. ``rescore`` re-judges exactly the labelled statements, with their evidence
 verbatim, under the current rubric and the model given. ``kappa`` then reads its output.
+
+A later round passes each earlier sheet to ``--exclude``. No statement is drawn twice,
+so its κ is measured on statements that played no part in choosing the judge.
 
 Every judged row records the judge model and :func:`prompt_fingerprint`. ``report``
 and ``kappa`` print them, and refuse a file that mixes two, so a κ can be matched to
@@ -47,6 +52,7 @@ from transit_rag.evaluation.kappa import (
     KAPPA_FLOOR,
     cohens_kappa,
     read_labels,
+    read_statement_ids,
     stratified_sample,
     write_blind_sheet,
 )
@@ -174,11 +180,28 @@ def command_report(args: argparse.Namespace) -> int:
 
 
 def command_sample(args: argparse.Namespace) -> int:
+    if args.out.exists():
+        # The author may have labelled it in place, and drawing again would erase that.
+        raise ValueError(f"{args.out} already exists; a drawn sample is written once")
     statements, evidence, _ = _read_judged(args.judged)
-    sample = stratified_sample(statements, args.share, args.seed)
+    drawn: set[str] = set()
+    for sheet in args.exclude:
+        drawn |= read_statement_ids(sheet)
+    unknown = sorted(drawn - {s.statement_id for s in statements})
+    if unknown:
+        # Ignored, a wrong sheet would exclude nothing and an earlier round could repeat.
+        raise ValueError(
+            f"{len(unknown)} statement(s) in --exclude are not in {args.judged}, e.g. "
+            f"{unknown[0]}: was that sheet drawn from other answers?"
+        )
+    pool = [s for s in statements if s.statement_id not in drawn]
+    sample = stratified_sample(pool, args.share, args.seed)
+    if not sample:
+        raise ValueError(f"{args.judged} has no statement with a verdict left to draw")
     write_blind_sheet(sample, evidence, args.out)
+    left_out = f" (after leaving out {len(drawn)} already drawn)" if drawn else ""
     print(
-        f"wrote {len(sample)} of {len(statements)} statement(s) to {args.out}, without the "
+        f"wrote {len(sample)} of {len(pool)} statement(s){left_out} to {args.out}, without the "
         "judge's verdicts. Fill human_supported with yes or no, then run `transit-judge kappa`."
     )
     return 0
@@ -252,6 +275,14 @@ def build_parser() -> argparse.ArgumentParser:
     sample.add_argument("--out", type=Path, required=True)
     sample.add_argument("--share", type=float, default=DEFAULT_SHARE)
     sample.add_argument("--seed", type=int, default=0)
+    sample.add_argument(
+        "--exclude",
+        type=Path,
+        action="append",
+        default=[],
+        help="a sheet from an earlier round, labelled or not: none of it is drawn again "
+        "(repeatable)",
+    )
     sample.set_defaults(handler=command_sample)
 
     kappa = sub.add_parser("kappa", help="Cohen's κ between the judge and the author's labels")
