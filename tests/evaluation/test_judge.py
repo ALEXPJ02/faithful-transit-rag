@@ -472,6 +472,16 @@ def test_rescore_rejudges_exactly_the_labelled_statements_with_the_model_named(
     assert "written once" in capsys.readouterr().err
 
 
+def test_rescore_refuses_an_empty_sheet_without_writing_anything(tmp_path: Path) -> None:
+    judged = _judged_file(tmp_path, [True])
+    empty = tmp_path / "empty.csv"
+    empty.write_text("statement_id,human_supported\n", encoding="utf-8")
+    out = tmp_path / "o.jsonl"
+    argv = ["rescore", "--judged", str(judged), "--labels", str(empty), "--out", str(out)]
+    assert judge_cli.main(argv) == 1
+    assert not out.exists()  # nothing written, so a real re-score can follow
+
+
 def test_rescore_refuses_labels_for_statements_it_never_judged(tmp_path: Path) -> None:
     judged = _judged_file(tmp_path, [True])
     sheet = [{"statement_id": "agent|other#0", "human_supported": ""}]

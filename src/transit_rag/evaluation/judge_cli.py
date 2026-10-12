@@ -127,8 +127,11 @@ def command_judge(args: argparse.Namespace) -> int:
 def command_rescore(args: argparse.Namespace) -> int:
     if args.out.exists():
         raise ValueError(f"{args.out} already exists; a re-scored sample is written once")
-    statements, evidence, _ = _read_judged(args.judged)
     labels = read_labels(args.labels)
+    if not labels:
+        # Refused before anything is written: an empty re-score would block every later one.
+        raise ValueError(f"{args.labels} holds no labels")
+    statements, evidence, _ = _read_judged(args.judged)
     chosen = [s for s in statements if s.statement_id in labels]
     missing = sorted(set(labels) - {s.statement_id for s in chosen})
     if missing:
