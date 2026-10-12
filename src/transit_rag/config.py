@@ -259,7 +259,8 @@ class ModelConfig:
             anthropic_api_key=anthropic_key,
             voyage_api_key=voyage_key,
             generation_model=_env("ANTHROPIC_GENERATION_MODEL", "claude-sonnet-5"),
-            judge_model=_env("ANTHROPIC_JUDGE_MODEL", "claude-haiku-4-5"),
+            # Validated against the author at κ 0.71; Haiku 4.5 failed at 0.52 (docs/15 §4).
+            judge_model=_env("ANTHROPIC_JUDGE_MODEL", "claude-opus-4-6"),
             embedding_model=configured_embedding_model(),
         )
 

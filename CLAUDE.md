@@ -145,9 +145,11 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   for byte, because the forest predicts on one thread and thresholds sit between
   scores. **The faithfulness judge is built** (`transit-judge`, `docs/15`). It judges
   each statement against exactly what its system was shown, and every verdict carries
-  the fingerprint of the rubric it applied. The rubric is frozen at `e926f55c0cf7` and confirmed by the supervisor. Its
-  Cohen's κ waits on the author's labels for the 21-statement blind sample
-  `data/judge_sample_20261005.csv`, drawn from answers generated after the freeze.
+  the fingerprint of the rubric it applied. The rubric is frozen at `e926f55c0cf7` and confirmed by the supervisor.
+  **Validated 2026-10-13** against the author's labels for the 21-statement blind sample
+  (`docs/15` §4). Haiku 4.5 failed at κ 0.52, every miss a misapplied rule. **Claude Opus
+  4.6, the judge now**, passed at κ 0.71. Under it, retrieval does not lower faithfulness
+  (47% against 45%). That pattern was Haiku's misreading.
 - **The scored detection run** — the detectors (XGBoost and random forest,
   `prediction/disruption/models.py`) and the persistence baseline are built and run
   by `transit-detect` (`docs/12`). Features look back and the target looks forward.

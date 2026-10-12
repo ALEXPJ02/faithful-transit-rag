@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | Language | **Python 3.12** (hard floor) | The whole RAG/eval/ML ecosystem lives here; below 3.12 mypy silently stops checking |
 | Generation | **Claude Sonnet** via the Anthropic API | Strong tool-use; the judge is a *different, cheaper* model to avoid self-grading |
-| Eval judge | **Claude Haiku** | Judge calls dominate eval volume; a cheap judge is what makes per-statement faithfulness scoring affordable |
+| Eval judge | **Claude Opus 4.6**, at temperature 0 | Chosen by validation ([`15`](./15-faithfulness-judge.md) §4). The planned Haiku 4.5 agreed with the author at κ 0.52, below the 0.6 floor, and Opus 4.6 at 0.71. Among the stronger models, only Opus 4.6 and Sonnet 4.6 still take `temperature: 0`, and a judge whose verdicts change between runs cannot be validated once. It costs about $1 per hundred statements |
 | Embeddings | **Voyage `voyage-4-lite`** | Anthropic has no first-party embeddings API; 200M free tokens covers a corpus of past T1/T4 alerts (or the retired 3-PDF Opal corpus) many times over |
 | Agent | **Hand-rolled tool-use loop** (Anthropic SDK) | See §2 |
 | Vector store | **Chroma**, embedded | The corpus is small — at most a few hundred T1/T4 alerts by the 2026-10-18 cut-off — so a server-based store would be ceremony |
@@ -135,7 +135,7 @@ actually scan.
 ## 5. Cost
 
 ~**USD $50–90 for the semester** (~AUD 75–140), almost entirely Anthropic API:
-Sonnet generation across development queries plus Haiku judge calls across eval runs.
+Sonnet generation across development queries plus Opus 4.6 judge calls across eval runs.
 Embeddings (Voyage free tier), Chroma, the TfNSW API, GitHub, and Phase 2
 hosting are all effectively $0. Verified against Anthropic's and Voyage's own pricing
 pages rather than third-party summaries.

@@ -426,3 +426,63 @@ def test_the_fingerprint_follows_the_instructions(monkeypatch: pytest.MonkeyPatc
     monkeypatch.undo()
     monkeypatch.setattr(judge, "JUDGE_MESSAGE", "<e>{evidence}</e><s>{statement}</s>")
     assert prompt_fingerprint() != before
+
+
+def test_rescore_rejudges_exactly_the_labelled_statements_with_the_model_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    judged = _judged_file(tmp_path, [True, True, False, False, True])
+    sheet = [{"statement_id": f"agent|q#{i}", "human_supported": ""} for i in (1, 3)]
+    labels = _labelled(sheet, {"agent|q#1": "no", "agent|q#3": "yes"}, tmp_path / "l.csv")
+    stronger = _Fixed(False, True)  # it now agrees with the author on both
+    models: list[str] = []
+
+    def fake_judge(model: str, client: object) -> SimpleNamespace:
+        models.append(model)
+        return SimpleNamespace(
+            model=model,
+            verdict=stronger.verdict,
+            deterministic=True,
+            input_tokens=9,
+            output_tokens=2,
+        )
+
+    monkeypatch.setattr(judge_cli, "ClaudeJudge", fake_judge)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("VOYAGE_API_KEY", "test-key")
+    out = tmp_path / "rescored.jsonl"
+    argv = ["rescore", "--judged", str(judged), "--labels", str(labels), "--out", str(out)]
+    assert judge_cli.main([*argv, "--model", "stronger-judge"]) == 0
+    assert models == ["stronger-judge"]
+    assert stronger.seen == [("the evidence", "s1"), ("the evidence", "s3")]
+    rows = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
+    assert [(r["statement_id"], r["supported"], r["judge_model"]) for r in rows] == [
+        ("agent|q#1", False, "stronger-judge"),
+        ("agent|q#3", True, "stronger-judge"),
+    ]
+    assert {r["judge_prompt"] for r in rows} == {prompt_fingerprint()}
+    capsys.readouterr()
+
+    assert judge_cli.main(["kappa", "--judged", str(out), "--labels", str(labels)]) == 0
+    printed = capsys.readouterr().out
+    assert printed.startswith("judged by stronger-judge, judge prompt ")
+    assert "Cohen's κ = 1.00 over 2 statement(s)" in printed and "disagree" not in printed
+
+    assert judge_cli.main(argv) == 1  # written once
+    assert "written once" in capsys.readouterr().err
+
+
+def test_rescore_refuses_labels_for_statements_it_never_judged(tmp_path: Path) -> None:
+    judged = _judged_file(tmp_path, [True])
+    sheet = [{"statement_id": "agent|other#0", "human_supported": ""}]
+    labels = _labelled(sheet, {"agent|other#0": "yes"}, tmp_path / "l.csv")
+    argv = [
+        "rescore",
+        "--judged",
+        str(judged),
+        "--labels",
+        str(labels),
+        "--out",
+        str(tmp_path / "o.jsonl"),
+    ]
+    assert judge_cli.main(argv) == 1

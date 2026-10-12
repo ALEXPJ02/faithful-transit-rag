@@ -5,11 +5,14 @@
     transit-judge report --judged data/judged.jsonl                    # rates per system
     transit-judge sample --judged data/judged.jsonl --out data/judge_sample.csv   # blind, to label
     transit-judge kappa  --judged data/judged.jsonl --labels data/judge_sample.csv
+    transit-judge rescore --judged data/judged.jsonl --labels data/judge_sample.csv \
+                          --model claude-opus-4-6 --out data/rescored.jsonl   # the same sample, again
 
 The order matters (``docs/08`` §3.5). Judge a development set, have the author label
-the blind sample, and check κ. Only then trust ``report``. Below κ = 0.6 the judge's
-prompt is revised and the sample re-scored, before the full run and never after
-seeing its results.
+the blind sample, and check κ. Only then trust ``report``. Below κ = 0.6 the judge is
+revised and the sample re-scored, before the full run and never after seeing its
+results. ``rescore`` re-judges exactly the labelled statements, with their evidence
+verbatim, under the current rubric and the model given. ``kappa`` then reads its output.
 
 Every judged row records the judge model and :func:`prompt_fingerprint`. ``report``
 and ``kappa`` print them, and refuse a file that mixes two, so a κ can be matched to
@@ -23,6 +26,7 @@ import json
 import math
 import sys
 from collections import defaultdict
+from dataclasses import replace
 from pathlib import Path
 
 from transit_rag.config import ConfigError, ModelConfig
@@ -33,6 +37,7 @@ from transit_rag.evaluation.judge import (
     citation_coverage,
     faithfulness_rate,
     judge_answer,
+    judge_statement,
     prompt_fingerprint,
     reasons_answers,
     transcript_answer,
@@ -85,16 +90,22 @@ def _describe(judge: str) -> str:
     return f"judged by {judge}; the current judge prompt is {current}"
 
 
+def _judge(model: str | None) -> ClaudeJudge:
+    """The judge on ``model``, or on ``ANTHROPIC_JUDGE_MODEL`` when none is named."""
+    config = ModelConfig.from_env()
+    import anthropic
+
+    return ClaudeJudge(
+        model=model or config.judge_model,
+        client=anthropic.Anthropic(api_key=config.anthropic_api_key),
+    )
+
+
 def command_judge(args: argparse.Namespace) -> int:
     answers = _answers(args.reasons, args.transcripts)
     if not answers:
         raise ValueError("no answers to judge; pass --reasons and/or --transcripts")
-    config = ModelConfig.from_env()
-    import anthropic
-
-    judge = ClaudeJudge(
-        model=config.judge_model, client=anthropic.Anthropic(api_key=config.anthropic_api_key)
-    )
+    judge = _judge(args.model)
     provenance = {"judge_model": judge.model, "judge_prompt": prompt_fingerprint()}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     count = 0
@@ -108,6 +119,35 @@ def command_judge(args: argparse.Namespace) -> int:
     print(
         f"judged {count} statement(s) from {len(answers)} answer(s) with {judge.model} "
         f"({sampling}), judge prompt {provenance['judge_prompt']}"
+    )
+    print(f"tokens: {judge.input_tokens:,} in, {judge.output_tokens:,} out; wrote {args.out}")
+    return 0
+
+
+def command_rescore(args: argparse.Namespace) -> int:
+    if args.out.exists():
+        raise ValueError(f"{args.out} already exists; a re-scored sample is written once")
+    statements, evidence, _ = _read_judged(args.judged)
+    labels = read_labels(args.labels)
+    chosen = [s for s in statements if s.statement_id in labels]
+    missing = sorted(set(labels) - {s.statement_id for s in chosen})
+    if missing:
+        raise ValueError(f"{len(missing)} labelled statement(s) are not in {args.judged}")
+    judge = _judge(args.model)
+    provenance = {"judge_model": judge.model, "judge_prompt": prompt_fingerprint()}
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    with args.out.open("w", encoding="utf-8") as handle:
+        for statement in chosen:
+            supported, rationale = judge_statement(
+                judge, evidence[statement.answer_id], statement.statement
+            )
+            again = replace(statement, supported=supported, rationale=rationale)
+            row = {**again.as_dict(), **provenance, "evidence": evidence[statement.answer_id]}
+            handle.write(json.dumps(row) + "\n")
+    sampling = "temperature 0" if judge.deterministic else "default sampling: re-runs may differ"
+    print(
+        f"re-judged the {len(chosen)} labelled statement(s) with {judge.model} ({sampling}), "
+        f"judge prompt {provenance['judge_prompt']}"
     )
     print(f"tokens: {judge.input_tokens:,} in, {judge.output_tokens:,} out; wrote {args.out}")
     return 0
@@ -186,7 +226,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--transcripts", type=Path, default=None, help="a folder of transit-ask JSON"
     )
     judge.add_argument("--out", type=Path, required=True)
+    judge.add_argument(
+        "--model", default=None, help="the judge model (default: ANTHROPIC_JUDGE_MODEL)"
+    )
     judge.set_defaults(handler=command_judge)
+
+    rescore = sub.add_parser("rescore", help="re-judge exactly the labelled statements")
+    rescore.add_argument("--judged", type=Path, required=True)
+    rescore.add_argument("--labels", type=Path, required=True)
+    rescore.add_argument("--out", type=Path, required=True)
+    rescore.add_argument(
+        "--model", default=None, help="the judge model (default: ANTHROPIC_JUDGE_MODEL)"
+    )
+    rescore.set_defaults(handler=command_rescore)
 
     report = sub.add_parser("report", help="faithfulness and citation coverage per system")
     report.add_argument("--judged", type=Path, required=True)
