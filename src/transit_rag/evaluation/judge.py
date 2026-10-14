@@ -80,7 +80,7 @@ You check whether one statement from a train-disruption assistant is supported b
 the evidence the assistant was given.
 
 Supported means every factual claim in the statement is in the evidence or follows \
-directly from it. Numbers, times, places, causes and alert ids must match.
+directly from it. Numbers, dates, times, places, causes and alert ids must match.
 - Read each claim in its plain sense, as a careful reader would. A paraphrase that \
 keeps the evidence's meaning is supported: "up to 9 minutes late", "no more than 9 \
 minutes late" and "the most delayed was 9 minutes behind" say the same thing.
@@ -90,17 +90,28 @@ supports it at the strength claimed.
 not show why. Attributing the delays to a cause that nothing in the evidence links \
 them to, such as a signal fault, congestion or police activity, is unsupported \
 however it is hedged. Saying that nothing points to a cause attributes none.
+- Words for how far delays reach or how they developed, such as "network-wide", \
+"cascading", "knock-on", "escalating", "lingering" or "recurring", are claims too. \
+Delays at a few stations do not show a network-wide disruption, and one count of late \
+services does not show delays spreading or growing over time.
 - An alert or a past incident in the evidence can link a cause to the delays. The \
 statement must say what connects them, such as the same stations, that connection \
 must be in the evidence, and a past incident's cause must be offered as possible, \
 not as certain.
+- A comparison with a past incident or an alert, such as "mirrors", "echoes", \
+"matches" or "the same pattern as", claims the two are alike in what it names. It is \
+supported only if the evidence shows both sides of that comparison. Shared stations \
+or a shared line can ground offering a past cause as possible. They do not show that \
+the delays follow the same pattern unless the evidence describes the past delays.
+- An alert's dates and times must match how the statement describes it, including \
+whether it applies now, has ended or is planned for later.
 - A statement that something is unknown or cannot be determined is supported when \
 the evidence does not determine it.
 - A statement with no factual claim, such as framing or a restated question, is \
 supported.
 - A claim the evidence does not contain is unsupported, even if it may be true. That \
-includes facts about the network, such as which line or area a station is on, unless \
-the evidence states them.
+includes facts about the network, such as which line or area a station is on or \
+which stations are near each other, unless the evidence states them.
 
 Judge only against the evidence. Use no outside knowledge."""
 

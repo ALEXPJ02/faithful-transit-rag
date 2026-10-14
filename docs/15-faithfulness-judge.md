@@ -57,6 +57,8 @@ faithfulness, never alone.
   sampling parameter, and for those it is left out, with the run printing "default
   sampling: re-runs may differ". This is why the judge is not a newer model: a judge
   whose verdicts change between runs cannot be validated once and trusted afterwards.
+  Even at temperature 0, Opus 4.6 is nearly repeatable, not exactly. Across two runs,
+  21 of 21 verdicts matched under version 3, and 50 of 51 under version 4.
 - **A failed verdict is never guessed.** A refusal, a cut-off answer or an API error is
   recorded with `supported: null`, left out of the rate, and counted in `report`.
 - **Every verdict names the rules it applied.** Each judged row carries the judge model
@@ -66,11 +68,12 @@ faithfulness, never alone.
 
 ## 3. The rubric, and how it was revised
 
-The author labels with exactly the rules the judge is given. This is the frozen
-version, `e926f55c0cf7`:
+The author labels with exactly the rules the judge is given. This is version 4,
+`da0a503ea811`, written on 2026-10-14 after version 3 failed a held-out check (§4). The
+lines marked † are new in version 4:
 
 > Supported means every factual claim in the statement is in the evidence or follows
-> directly from it. Numbers, times, places, causes and alert ids must match.
+> directly from it. Numbers, dates†, times, places, causes and alert ids must match.
 >
 > - Read each claim in its plain sense, as a careful reader would. A paraphrase that
 >   keeps the evidence's meaning is supported: "up to 9 minutes late", "no more than 9
@@ -81,17 +84,29 @@ version, `e926f55c0cf7`:
 >   show why. Attributing the delays to a cause that nothing in the evidence links them
 >   to, such as a signal fault, congestion or police activity, is unsupported however
 >   it is hedged. Saying that nothing points to a cause attributes none.
+> - † Words for how far delays reach or how they developed, such as "network-wide",
+>   "cascading", "knock-on", "escalating", "lingering" or "recurring", are claims too.
+>   Delays at a few stations do not show a network-wide disruption, and one count of
+>   late services does not show delays spreading or growing over time.
 > - An alert or a past incident in the evidence can link a cause to the delays. The
 >   statement must say what connects them, such as the same stations, that connection
 >   must be in the evidence, and a past incident's cause must be offered as possible,
 >   not as certain.
+> - † A comparison with a past incident or an alert, such as "mirrors", "echoes",
+>   "matches" or "the same pattern as", claims the two are alike in what it names. It
+>   is supported only if the evidence shows both sides of that comparison. Shared
+>   stations or a shared line can ground offering a past cause as possible. They do not
+>   show that the delays follow the same pattern unless the evidence describes the past
+>   delays.
+> - † An alert's dates and times must match how the statement describes it, including
+>   whether it applies now, has ended or is planned for later.
 > - A statement that something is unknown or cannot be determined is supported when
 >   the evidence does not determine it.
 > - A statement with no factual claim, such as framing or a restated question, is
 >   supported.
 > - A claim the evidence does not contain is unsupported, even if it may be true. That
->   includes facts about the network, such as which line or area a station is on,
->   unless the evidence states them.
+>   includes facts about the network, such as which line or area a station is on or
+>   which stations are near each other†, unless the evidence states them.
 >
 > Judge only against the evidence. Use no outside knowledge.
 
@@ -104,10 +119,22 @@ agent transcripts: 87 statements from 75 answers.
 | --- | --- | --- | --- | --- | --- |
 | 1 | `c3ea2f9d1d8f` | 90% | 50% | 74% | Called "no service more than 3 minutes late" unsupported when the worst was 3 minutes. Applied its outside-knowledge rule to some station geography and not to the rest. Read "none of the alerts cite a cause for these delays" as false because maintenance alerts name a cause |
 | 2 | `37e52d36de8f` | 100% | 29% | 56% | Over-applied its new cause rule to statements that *no* cause is indicated. Had no rule for a cause carried by a past incident, which is exactly what retrieval exists to supply |
-| 3 | `e926f55c0cf7` | 100% | 42% | 62% | Frozen |
+| 3 | `e926f55c0cf7` | 100% | 42% | 62% | Frozen, then failed the held-out round 2 (§4) |
 
 The table shows faithfulness rates. Between versions, 16 verdicts and then 9 changed.
 Citation coverage does not depend on the judge: 30%, 53% and 0% throughout.
+
+**Version 4 was revised on 2026-10-14, after the author's labels.** Version 3 failed
+round 2 at κ 0.48 (§4). Most of its misses broke a rule it already had: a hedged claim
+needs the evidence "at the strength claimed", and every claim must be in the evidence.
+Version 4 makes those rules concrete for the four kinds of claim the judge kept passing:
+- comparisons with a past incident ("mirrors the pattern");
+- words of extent ("network-wide", "cascading");
+- dates ("weekend" trackwork dated Monday);
+- which stations are near each other.
+
+Nothing it adds is a new standard. Because it was written after reading 51 labels, its
+agreement with them is fitted, not validated. Round 3 is its test.
 
 **The rubric moved the retrieval system's rate by 21 points.** That is the strongest
 argument for validating the judge before trusting it, and for freezing it before
@@ -123,6 +150,13 @@ scoring. The development numbers are not results.
    connects them, that connection is in the evidence, and the cause is hedged. Without
    this rule, every retrieval-based explanation is unfaithful by construction, and the
    metric would penalise the reasons stage for doing what it is designed to do.
+
+**Version 4 keeps both choices and sharpens each:**
+- The first now names "which stations are near each other".
+- The second now says that shared stations ground a possible cause, but not a claim
+  that the delays follow the same pattern.
+
+The supervisor is asked to confirm the new wording.
 
 Changing either is a one-line edit to `JUDGE_SYSTEM`. It produces a new fingerprint,
 and the sample must then be re-scored.
@@ -231,6 +265,81 @@ The agent's one unsupported statement was in round 1, so round 2 cannot test tha
 Either way, round 2's κ is reported, and so is κ over all 51 statements, each with its
 bootstrap interval.
 
+### Round 2: the result, 2026-10-14
+
+**Opus 4.6 fails round 2.** The author marked 10 of the 30 supported. The judge, under
+version 3, marked 16.
+
+| Statements | κ | 95% bootstrap | Agreement |
+| --- | --- | --- | --- |
+| Round 2 alone (held out) | **0.48** | [0.17, 0.74] | 22 of 30 |
+| Both rounds | 0.57 | [0.35, 0.77] | 40 of 51 |
+
+**By the rule above, the judge has failed on held-out statements.** The intervals use
+round 1's bootstrap: 4,000 resamples of the statements.
+
+**Seven of the eight disagreements are the judge passing what the author rejected.**
+Checked against the evidence, six or seven of them broke a rule version 3 already had:
+- "weekend trackwork", for alerts that give their own dates as Monday and Tuesday;
+- "the next train toward Artarmon", for a passenger at Chatswood. Here the judge's own
+  reason supplied the geography, as "Artarmon and Lindfield are near Chatswood";
+- "mirrors the pattern" of an earlier fault, and "caused similar cascading delays",
+  though the evidence gives no pattern for the earlier incidents;
+- "the likely cause", from a repair at another station five hours earlier;
+- "network-wide", from five stations on one line;
+- "minor, localized disruption rather than a systemic cause", which is borderline.
+
+In the eighth, the judge was right by the rubric and the label was not. "A contiguous
+stretch of the T1 line" is network knowledge the evidence does not give.
+
+**How the labels were made.** In both rounds, an assistant suggested a label for each
+statement. The author then read the evidence and kept or changed it. The judge's
+verdict was never shown. A suggested label anchors too, though, so κ measures agreement
+with the author's assisted reading.
+
+**The judge is repeatable, but not exactly.** Opus 4.6 judged round 1's statements twice
+at temperature 0. Its verdicts matched on 21 of 21, and its one-sentence reasons on only
+6. So round 1's κ is 0.71 from either run.
+
+### Version 4, and round 3
+
+The fix is version 4 of the rubric (§3), kept on Opus 4.6 at temperature 0.
+
+**Fitted to the 51 labels it was written from, version 4 gives κ 0.71** [0.49, 0.90],
+with 44 of 51 in agreement. That is not a validation.
+- Twelve of the validation set's 92 verdicts changed, eleven of them to unsupported.
+- The judge now marks 19 of the 51 supported, against the author's 20.
+- One borderline comparison changed between two runs at temperature 0, so a re-score
+  of the 51 gives 0.75.
+- Seven disagreements remain. One is a round-1 label passing a "matches the pattern"
+  claim that round 2's labels reject.
+
+**Round 3 is every validation statement no round has drawn: 41.**
+
+```bash
+transit-judge sample --judged data/judged_val_v4_opus46_20261014.jsonl \
+                     --exclude data/judge_labels_20261013.csv \
+                     --exclude data/judge_labels_round2_20261014.csv \
+                     --share 1 --seed 2 --out data/judge_sample_round3_20261014.csv
+```
+
+| System | Judged supported | Judged unsupported |
+| --- | --- | --- |
+| Agent | 7 | none left |
+| Model + retrieval | 5 | 11 |
+| Model, no retrieval | 9 | 9 |
+
+Rounds 1 and 2 were labelled against version 3. Round 3 is labelled against version 4,
+on a blind page like theirs.
+
+**The rule for round 3, fixed before any of its labels exist:**
+- **κ ≥ 0.6 on round 3 alone:** version 4 stands, and the scored run is judged with it.
+- **Below 0.6:** the judge is reported as not validated. There is no time for another
+  revision before the cut-off. The scored run is still judged with version 4, and its
+  rates are reported with round 3's κ and the direction of its misses.
+
+Either way, round 3's κ is the validation figure. The fitted κ is not.
+
 ## 5. Found along the way: the situation contradicted itself
 
 The judge flagged an answer that said four late services were "clustered mostly at
@@ -260,19 +369,27 @@ old wording. The validation set uses the new one.
 
 ## 6. What the validation set shows
 
-These are rates under `e926f55c0cf7`. They are development figures, not results.
+These are development figures, not results.
 
-| System | Statements | Faithful, Opus 4.6 (validated) | Faithful, Haiku 4.5 (failed κ) | Cited |
-| --- | --- | --- | --- | --- |
-| Agent | 16 | 94% | 94% | 25% |
-| Model + retrieval | 36 | **47%** | 19% | 64% |
-| Model, no retrieval | 40 | 45% | 48% | 0% |
+| System | Statements | Opus 4.6, v4 (round 3 to come) | Opus 4.6, v3 (failed round 2) | Haiku 4.5, v3 (failed round 1) | Cited |
+| --- | --- | --- | --- | --- | --- |
+| Agent | 16 | 88% | 94% | 94% | 25% |
+| Model + retrieval | 36 | **25%** | 47% | 19% | 64% |
+| Model, no retrieval | 40 | 42% | 45% | 48% | 0% |
 
-**The pattern flagged before validation did not survive it.** Under Haiku, retrieval
-seemed to lower faithfulness, 19% against 48%. Under the validated judge, the two are
-level at 47% and 45%. Haiku was failing the past-incident analogies the rubric allows.
-Without the κ check, the evaluation would have reported a judge's misreading as a
-finding about retrieval. The agent, held to its checked rules, stays at 94%.
+**Whether retrieval lowers faithfulness has changed with every judge, so it is not a
+finding yet.**
+- **Haiku 4.5:** retrieval seemed to lower it, 19% against 48%. Haiku failed some
+  hedged analogies the rubric allows.
+- **Opus 4.6 under version 3:** the two were level, at 47% and 45%. That judge passed
+  comparisons the author rejects.
+- **Version 4:** the gap is back, at 25% against 42%.
+
+The whole move comes from the comparison rule. Eight retrieval statements changed to
+unsupported, and every one claims the delays match a past incident. This is exactly
+where retrieval answers go beyond their evidence. Round 3 decides which reading holds.
+Without the κ checks, the evaluation would have reported a judge's habit as a finding
+about retrieval, either way. Citation coverage does not depend on the judge.
 
 ## 7. Running it
 
@@ -316,8 +433,12 @@ for the re-scored sample and the validation set.
   are one sentence (77 statements from 72 answers in the development set), but the
   agent's answers run to five. If κ fails on such statements, the fix is to show the
   whole answer as context.
-- **One judge model, Opus 4.6.** It is validated together with the fingerprint
-  `e926f55c0cf7`. A different model, or a changed rubric, needs its own κ. The
-  `judge_model` and `judge_prompt` every judged row carries make the pair checkable.
-- **The scored run** is judged at the cut-off with the fingerprint κ validated. A new
-  fingerprint needs its own κ.
+- **One judge model, Opus 4.6.** With `e926f55c0cf7` it passed round 1 and failed round
+  2. With `da0a503ea811` it is validated only if round 3 passes. A different model, or a
+  changed rubric, needs its own κ. The `judge_model` and `judge_prompt` every judged row
+  carries make the pair checkable.
+- **The labels are assisted.** An assistant suggested each label, and the author kept or
+  changed it. A suggestion anchors as a shown verdict would, so κ is agreement with the
+  author's assisted reading, not an unaided one.
+- **The scored run** is judged at the cut-off with version 4, and reported with round
+  3's κ whichever way it falls. Any further fingerprint needs its own κ.

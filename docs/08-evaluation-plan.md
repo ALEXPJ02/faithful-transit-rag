@@ -405,9 +405,11 @@ its text, and the description test is checked against new alerts to the cut-off 
   reports **Cohen's κ** against the LLM judge. An unvalidated judge is an unvalidated
   instrument, and every explanation number depends on one. If κ < 0.6 the prompt is
   revised and the subsample re-scored — before the full run, not after seeing results.
-  **Done 2026-10-13** (`15` §4). Claude Haiku 4.5 agreed at κ 0.52, every miss a
+  **Round 1, 2026-10-13** (`15` §4). Claude Haiku 4.5 agreed at κ 0.52, every miss a
   misapplied rule. Claude Opus 4.6, under the same frozen rubric, agreed at κ 0.71
-  (18 of 21) and is now the judge.
+  (18 of 21) and became the judge. **Round 2, 2026-10-14**, on 30 held-out
+  statements: κ 0.48, which fails. As this rule requires, the rubric was revised to
+  version 4. A held-out round 3 checks it before the scored run.
 - **Repeats.** 3 runs per system at fixed temperature; report mean ± sd. One run of a
   stochastic system is an anecdote.
 - **Chunk size and k are frozen before scoring.** Both are swept once on a
