@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | Language | **Python 3.12** (hard floor) | The whole RAG/eval/ML ecosystem lives here; below 3.12 mypy silently stops checking |
 | Generation | **Claude Sonnet** via the Anthropic API | Strong tool-use; the judge is a *different, cheaper* model to avoid self-grading |
-| Eval judge | **Claude Opus 4.6**, at temperature 0 | Chosen by validation ([`15`](./15-faithfulness-judge.md) §4). The planned Haiku 4.5 agreed with the author at κ 0.52, below the 0.6 floor, and Opus 4.6 at 0.71. Among the stronger models, only Opus 4.6 and Sonnet 4.6 still take `temperature: 0`, and a judge whose verdicts change between runs cannot be validated once. It costs about $1 per hundred statements |
+| Eval judge | **Claude Opus 4.6**, at temperature 0 | Chosen by validation ([`15`](./15-faithfulness-judge.md) §4). The planned Haiku 4.5 agreed with the author at κ 0.52, below the 0.6 floor, and Opus 4.6 at 0.71. Opus 4.6 then failed a held-out round at 0.48, and its tightened rubric awaits a third. Among the stronger models, only Opus 4.6 and Sonnet 4.6 still take `temperature: 0`, and a judge whose verdicts change between runs cannot be validated once. It costs about $1 per hundred statements |
 | Embeddings | **Voyage `voyage-4-lite`** | Anthropic has no first-party embeddings API; 200M free tokens covers a corpus of past T1/T4 alerts (or the retired 3-PDF Opal corpus) many times over |
 | Agent | **Hand-rolled tool-use loop** (Anthropic SDK) | See §2 |
 | Vector store | **Chroma**, embedded | The corpus is small — at most a few hundred T1/T4 alerts by the 2026-10-18 cut-off — so a server-based store would be ceremony |

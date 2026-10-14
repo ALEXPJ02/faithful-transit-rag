@@ -174,13 +174,16 @@ incidents were admissible.
 incident before the test split (`--until` the first test date). Freeze k as the
 smallest value whose recall@k reaches the sweep's highest recall. Today that gives 3.
 The plan's 5 stays in force until the rule is applied at the cut-off. Faithfulness
-gives no reason to prefer a smaller k: under the validated judge, retrieval and no
-retrieval were equally faithful in development (`15` §6).
+is not yet an argument about k either way. Under rubric version 3, retrieval and no
+retrieval were equally faithful in development. Under version 4, retrieval is less
+faithful (25% against 42%), from comparisons with past incidents that claim more than
+the evidence shows (`15` §6). Version 4 awaits its held-out check.
 
 ## 8. Not built yet
 
-- ~~**The judge's validation**~~: done ([`15`](./15-faithfulness-judge.md) §4). κ is
-  0.71 against the author with Claude Opus 4.6, now the judge. Haiku 4.5 failed at 0.52.
+- **The judge's validation** is reopened ([`15`](./15-faithfulness-judge.md) §4).
+  Claude Opus 4.6 passed round 1 at κ 0.71 and failed the held-out round 2 at 0.48.
+  Rubric version 4 awaits round 3.
 - **Freezing k** at the cut-off, by the confirmed rule in §7.
 - **The scored run**, on the incidents in the test split drawn at the cut-off, with the
   count of incidents and cause groups beside every number.

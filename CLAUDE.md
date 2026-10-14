@@ -145,11 +145,20 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   for byte, because the forest predicts on one thread and thresholds sit between
   scores. **The faithfulness judge is built** (`transit-judge`, `docs/15`). It judges
   each statement against exactly what its system was shown, and every verdict carries
-  the fingerprint of the rubric it applied. The rubric is frozen at `e926f55c0cf7` and confirmed by the supervisor.
-  **Validated 2026-10-13** against the author's labels for the 21-statement blind sample
-  (`docs/15` §4). Haiku 4.5 failed at κ 0.52, every miss a misapplied rule. **Claude Opus
-  4.6, the judge now**, passed at κ 0.71. Under it, retrieval does not lower faithfulness
-  (47% against 45%). That pattern was Haiku's misreading.
+  the fingerprint of the rubric it applied. **Its validation is reopened** (`docs/15` §4):
+  - **Round 1**, 21 statements: Haiku 4.5 failed at κ 0.52, and **Claude Opus 4.6, the
+    judge now**, passed at 0.71.
+  - **Round 2**, 30 held-out statements: it **failed at κ 0.48** under rubric v3
+    `e926f55c0cf7`. It kept passing comparisons and extent words its own rules exclude.
+  - **Rubric v4 `da0a503ea811`** (2026-10-14) makes those rules concrete. Fitted to the
+    51 labels it gives κ 0.71. That is not a validation, and the supervisor is asked to
+    confirm the new wording.
+  - **Round 3**, all 41 remaining validation statements, decides. Its rule was fixed
+    before its labels.
+
+  The labels are assisted: an assistant suggested each, and the author kept or changed
+  it. Whether retrieval lowers faithfulness has flipped with each judge (47% against 45%
+  under v3, 25% against 42% under v4), so do not quote either until round 3.
 - **The scored detection run** — the detectors (XGBoost and random forest,
   `prediction/disruption/models.py`) and the persistence baseline are built and run
   by `transit-detect` (`docs/12`). Features look back and the target looks forward.
