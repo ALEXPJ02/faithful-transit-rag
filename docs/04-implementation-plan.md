@@ -124,7 +124,8 @@ Agreed with her: the 30-minute horizon and the 15-minute window.
    disrupted**, because no unplanned alert carries an `active_period_end`.
 2. **The retrain window** — 2026-09-11..15 have no timetable era and are excluded,
    splitting collection into 09-03..10 and 09-16..24. Current models exclude them,
-   which leaves validation and test clean and contiguous.
+   which leaves validation and test clean and contiguous. The student decided to keep
+   this for the scored run on 2026-10-18 (`08` §5).
 3. **The prediction interval.** It is built: a 90% conformal interval, re-derived on
    the 2026-10-05 table (`08` §4). Validation error varies nine-fold with how late the
    train already is, and ± MAE covers 32% of trains already more than 5 minutes late.

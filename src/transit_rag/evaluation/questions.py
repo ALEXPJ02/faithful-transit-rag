@@ -152,7 +152,8 @@ def command_ask(args: argparse.Namespace) -> int:
     tokens = [0, 0]
     for index, item in enumerate(questions, start=1):
         transcript = ask(item.question, replace(tools, at=item.at), client, config.generation_model)
-        record = {**transcript.to_dict(), "why": item.why}
+        # k is frozen at the cut-off (docs/13 §7), and a transcript must show which it used.
+        record = {**transcript.to_dict(), "why": item.why, "k": tools.k}
         name = f"{index:03d}_{item.line}_{item.at.astimezone(SYDNEY):%Y%m%d_%H%M}.json"
         (args.out_dir / name).write_text(json.dumps(record, indent=2), encoding="utf-8")
         tokens[0] += transcript.input_tokens

@@ -137,7 +137,7 @@ class _Answers:
         )
 
 
-def _toolbox(at: datetime) -> ToolBox:
+def _toolbox(at: datetime, k: int = 5) -> ToolBox:
     events = pd.DataFrame(
         columns=[
             "line",
@@ -152,7 +152,7 @@ def _toolbox(at: datetime) -> ToolBox:
     feed = SnapshotFeed(
         Path("unused.db"), events, [], pd.Series([], dtype="datetime64[ns, UTC]"), {}
     )
-    return ToolBox(feed=feed, at=at)
+    return ToolBox(feed=feed, at=at, k=k)
 
 
 def test_each_question_is_asked_as_of_its_own_moment_and_runs_never_mix(
@@ -169,7 +169,7 @@ def test_each_question_is_asked_as_of_its_own_moment_and_runs_never_mix(
     def fake_toolbox(args: Any, at: datetime | None = None) -> ToolBox:
         assert at is not None
         built.append(at)
-        return _toolbox(at)
+        return _toolbox(at, k=args.k)
 
     monkeypatch.setattr(questions, "build_toolbox", fake_toolbox)
     monkeypatch.setattr(
@@ -189,6 +189,8 @@ def test_each_question_is_asked_as_of_its_own_moment_and_runs_never_mix(
         str(out_dir),
         "--db",
         str(tmp_path / "x.db"),
+        "--k",
+        "3",
     ]
     assert questions.main(argv) == 0
     assert built == [asked[0].at]  # built once, then moved
@@ -196,6 +198,7 @@ def test_each_question_is_asked_as_of_its_own_moment_and_runs_never_mix(
     assert [p.name for p in written] == ["001_T1_20261017_0830.json", "002_T4_20261017_1730.json"]
     records = [json.loads(p.read_text(encoding="utf-8")) for p in written]
     assert [r["as_of"] for r in records] == [item.at.isoformat() for item in asked]
+    assert [r["k"] for r in records] == [3, 3]  # the frozen k, not the default 5
     assert [(r["question"], r["why"]) for r in records] == [
         ("q one", "peak"),
         ("q two", "incident x"),
