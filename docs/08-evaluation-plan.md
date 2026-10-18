@@ -409,7 +409,8 @@ its text, and the description test is checked against new alerts to the cut-off 
   misapplied rule. Claude Opus 4.6, under the same frozen rubric, agreed at κ 0.71
   (18 of 21) and became the judge. **Round 2, 2026-10-14**, on 30 held-out
   statements: κ 0.48, which fails. As this rule requires, the rubric was revised to
-  version 4. A held-out round 3 checks it before the scored run.
+  version 4. **Round 3, 2026-10-18**, on the 41 remaining statements: κ 0.61
+  [0.38, 0.82], which passes. Version 4 judges the scored run.
 - **Repeats.** 3 runs per system at fixed temperature; report mean ± sd. One run of a
   stochastic system is an anecdote.
 - **Chunk size and k are frozen before scoring.** Both are swept once on a
@@ -594,7 +595,7 @@ In dependency order.
    95% intervals from resampling whole service dates (`12`, `13`, 2026-10-05). ✅ The
    faithfulness judge, per statement, with its rubric frozen before validation (`15`,
    2026-10-05). ✅ The k sweep, with chance as its baseline (`13` §7). k is frozen at
-   the cut-off. Next is judge validation: the blind 21-statement sample awaits the
-   author's labels. Then comes the scored run on data to the §3.1 cut-off
+   the cut-off. ✅ Judge validation, in three blind rounds (`15` §4, 2026-10-18). Next
+   is the scored run on data to the §3.1 cut-off
 
 Items 6 and 7 do not depend on 1–5 and can proceed in parallel.

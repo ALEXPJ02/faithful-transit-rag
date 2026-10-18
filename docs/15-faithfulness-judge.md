@@ -134,7 +134,8 @@ Version 4 makes those rules concrete for the four kinds of claim the judge kept 
 - which stations are near each other.
 
 Nothing it adds is a new standard. Because it was written after reading 51 labels, its
-agreement with them is fitted, not validated. Round 3 is its test.
+agreement with them is fitted, not validated. Round 3 was its test, and it passed
+narrowly, at κ 0.61 (§4).
 
 **The rubric moved the retrieval system's rate by 21 points.** That is the strongest
 argument for validating the judge before trusting it, and for freezing it before
@@ -156,7 +157,7 @@ scoring. The development numbers are not results.
 - The second now says that shared stations ground a possible cause, but not a claim
   that the delays follow the same pattern.
 
-The supervisor is asked to confirm the new wording.
+The supervisor confirmed the new wording before round 3 was scored.
 
 Changing either is a one-line edit to `JUDGE_SYSTEM`. It produces a new fingerprint,
 and the sample must then be re-scored.
@@ -340,6 +341,42 @@ on a blind page like theirs.
 
 Either way, round 3's κ is the validation figure. The fitted κ is not.
 
+### Round 3: the result, 2026-10-18
+
+**Version 4 passes, narrowly.** The author marked 13 of the 41 supported. The judge
+marked 21.
+
+| Statements | κ | 95% bootstrap | Agreement |
+| --- | --- | --- | --- |
+| Round 3 alone (held out) | **0.61** | [0.38, 0.82] | 33 of 41 |
+| Rounds 1 and 2 (fitted) | 0.71 | [0.49, 0.90] | 44 of 51 |
+
+**By the rule above, version 4 stands, and the scored run is judged with it.** The
+point estimate is 0.613. But 47% of the bootstrap resamples fall below 0.6, so the pass
+is not a comfortable one. It is reported with its interval.
+
+**The judge still leans lenient, and every miss runs one way.** In all eight
+disagreements, the judge passed what the author rejected. Each broke a rule version 4
+states:
+- **Geography, three times.** "The Hornsby–Berowra corridor" and "nearby northern line
+  stations". In one, the judge's own reason supplied it: "stations in the same area".
+- **Comparisons, three times.** For example, "closely mirrors … across these same
+  stations", when the past alert names two of the five. Another is a severity
+  mismatch with alerts that give no severity.
+- **"A buildup of lateness"**, from one count of late services.
+- **Borderline, twice:** "minor, routine disruption", and "no single chokepoint".
+
+**By system, the leniency is uneven:**
+
+| System | Agreement | Judge supported | Author supported |
+| --- | --- | --- | --- |
+| Agent | 7 of 7 | 7 | 7 |
+| Model + retrieval | 11 of 16 | 5 | 0 |
+| Model, no retrieval | 15 of 18 | 9 | 6 |
+
+The labels were made as in rounds 1 and 2. An assistant suggested each one, and the
+author read the evidence and kept or changed it.
+
 ## 5. Found along the way: the situation contradicted itself
 
 The judge flagged an answer that said four late services were "clustered mostly at
@@ -369,27 +406,37 @@ old wording. The validation set uses the new one.
 
 ## 6. What the validation set shows
 
-These are development figures, not results.
+These are development figures, not results. After the three rounds, every one of the 92
+statements has an author label. So the judge can be set beside the author on the whole
+set.
 
-| System | Statements | Opus 4.6, v4 (round 3 to come) | Opus 4.6, v3 (failed round 2) | Haiku 4.5, v3 (failed round 1) | Cited |
-| --- | --- | --- | --- | --- | --- |
-| Agent | 16 | 88% | 94% | 94% | 25% |
-| Model + retrieval | 36 | **25%** | 47% | 19% | 64% |
-| Model, no retrieval | 40 | 42% | 45% | 48% | 0% |
+| System | Statements | Author's labels | Opus 4.6, v4 (validated) | Opus 4.6, v3 (failed round 2) | Haiku 4.5, v3 (failed round 1) | Cited |
+| --- | --- | --- | --- | --- | --- | --- |
+| Agent | 16 | 88% | 88% | 94% | 94% | 25% |
+| Model + retrieval | 36 | **14%** | **25%** | 47% | 19% | 64% |
+| Model, no retrieval | 40 | 35% | 42% | 45% | 48% | 0% |
 
-**Whether retrieval lowers faithfulness has changed with every judge, so it is not a
-finding yet.**
-- **Haiku 4.5:** retrieval seemed to lower it, 19% against 48%. Haiku failed some
-  hedged analogies the rubric allows.
-- **Opus 4.6 under version 3:** the two were level, at 47% and 45%. That judge passed
-  comparisons the author rejects.
-- **Version 4:** the gap is back, at 25% against 42%.
+**On the validation set, retrieval lowers faithfulness, by the author's labels and by
+the validated judge alike:**
+- **The author's labels:** 14% against 35%.
+- **The validated judge:** 25% against 42%.
 
-The whole move comes from the comparison rule. Eight retrieval statements changed to
-unsupported, and every one claims the delays match a past incident. This is exactly
-where retrieval answers go beyond their evidence. Round 3 decides which reading holds.
-Without the κ checks, the evaluation would have reported a judge's habit as a finding
-about retrieval, either way. Citation coverage does not depend on the judge.
+The judge overstates both systems, retrieval by 11 points and no retrieval by 8. So
+its rates are upper bounds, and it narrows the gap rather than widening it.
+
+The gap comes from comparisons with past incidents. Retrieval answers claim the delays
+match a past incident beyond what either alert describes. Version 4's comparison rule
+alone moved eight retrieval verdicts. The author's labels in rounds 1 and 2 were made
+against version 3, and in round 3 against version 4. Version 4 states rules version 3
+already implied.
+
+**The earlier readings were each a judge's habit:**
+- **Haiku:** 19% against 48%, partly from failing analogies the rubric allows.
+- **Opus under version 3:** level at 47% and 45%, from passing comparisons the author
+  rejects.
+
+Without the κ checks, either would have been reported as a finding. Citation coverage
+does not depend on the judge.
 
 ## 7. Running it
 
@@ -434,11 +481,15 @@ for the re-scored sample and the validation set.
   agent's answers run to five. If κ fails on such statements, the fix is to show the
   whole answer as context.
 - **One judge model, Opus 4.6.** With `e926f55c0cf7` it passed round 1 and failed round
-  2. With `da0a503ea811` it is validated only if round 3 passes. A different model, or a
-  changed rubric, needs its own κ. The `judge_model` and `judge_prompt` every judged row
-  carries make the pair checkable.
+  2. With `da0a503ea811` it passed round 3 at κ 0.61 [0.38, 0.82]. A different model, or
+  a changed rubric, needs its own κ. The `judge_model` and `judge_prompt` every judged
+  row carries make the pair checkable.
+- **The judge is lenient, and a narrow pass.** On round 3 it passed 21 of 41 statements
+  where the author passed 13, and every miss ran that way. Its rates are upper bounds.
+  The scored run reports them beside this bias, and beside the author's validation-set
+  rates in §6.
 - **The labels are assisted.** An assistant suggested each label, and the author kept or
   changed it. A suggestion anchors as a shown verdict would, so κ is agreement with the
   author's assisted reading, not an unaided one.
-- **The scored run** is judged at the cut-off with version 4, and reported with round
-  3's κ whichever way it falls. Any further fingerprint needs its own κ.
+- **The scored run** is judged at the cut-off with version 4, `da0a503ea811`, and
+  reported with round 3's κ. Any further fingerprint needs its own κ.

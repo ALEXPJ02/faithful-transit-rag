@@ -222,7 +222,8 @@ on 2026-09-24, and decisions updated on 2026-09-28.
   per statement against exactly what each system was shown (`transit-judge`,
   [`docs/15`](./docs/15-faithfulness-judge.md)). The judge, Claude Opus 4.6, passed its
   first check against the author at κ 0.71 and failed a held-out second one at 0.48. Its
-  rubric was tightened, and a third held-out round decides whether it is trusted.
+  rubric was tightened, and it passed a third held-out round at 0.61. It leans lenient,
+  so its faithfulness rates are upper bounds.
 - **Next** — freezing k by the sweep's rule (`docs/13` §7), and the scored runs at the
   cut-off. The MCP server is built
   (`transit-mcp`, [`docs/16`](./docs/16-mcp-server.md)). A live feed behind the tools is
