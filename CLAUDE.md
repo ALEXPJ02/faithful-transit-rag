@@ -145,20 +145,22 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   for byte, because the forest predicts on one thread and thresholds sit between
   scores. **The faithfulness judge is built** (`transit-judge`, `docs/15`). It judges
   each statement against exactly what its system was shown, and every verdict carries
-  the fingerprint of the rubric it applied. **Its validation is reopened** (`docs/15` §4):
+  the fingerprint of the rubric it applied. **Validated, narrowly** (`docs/15` §4):
   - **Round 1**, 21 statements: Haiku 4.5 failed at κ 0.52, and **Claude Opus 4.6, the
     judge now**, passed at 0.71.
   - **Round 2**, 30 held-out statements: it **failed at κ 0.48** under rubric v3
     `e926f55c0cf7`. It kept passing comparisons and extent words its own rules exclude.
-  - **Rubric v4 `da0a503ea811`** (2026-10-14) makes those rules concrete. Fitted to the
-    51 labels it gives κ 0.71. That is not a validation, and the supervisor is asked to
-    confirm the new wording.
-  - **Round 3**, all 41 remaining validation statements, decides. Its rule was fixed
-    before its labels.
+  - **Rubric v4 `da0a503ea811`** (2026-10-14, confirmed by the supervisor) makes those
+    rules concrete. Fitted to the 51 labels it gives κ 0.71, which is not a validation.
+  - **Round 3**, all 41 remaining validation statements: **κ 0.61 [0.38, 0.82]**, which
+    passes the rule fixed before its labels. The scored run uses v4.
 
-  The labels are assisted: an assistant suggested each, and the author kept or changed
-  it. Whether retrieval lowers faithfulness has flipped with each judge (47% against 45%
-  under v3, 25% against 42% under v4), so do not quote either until round 3.
+  **The judge is lenient.** On round 3 it passed 21 of 41 where the author passed 13,
+  and every miss ran that way, so its rates are upper bounds. Every validation statement
+  now has an author label. On those, retrieval is less faithful than no retrieval, by
+  the author (14% against 35%) and by the judge (25% against 42%). These are development
+  figures. The labels are assisted: an assistant suggested each, and the author kept or
+  changed it.
 - **The scored detection run** — the detectors (XGBoost and random forest,
   `prediction/disruption/models.py`) and the persistence baseline are built and run
   by `transit-detect` (`docs/12`). Features look back and the target looks forward.
