@@ -123,6 +123,15 @@ without retrieval it is most of what the model says. Whether to require the most
 likely group instead is a development choice. It should be made on these incidents,
 and never by looking at the test split.
 
+**Decided 2026-10-18, before the test split was drawn: the prompt stays as it is.**
+- It is the prompt every development run used.
+- Changing it unseen, the day before the cut-off, would change the system being scored.
+- Answering other/unknown when nothing indicates a cause is the honest reading of
+  thin evidence.
+
+The scored run reports how often each system answers other/unknown beside its
+macro-F1, so the cost of that honesty is visible.
+
 ## 6. Running it
 
 ```bash

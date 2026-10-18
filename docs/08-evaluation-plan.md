@@ -537,18 +537,15 @@ on 27–28 Sep and checking on 29–30 Sep, which was the start of T4's late wee
 - (7) **Cancellations are collected from 2026-09-29** and used as a check on rule (b), not
   in the main label (§3.2). The check is built (`11` §7). Their use as a detector
   feature is not built yet (`12` §7).
+- (8) **The retrain window leaves out the 5 schedule-blind dates**, 2026-09-11..15,
+  decided 2026-10-18 before the cut-off. Their timetable era was never archived. The
+  gap sits inside training, and validation and test stay clean and contiguous.
 
 **Suggested by her, and answered:**
 
 - (13) **A random forest to find out what the unknown alerts are.** Considered and not
   adopted, with the evidence, in §3.3. The one incident with no published cause
   leaves nothing a model's answer could be checked against.
-
-**Still open:**
-
-- (8) **The retrain window.** The 5 schedule-blind dates split the collection into
-  2026-09-03..10 and 09-16..24. Current models exclude them, which puts the gap
-  inside training and leaves validation and test clean and contiguous.
 
 ## 6. Threats to validity
 
