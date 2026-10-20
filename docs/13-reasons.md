@@ -182,7 +182,8 @@ incidents were admissible.
 **The rule, confirmed by the supervisor.** At the cut-off, re-run the sweep on every
 incident before the test split (`--until` the first test date). Freeze k as the
 smallest value whose recall@k reaches the sweep's highest recall. Today that gives 3.
-The plan's 5 stays in force until the rule is applied at the cut-off. Faithfulness
+The plan's 5 stays in force until the rule is applied at the cut-off. **At the cut-off it
+gave 3** ([`17`](./17-results.md) §5). Faithfulness
 does not settle k. On the validation set, retrieval is less faithful than no
 retrieval. By the author's labels it is 14% against 35%, and by the validated judge
 25% against 42% (`15` §6). The gap comes from comparisons with past incidents that
@@ -193,6 +194,7 @@ claim more than the evidence shows. Whether a different k changes it was not mea
 - ~~**The judge's validation**~~: done, narrowly ([`15`](./15-faithfulness-judge.md)
   §4). Claude Opus 4.6 failed the held-out round 2 at κ 0.48. With rubric version 4,
   it passed round 3 at 0.61 [0.38, 0.82]. It leans lenient.
-- **Freezing k** at the cut-off, by the confirmed rule in §7.
-- **The scored run**, on the incidents in the test split drawn at the cut-off, with the
-  count of incidents and cause groups beside every number.
+- ~~**Freezing k**~~: done. The rule gave k = 3 on the 26 incidents before the test
+  dates ([`17`](./17-results.md) §5).
+- ~~**The scored run**~~: done ([`17`](./17-results.md) §5). The test split held 8
+  incidents, all technical, so cause macro-F1 across groups could not be computed.

@@ -132,7 +132,7 @@ other source and a day not collected is gone.
     24-hour standing-notice rule sees only what the feed showed by the cut-off.
 
   The source is opened read-only and checked unchanged. A snapshot that ends before the
-  cut-off is refused, and the frozen file's sha256 goes in the report. Rehearsed on the
+  cut-off is refused, and the frozen file's sha256 goes in the report (`17` §1). Rehearsed on the
   11 Oct snapshot at a cut-off of 8 Oct: labels and the detection split ended on 8 Oct,
   and the source's checksum did not move.
 - **A shortfall is reported, not hidden.** If the reasons evaluation comes out
@@ -592,7 +592,7 @@ In dependency order.
    95% intervals from resampling whole service dates (`12`, `13`, 2026-10-05). ✅ The
    faithfulness judge, per statement, with its rubric frozen before validation (`15`,
    2026-10-05). ✅ The k sweep, with chance as its baseline (`13` §7). k is frozen at
-   the cut-off. ✅ Judge validation, in three blind rounds (`15` §4, 2026-10-18). Next
-   is the scored run on data to the §3.1 cut-off
+   the cut-off. ✅ Judge validation, in three blind rounds (`15` §4, 2026-10-18). ✅ The
+   scored run on data to the §3.1 cut-off (`17`, 2026-10-20)
 
 Items 6 and 7 do not depend on 1–5 and can proceed in parallel.

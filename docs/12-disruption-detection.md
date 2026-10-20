@@ -175,11 +175,13 @@ it, so a reader can see how much it rests on (`08` §3.1).
 On today's test split the detectors score AP 0.08–0.12 against persistence's
 0.059, on seven positives. That is noise and is not quoted as a result.
 
+**The scored split**, drawn once at the cut-off, holds 114 positive targets on five test
+dates. Its comparison is in [`17`](./17-results.md) §3.
+
 ## 7. Next
 
-- **The scored run**, on the split drawn at the cut-off, with every figure reported
-  beside its count of positive targets and its date-resampled interval. Add an LSTM
-  if time allows.
+- ~~**The scored run**~~: done ([`17`](./17-results.md) §3), with every figure beside its
+  count of positive targets and its date-resampled interval. No LSTM was added.
 - **Timetabled services and cancellations as features.** Cancelled calls can now be
   placed in windows, which is how the label check does it (`11` §7). They exist only from
   2026-09-29, so the feature is `pd.NA` before then. A count of *timetabled* services

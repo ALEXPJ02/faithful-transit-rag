@@ -491,5 +491,5 @@ for the re-scored sample and the validation set.
 - **The labels are assisted.** An assistant suggested each label, and the author kept or
   changed it. A suggestion anchors as a shown verdict would, so κ is agreement with the
   author's assisted reading, not an unaided one.
-- **The scored run** is judged at the cut-off with version 4, `da0a503ea811`, and
-  reported with round 3's κ. Any further fingerprint needs its own κ.
+- **The scored run** was judged with version 4, `da0a503ea811`, and is reported with
+  round 3's κ ([`17`](./17-results.md) §7). Any further fingerprint needs its own κ.
