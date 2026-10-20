@@ -165,69 +165,54 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 - [`docs/14-agent.md`](./docs/14-agent.md) — the orchestrator: the loop, its tools, and answering as of a moment
 - [`docs/15-faithfulness-judge.md`](./docs/15-faithfulness-judge.md) — the faithfulness judge: per-statement verdicts, its frozen rubric, and κ against the author
 - [`docs/16-mcp-server.md`](./docs/16-mcp-server.md) — the agent's tools served to any MCP client, as of a moment
+- [`docs/17-results.md`](./docs/17-results.md) — the scored run at the 2026-10-18 cut-off: every result, with its counts and intervals
 
 ## Status
 
-Collection figures are from the snapshot of 2026-10-05. Model figures were reconciled
-on 2026-09-24, and decisions updated on 2026-09-28.
+Every figure below is from the scored run on the frozen evaluation file at the
+2026-10-18 cut-off ([`docs/17`](./docs/17-results.md)), made on 2026-10-20.
 
 - **Collection (RQ1 O1)** — live since 3 September 2026, plus the scheduled-Action
-  backup. **569,441 stop events over 39 service dates** to 2026-10-11, T1 341,776 ·
-  T4 227,665. There are 239 service alerts, 76 of which touch T1 or T4, and 27,175 of
-  27,176 polls succeeded. Cancelled and altered trips are collected from 2026-09-29
-  (`trip_statuses`). TfNSW publishes a cancellation with no stop updates, so none
-  were collected before then.
-- **Prediction (RQ1 O2)** — `transit-train` fits the delay model against a
-  naive-persistence baseline written first. On the 17 schedule-covered dates:
-  **test MAE 15.45 s vs 18.67 s, MASE 0.828**. The **disruption label** is built
-  (`transit-label`, [`docs/11`](./docs/11-disruption-labels.md)) from the definition
-  decided on 2026-09-28 and confirmed by the supervisor
-  ([`docs/08`](./docs/08-evaluation-plan.md) §3.2). A window is disrupted by an
-  unplanned alert, timed by feed presence with a 24-hour cap, or by a quarter of a
-  line's services running more than 5 minutes late. To 2026-10-04 that marks 4.7% of
-  T1 windows and 4.4% of T4 windows. Counting cancelled and skipped-stop trains as late,
-  as TfNSW does, changes no window's label on the six dates they exist for
-  (`--cancellation-check`). The detectors RQ2 compares, XGBoost and a random
-  forest, are built against a persistence baseline written first (`transit-detect`,
-  [`docs/12`](./docs/12-disruption-detection.md)). Their scored comparison waits for
-  the split drawn at the cut-off. Today's test dates hold only seven positive targets. The delay prediction's **margin** is a
-  90% conformal interval by line × how late the train already is
-  ([`docs/08`](./docs/08-evaluation-plan.md) §4). It holds every lateness band at 90%
-  or above, where ± MAE covers 32% of trains already more than 5 minutes late.
-- **Evaluation data** — fixed cut-off at the end of 2026-10-18; a shortfall in the
-  reasons evaluation is reported rather than waited out
-  ([`docs/08`](./docs/08-evaluation-plan.md) §3.1).
-- **Reasons corpus (RQ1 O3)** — collected alerts become incidents
-  (`transit-alerts audit`: which alerts are disruptions, which are republications of
-  one) and are indexed one passage per incident in `tfnsw_alerts`, with retrieval
-  that cannot see the future or the incident being explained
-  ([`docs/09`](./docs/09-service-alerts.md) §7, [`docs/10`](./docs/10-retrieval.md) §5).
-  **8 incidents on 5 dates** to 2026-09-28, indexed. By 2026-10-04 that is **12 on 8
-  dates**. The incident rule agreed with all 8 alerts it was not written from, but
-  none was `UNKNOWN_CAUSE`, so the description markers are still untested out of
-  sample. One urgent repair that TfNSW published as `MAINTENANCE` is in by override.
-  The **reasons stage** is built (`transit-reasons`, [`docs/13`](./docs/13-reasons.md)).
-  It explains each incident from the delay feed before its alert and five guarded past
-  incidents, with checked citations. In a development run, retrieval doubled the
-  model's accuracy, but neither beat the majority baseline at n = 12.
+  backup. To the cut-off: **674,833 stop events over 46 service dates**, T1 403,185 ·
+  T4 271,648, with 32,348 of 32,349 trip polls and all 1,624 alert polls succeeding.
+  115 service alerts name T1 or T4. Cancelled and altered trips are collected from
+  2026-09-29 (`trip_statuses`). The frozen file's sha256 is `44e90956…32ac`.
+- **Prediction (RQ1 O2)** — the delay model beats naive persistence narrowly on the 6
+  test dates: **MAE 22.0 s vs 22.8 s, MASE 0.963**, and it is worse on RMSE. Its
+  **margin**, a 90% conformal interval by line × how late the train already is
+  ([`docs/08`](./docs/08-evaluation-plan.md) §4), covers **88.9%** of test rows, where
+  ± MAE covers 30% of trains already more than 5 minutes late. The **disruption label**
+  ([`docs/11`](./docs/11-disruption-labels.md)) marks 7.5% of T1 windows and 7.3% of T4
+  windows disrupted. On 5 test dates with 114 positive targets, the detectors
+  ([`docs/12`](./docs/12-disruption-detection.md)) rank windows slightly better than
+  persistence, at **AP 0.80 (random forest) and 0.75 (XGBoost) against 0.72**. The
+  intervals overlap almost entirely, and at validation's thresholds persistence is the
+  better alarm.
+- **Reasons (RQ1 O3)** — collected alerts become incidents, which are indexed one passage
+  per incident with retrieval that cannot see the future or the incident being
+  explained ([`docs/09`](./docs/09-service-alerts.md) §7,
+  [`docs/10`](./docs/10-retrieval.md) §5). To the cut-off there are **34 incidents on 17
+  dates**. Nine are urgent repairs published as `MAINTENANCE`, which the rule excluded
+  until its held-out check was completed at the cut-off. k was frozen at 3. The test split held **8
+  incidents, all technical**, so cause macro-F1 across groups could not be computed. The
+  most-common-cause baseline named all 8. The model named 3 of 24 without retrieval and
+  2 of 24 with it ([`docs/13`](./docs/13-reasons.md), `docs/17` §5).
 - **Orchestrator (RQ1)** — `transit-ask` ([`docs/14`](./docs/14-agent.md)) is a
   hand-rolled Claude tool-use loop over line status, disruption risk, each train's
-  expected delay with its 90% interval, and past incidents. It answers as of a moment in a frozen snapshot and records every tool
-  call for scoring. The checked rules (estimates stated as estimates, causes only with
-  cited alerts) are in its prompt from the first version.
+  expected delay with its 90% interval, and past incidents. It answers as of a moment in
+  a frozen snapshot and records every tool call for scoring. It answered 28 questions on
+  the test dates. Every delay prediction carried its interval. The judge found 94% of
+  its statements supported, against 15% for the reasons model with retrieval and 46%
+  without (`docs/17` §6–7).
 - **Evaluation harness (RQ2)** — detection is scored with average precision, lead time
-  against the operator's alerts, and 95% intervals from resampling whole service
-  dates. Reasons are scored with macro-F1 and its interval. At today's sizes every
-  interval is wide, and that is reported rather than hidden. Explanations are judged
-  per statement against exactly what each system was shown (`transit-judge`,
-  [`docs/15`](./docs/15-faithfulness-judge.md)). The judge, Claude Opus 4.6, passed its
-  first check against the author at κ 0.71 and failed a held-out second one at 0.48. Its
-  rubric was tightened, and it passed a third held-out round at 0.61. It leans lenient,
-  so its faithfulness rates are upper bounds.
-- **Next** — freezing k by the sweep's rule (`docs/13` §7), and the scored runs at the
-  cut-off. The MCP server is built
-  (`transit-mcp`, [`docs/16`](./docs/16-mcp-server.md)). A live feed behind the tools is
-  future work.
+  against the operator's alerts, and 95% intervals from resampling whole service dates.
+  Reasons are scored with macro-F1 and its interval. Explanations are judged per
+  statement against exactly what each system was shown (`transit-judge`,
+  [`docs/15`](./docs/15-faithfulness-judge.md)). The judge, Claude Opus 4.6 with rubric
+  version 4, passed a third held-out round against the author at κ 0.61. It leans
+  lenient, so its faithfulness rates are upper bounds.
+- **Next** — the write-up. A live feed behind the agent's tools is future work.
+  The MCP server is built (`transit-mcp`, [`docs/16`](./docs/16-mcp-server.md)).
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.

@@ -38,7 +38,23 @@ reused as-is. Only the corpus changes, from fare PDFs to past service alerts.
 
 If build work overruns, scope comes out of the *system*, not out of evaluation.
 
-## State as of 2026-10-11 (verified against the repo and the live VM, not recalled)
+## State as of 2026-10-20 (verified against the repo and the live VM, not recalled)
+
+**The scored run is done** ([`docs/17-results.md`](docs/17-results.md), 2026-10-20). One
+frozen file, `data/evaluation_20261018.db` (sha256 `44e90956…32ac`), was scored by the
+rehearsed chain. It was scored again after the alert rule's held-out check was completed,
+which made 18 urgent repairs published as `MAINTENANCE` into incidents by override
+(`docs/09` §7). The second run is the result, and `docs/17` §9 sets the first beside it.
+- **Detection**, 5 test dates: AP 0.80 (forest) and 0.75 (XGBoost) against persistence's
+  0.72, intervals overlapping. Persistence is the better alarm at validation's thresholds.
+- **Delay:** MASE 0.963, and the 90% interval covers 88.9%.
+- **Reasons:** k = 3. The test split held 8 incidents, all technical, so cause macro-F1
+  across groups could not be computed.
+- **Faithfulness**, by the judge, which gives upper bounds: agent 94%, reasons with
+  retrieval 15%, and without it 46%.
+
+**Do not re-run the scored chain.** Its outputs are the results. The model answers are
+sampled, so a re-run changes them, and any change needs a new run disclosed beside these.
 
 **Built, tested, running:**
 
@@ -96,10 +112,11 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   republications into incidents, printing every decision with its reason
   (`docs/09` §7). `transit-index build --source alerts --db <snapshot>` indexes one
   passage per incident into `tfnsw_alerts`, cited by alert ids; `search` takes the
-  leakage guards `seen_before` and `exclude_incident` (`docs/10` §5). On the
-  2026-10-11 snapshot the rule gives **18 incidents on 11 Sydney dates**: technical 8,
-  network 9 and other/unknown 1. The index is `voyage-4-lite`, 1024-d. Snapshots are
-  opened read-only.
+  leakage guards `seen_before` and `exclude_incident` (`docs/10` §5). On the frozen
+  evaluation file the rule gives **34 incidents on 17 Sydney dates**: technical 23,
+  network 10 and other/unknown 1. Nine of them come from overrides added when the
+  held-out check was completed at the cut-off. The index is `voyage-4-lite`, 1024-d.
+  Snapshots are opened read-only.
 - Repo scaffolding: tests passing, CI green (ruff + mypy + pytest) plus
   CodeQL and a SHA-pinned Trivy workflow. Tests mirror the source tree, so
   `prediction/features/quality.py` is covered by
@@ -112,7 +129,7 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   §3.2 definition, with every threshold as a parameter. Rule (b) fires only on five or
   more observed services. That minimum, proposed on 2026-10-05, is confirmed
   by the supervisor. Windows with no observed service, or from before alert collection,
-  are `pd.NA`, never `False`. To 2026-10-04 it marks 4.7% of T1 windows and 4.4% of
+  are `pd.NA`, never `False`. To the cut-off it marks 7.5% of T1 windows and 7.3% of
   T4 windows disrupted.
 
 - **The reasons stage** (RQ1 O3) — `transit-reasons` (`agent/situation.py`,
@@ -125,7 +142,7 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   match the snapshot. A development run on 2026-10-05 is recorded in `docs/13` §5. It
   is not a result.
 
-**Not started:**
+**The rest of the system, and what is not built:**
 
 - The **live feed** behind the agent's tools is **future work** (decided 2026-10-11).
   The **MCP server** is built
@@ -136,8 +153,8 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   answering as of a moment in a frozen snapshot, with every tool call recorded
   verbatim. A fourth tool gives each running train's expected delay with its 90%
   interval, which the prompt requires stated unnarrowed.
-- The rest of the **RQ2 harness** in `evaluation/`: freezing k by the confirmed rule
-  and the scored runs at the cut-off. The k sweep is built (`transit-reasons --sweep-k`, `docs/13` §7). It
+- The rest of the **RQ2 harness** in `evaluation/`. k was frozen at 3 by the confirmed
+  rule, and the scored runs are done (`docs/17`). The k sweep is built (`transit-reasons --sweep-k`, `docs/13` §7). It
   compares recall@k with chance, a random draw from the same guarded pool. On the 12
   development incidents, the ranking is no better than chance, and recall@5 (0.75)
   equals chance (0.74), so never quote it alone. Lead time and date-resampled 95% intervals are built
@@ -165,8 +182,8 @@ If build work overruns, scope comes out of the *system*, not out of evaluation.
   `prediction/disruption/models.py`) and the persistence baseline are built and run
   by `transit-detect` (`docs/12`). Features look back and the target looks forward.
   The alert feature is re-derived causally, because the label's rule (a) is
-  hindsight. Validation figures are selection scores, not results. Today's test split
-  holds 7 positive targets, so the comparison waits for the split at the cut-off.
+  hindsight. Validation figures are selection scores, not results. The scored split
+  holds 114 positive targets on 5 test dates (`docs/17` §3).
 
 **The orchestrator is scored on a fixed question set** (`transit-questions`,
 `docs/14` §7): both peaks per test date and line, plus each test-date incident 15
@@ -175,17 +192,18 @@ the frozen file at the cut-off, never after seeing answers.
 
 **The scored runs read one frozen file.** No scoring command takes an end date, so
 `transit-freeze --db <final snapshot> --cutoff 2026-10-18 --out
-data/evaluation_20261018.db` prunes a copy to the cut-off (`docs/08` §3.1). Freeze it
-after 03:00 Sydney time on 2026-10-19: it refuses a snapshot that ends earlier.
+data/evaluation_20261018.db` prunes a copy to the cut-off (`docs/08` §3.1). It was
+frozen on 2026-10-20 from `data/delay_observations_20261020.db`. It holds 674,833 stop
+events over 46 service dates, and its sha256 is `44e90956…32ac`.
 
 **Snapshots in `data/` are frozen, never live.** The newest is
-`delay_observations_20261011.db`: 569,441 stop events over 39 service dates
-(2026-09-03..10-11, the last partial), T1 341,776 · T4 227,665. It also has 239 alerts,
-7,122 scopes and 1,436 trip statuses over 13 dates. Integrity is `ok`, and its sha256
-(`cf1cdad4…6322`) matches the VM's copy. 26 bundle eras (to 20261011) are in
-`data/bundles/`. Re-pull from the VM
-before quoting any number, **and pull `data/bundles/` in the same pass** — the
-instance archives a timetable era daily and nothing else does.
+`delay_observations_20261020.db`: 696,618 stop events over 48 service dates
+(2026-09-03..10-20, the last partial), with 321 alerts and 9,611 scopes. Integrity is
+`ok`, and its sha256 (`f2558722…0a43`) matches the VM's copy. 34 bundle eras (to
+20261019) are in `data/bundles/`. The collector keeps running after the cut-off
+(`docs/08` §3.1), but nothing after it enters a result. Re-pull from the VM before
+quoting any live number, **and pull `data/bundles/` in the same pass** — the instance
+archives a timetable era daily and nothing else does.
 
 ## Hard constraints — breaking these costs real work
 
@@ -342,5 +360,4 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
 `docs/04-implementation-plan.md`'s status table and the README's status section
 both make dated claims, so they go stale silently. When you change what the system
 does, update them in the same pass rather than leaving a later reader to be misled.
-Both were last reconciled against the repo on 2026-09-24, and their decisions
-updated on 2026-09-28.
+Both were last reconciled against the repo and the scored run on 2026-10-20.

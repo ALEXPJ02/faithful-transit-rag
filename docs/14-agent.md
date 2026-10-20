@@ -141,6 +141,5 @@ answer, and the answer has to say so.
 
   The test dates are the detection split's, so the risk tool never answers for a
   date its detector trained on. `ask` builds the tools once, moves them to each
-  question's moment, and refuses to write over a previous run. What remains is the
-  scored run itself, at the cut-off, judged for tool-faithfulness and citation
-  coverage ([`15`](./15-faithfulness-judge.md)).
+  question's moment, and refuses to write over a previous run. The scored run is done,
+  judged for tool-faithfulness and citation coverage ([`17`](./17-results.md) §6).
