@@ -315,3 +315,52 @@ would have defaulted to other/unknown.
   markers are not edited after seeing data (§7), so this stays a known gap. The
   held-out check reads every alert it excludes for wording like this, and
   rule (b) is the second line of defence: it is what caught this one.
+
+### The held-out check, completed to the cut-off
+
+The check stopped at the snapshot of 2026-10-11, and the cut-off runbook did not
+include it. It was completed on 2026-10-20, on the frozen evaluation file (`17` §1),
+after a first scored run had already used the rule as it stood. Every alert the rule
+had excluded was read against the criteria above. This found **18 wrong calls, all
+urgent repairs that TfNSW published as `MAINTENANCE`**. Each describes an unplanned
+repair and states an effect on train running, as Harris Park did. The check to
+2026-10-11 tabled only its two `UNKNOWN_CAUSE` alerts. It counted the first of the 18,
+Rhodes, among the eight `MAINTENANCE` notices that cause alone excluded.
+
+| First seen (Sydney) | Line | Alerts | What the description says |
+| --- | --- | --- | --- |
+| 2026-10-07 | T1 | `46cb17ef` | "up to 10 minutes extra travel time", urgent signal repairs at Rhodes |
+| 2026-10-12 | T1 | `75ecff85`, `80a987d3`, `70b240fb` | "up to 30 minutes extra travel time", signal repairs at Clyde |
+| 2026-10-12 | T4 | `36c81f32`, `9fe34237` | "up to 10 minutes of extra travel time", urgent signal repairs between Martin Place and Kings Cross |
+| 2026-10-12 | T4 | `79b282b2` | "extra travel time", urgent signal repairs at Waterfall |
+| 2026-10-14 | T1 | `120d5780`, `969a04c4`, `40c2f54e`, `44782080`, `e9960789`, `e1222a49` | urgent track repairs at Lidcombe, "delays and gaps … throughout the morning peak" |
+| 2026-10-15 | T1 | `25ca7d8e` | "extra travel time", urgent signal repairs at Burwood |
+| 2026-10-15 | T4 | `fedac6ad` | urgent track repairs between Como and Jannali, "delays and gaps … up to 15 minutes" |
+| 2026-10-15 | T4 | `b48154b0` | "buses are replacing trains", urgent track repairs at Jannali |
+| 2026-10-16 | T1 | `0f68c9fe`, `06cc6f55` | "up to 10 minutes extra travel time", urgent track repairs at Flemington |
+
+Each one is an override in `data/alert_overrides.csv` with its reason. The markers
+are unchanged.
+
+**Two were read and left excluded:**
+- **`e0126621`**, 12 Oct: urgent track repairs at Sutherland, completed. The delays it
+  names are between Kiama and Wollongong, on the South Coast Line, although the alert
+  is scoped to T4.
+- **`2d7594cc`**, 13 Oct: Lewisham station flooding in heavy rain, so "trains will not
+  be stopping". The wording is the Croydon case, but T1 does not normally call there.
+  T1 trains were seen at Lewisham four times in the whole collection, and not on
+  13 October.
+
+**What it changes.** The rule now gives **34 incidents on 17 Sydney dates**, from 60
+alerts. By line that is T1 21 and T4 14, one naming both. Cause groups are technical
+23, network incident 10, other/unknown 1 and weather/external 0. The overrides add 9
+incidents, and 5 of them fall on the test dates. One merge is a quirk of the handover
+rule. On 12 October, the Martin Place–Kings Cross repair's second alert and the
+Waterfall repair became one incident. One left the feed within 35 minutes of the other
+appearing, and both are `MAINTENANCE`.
+
+**Over the whole held-out period**, from 2026-09-29 to the cut-off, 69 alerts named T1
+or T4. The rule's call was wrong on 19 of them: these 18, and Croydon. Every error ran
+one way, excluding a real incident. 18 of the 19 came from the rule's first test,
+which drops `MAINTENANCE` before reading the description. `17` reports the scored run
+with the overrides, and the first run without them beside it.
