@@ -82,8 +82,6 @@ def test_the_boosting_grids_are_the_ones_frozen_before_the_run() -> None:
         {"depth": 4, "learning_rate": 0.05},
         {"depth": 6, "learning_rate": 0.05},
     )
-    # Under log loss a row adds at most 0.25 hessian, so LightGBM's row floor never binds.
-    assert all(g["min_child_samples"] <= 4 * g["min_child_weight"] for g in LGBM_GRID)
 
 
 @pytest.mark.parametrize("name", EVERY_DETECTOR)

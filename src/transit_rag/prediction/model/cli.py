@@ -417,7 +417,8 @@ def _print_comparison(fitted: FittedModel, summary: dict[str, object]) -> None:
             )
             if key in model.params
         )
-        print(f"    {name:<10}{settings} -- {model.best_iteration + 1} trees")
+        # The number the scored log calls its tree count, so the two agree.
+        print(f"    {name:<10}{settings} -- best iteration {model.best_iteration}")
 
     print()
     print(

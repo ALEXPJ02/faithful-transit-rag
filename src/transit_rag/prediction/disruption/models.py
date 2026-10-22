@@ -33,6 +33,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from transit_rag.prediction import grids
 from transit_rag.prediction.disruption.detection import average_precision, best_f1_threshold
 from transit_rag.prediction.disruption.features import FEATURE_COLUMNS
 
@@ -62,22 +63,10 @@ FOREST_GRID: tuple[dict[str, Any], ...] = (
 )
 FOREST_BASE: dict[str, Any] = {"n_estimators": 500, "random_state": 42, "n_jobs": -1}
 
-#: XGBoost's candidates, translated rather than copied, so the two cannot drift:
-#:
-#: - ``num_leaves`` is 2^depth, every leaf a depth-wise tree of that depth can hold,
-#:   so leaf-wise growth gets the same room and no more.
-#: - ``min_child_weight`` means the same in both libraries: the least hessian a
-#:   leaf may hold. Under log loss a row adds p(1 - p), at most 0.25, so it is not
-#:   a row count. ``min_child_samples``, LightGBM's own row floor, is set to the
-#:   same number, which those hessian floors already exceed, so it never binds.
-LGBM_GRID: tuple[dict[str, Any], ...] = tuple(
-    {
-        **candidate,
-        "num_leaves": 2 ** candidate["max_depth"],
-        "min_child_samples": candidate["min_child_weight"],
-    }
-    for candidate in XGB_GRID
-)
+#: XGBoost's candidates, translated (``prediction/grids.py``). Under log loss a row
+#: adds p(1 - p) hessian, at most 0.25 and near the 6% base rate about 0.06, so
+#: ``min_child_weight`` is not a row count here.
+LGBM_GRID: tuple[dict[str, Any], ...] = grids.for_lightgbm(XGB_GRID)
 LGBM_BASE: dict[str, Any] = {
     "objective": "binary",
     # The only metric, so early stopping agrees with selection. Passed as an extra
@@ -93,11 +82,7 @@ LGBM_BASE: dict[str, Any] = {
     "verbose": -1,
 }
 
-#: Symmetric trees have no minimum leaf size, so only depth and learning rate carry over.
-CATBOOST_GRID: tuple[dict[str, Any], ...] = tuple(
-    {"depth": candidate["max_depth"], "learning_rate": candidate["learning_rate"]}
-    for candidate in XGB_GRID
-)
+CATBOOST_GRID: tuple[dict[str, Any], ...] = grids.for_catboost(XGB_GRID)
 CATBOOST_BASE: dict[str, Any] = {
     "loss_function": "Logloss",
     "eval_metric": "PRAUC",  # the selection metric, so early stopping agrees with it

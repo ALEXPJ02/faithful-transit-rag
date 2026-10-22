@@ -27,8 +27,8 @@ keeps everything the scored run fixed, and fixes the rest before it runs:
   - its trees were capped one leaf short (2^depth − 1);
   - in detection, its leaf minimum counted rows where XGBoost's counts hessian.
 
-  The grids are now derived in code from XGBoost's, so they cannot drift from it
-  again.
+  The grids are now derived in code from XGBoost's (`prediction/grids.py`), so they
+  cannot drift from it again.
 - **The scored rows do not move.** `--compare` appends to what the scored commands
   print and changes none of it (§3).
 
@@ -59,11 +59,18 @@ linear model would need one coefficient for each.
 
 ### The grids
 
-Each boosting grid **mirrors XGBoost's**: the same depths, learning rates and leaf
-minimums, so no library is searched harder, or held tighter, than another. A leaf-wise
-LightGBM tree is held to `num_leaves = 2^depth`, every leaf a depth-wise tree of that
-depth can hold. The LightGBM and CatBoost grids are derived in code from XGBoost's, and
-a test pins the values that were frozen.
+Each boosting grid **mirrors XGBoost's on the parameters they share**: the same
+depths, learning rates and leaf minimums, and the same number of candidates, so no
+library is searched harder than another.
+- **Leaf counts.** A leaf-wise LightGBM tree is held to `num_leaves = 2^depth`, every
+  leaf a depth-wise tree of that depth can hold.
+- **Derived, not copied.** The LightGBM and CatBoost grids are derived in code from
+  XGBoost's (`prediction/grids.py`), and a test pins the values that were frozen.
+- **Each library keeps its own design** where there is no shared parameter. LightGBM
+  splits a category under its own rules, such as a minimum number of rows per category
+  group, which XGBoost does not have. CatBoost encodes categories by ordered target
+  statistics. Those differences are part of what is compared, so they keep their
+  libraries' defaults rather than being tuned to resemble XGBoost after the fact.
 
 | Detection, 3 candidates each | Candidates | Fixed |
 | --- | --- | --- |
@@ -82,7 +89,9 @@ a test pins the values that were frozen.
 These choices need their reasons:
 
 - **Leaf sizes.** `min_child_weight` is the least hessian a leaf may hold, and means
-  the same in XGBoost and LightGBM, so LightGBM takes XGBoost's numbers.
+  the same in XGBoost and LightGBM, so LightGBM takes XGBoost's numbers. A row's
+  hessian is at most 1 under either loss, so a leaf that meets the hessian floor meets
+  a row floor of the same number too.
   - **In detection it is not a row count.** Under log loss a row adds p(1 − p), at
     most 0.25, and near the 6% base rate about 0.06. LightGBM's own row floor,
     `min_child_samples`, is set to the same number, which the hessian floor already
@@ -157,17 +166,18 @@ are what make the run admissible:
 ```bash
 shasum -a 256 data/evaluation_20261018.db
 transit-detect --db data/evaluation_20261018.db --compare > data/logs_20261018/v3_06_detect_compare.log 2> data/logs_20261018/v3_06_detect_compare.err
-diff <(head -n 50 data/logs_20261018/v2_06_detect.log) <(head -n 50 data/logs_20261018/v3_06_detect_compare.log)
+diff <(sed '/^saved the XGBoost detector/,$d' data/logs_20261018/v2_06_detect.log | sed '$d') <(sed '/^Added for comparison/,$d' data/logs_20261018/v3_06_detect_compare.log | sed '$d')
 transit-train --table data/training_table_20261018.csv --compare > data/logs_20261018/v3_05_train_compare.log 2> data/logs_20261018/v3_05_train_compare.err
-diff <(grep -v '^INFO' data/logs_20261018/05_train.log) <(head -n 48 data/logs_20261018/v3_05_train_compare.log)
+diff <(grep -v '^INFO' data/logs_20261018/05_train.log) <(sed '/^Compared on the same/,$d' data/logs_20261018/v3_05_train_compare.log | sed '$d')
 shasum -a 256 data/evaluation_20261018.db
 ```
 
 - **The checksum** must read `44e90956…32ac` before and after.
-- **Both `diff`s** must print nothing:
-  - the first 50 lines of the detection log are the scored detection output, before its
-    `--save` and `--out` lines;
-  - the first 48 lines of the delay log are the scored delay report.
+- **Both `diff`s** must print nothing. Each compares everything the scored run printed
+  with everything the new run printed before its first added line.
+  - **Cut where the content changes, not at a line count.** A fixed `head -n` would
+    pass a run that slipped an extra scored line in past its cut.
+  - **Each `sed '$d'` drops a blank line.** It is the one printed before the cut.
 - **Stderr is kept in its own file**, the `.err` beside each log. Written to a pipe,
   stdout is buffered, so a warning from an added fit could land above the scored rows
   and fail the `diff` on output that never changed. The warnings are kept, and read.

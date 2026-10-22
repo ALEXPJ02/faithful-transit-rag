@@ -27,6 +27,7 @@ from typing import Any
 
 import pandas as pd
 
+from transit_rag.prediction import grids
 from transit_rag.prediction.model import metrics
 from transit_rag.prediction.model.dataset import CATEGORICAL_COLUMNS, Dataset
 
@@ -63,20 +64,10 @@ LGBM_BASE: dict[str, Any] = {
     "force_row_wise": True,
     "verbose": -1,
 }
-#: :data:`PARAM_GRID`, translated as the detection grid is (``disruption/models.py``),
-#: so the two cannot drift: ``num_leaves`` is 2^depth, every leaf a depth-wise tree
-#: of that depth can hold, and ``min_child_weight`` is the least hessian a leaf may
-#: hold in both libraries. Under an absolute-error loss both give every row a
-#: hessian of 1, so here it is also a row count, and ``min_child_samples`` set to
-#: the same number matches it.
-LGBM_GRID: tuple[dict[str, Any], ...] = tuple(
-    {
-        **candidate,
-        "num_leaves": 2 ** candidate["max_depth"],
-        "min_child_samples": candidate["min_child_weight"],
-    }
-    for candidate in PARAM_GRID
-)
+#: :data:`PARAM_GRID`, translated (``prediction/grids.py``). Under an absolute-error
+#: loss both libraries give every row a hessian of 1, so here ``min_child_weight``
+#: is also a row count, and the two floors are the same constraint.
+LGBM_GRID: tuple[dict[str, Any], ...] = grids.for_lightgbm(PARAM_GRID)
 
 CATBOOST_BASE: dict[str, Any] = {
     "loss_function": "MAE",
@@ -87,12 +78,7 @@ CATBOOST_BASE: dict[str, Any] = {
     "allow_writing_files": False,
     "verbose": False,
 }
-#: CatBoost grows symmetric trees, where a minimum leaf size does not apply, so
-#: only depth and learning rate carry over.
-CATBOOST_GRID: tuple[dict[str, Any], ...] = tuple(
-    {"depth": candidate["max_depth"], "learning_rate": candidate["learning_rate"]}
-    for candidate in PARAM_GRID
-)
+CATBOOST_GRID: tuple[dict[str, Any], ...] = grids.for_catboost(PARAM_GRID)
 
 #: What a missing line or stop becomes for CatBoost, which rejects a missing
 #: category where XGBoost and LightGBM take it natively.
@@ -217,7 +203,10 @@ def _select(
             {**candidate, "best_iteration": best_iteration, "validation_mae_s": validation_mae}
         )
         log.info(
-            "  %s -> validation MAE %.1fs (%d trees)", candidate, validation_mae, best_iteration + 1
+            "  %s -> validation MAE %.1fs (best iteration %d)",
+            candidate,
+            validation_mae,
+            best_iteration,
         )
         if best is None or validation_mae < best.validation_mae_s:
             best = FittedModel(model, params, best_iteration, validation_mae)
