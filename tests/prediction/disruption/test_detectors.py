@@ -1,4 +1,4 @@
-"""Tests for the detectors RQ2 compares (``docs/12`` §6).
+"""Tests for the detectors RQ2 compares (``docs/12`` §6), and the ones ``docs/18`` added.
 
 The models themselves are libraries, so these tests pin the parts of the method
 this package owns: the encoding, choosing on validation, and refusing to choose
@@ -14,12 +14,26 @@ import pytest
 from transit_rag.prediction.disruption.detection import average_precision
 from transit_rag.prediction.disruption.features import FEATURE_COLUMNS
 from transit_rag.prediction.disruption.models import (
+    ADDED_DETECTORS,
+    CATBOOST_GRID,
     FOREST_GRID,
+    LGBM_GRID,
+    LOGISTIC_GRID,
+    SCORED_DETECTORS,
     XGB_GRID,
     feature_matrix,
     fit_detector,
     known,
 )
+
+GRIDS = {
+    "xgboost": XGB_GRID,
+    "random forest": FOREST_GRID,
+    "lightgbm": LGBM_GRID,
+    "catboost": CATBOOST_GRID,
+    "logistic regression": LOGISTIC_GRID,
+}
+EVERY_DETECTOR = [*SCORED_DETECTORS, *ADDED_DETECTORS]
 
 
 def _table(n: int, seed: int, signal: float = 3.0) -> pd.DataFrame:
@@ -55,13 +69,27 @@ def test_only_rows_with_a_known_target_are_fitted_or_scored() -> None:
     assert len(known(table)) == 15
 
 
-@pytest.mark.parametrize("name", ["xgboost", "random forest"])
+def test_the_boosting_grids_are_the_ones_frozen_before_the_run() -> None:
+    """docs/18 §2. Derived from XGBoost's, so they cannot drift from it; pinned here
+    as the record of what was fixed before any added model saw test."""
+    assert LGBM_GRID == (
+        {"max_depth": 3, "learning_rate": 0.05, "min_child_weight": 5, "num_leaves": 8, "min_child_samples": 5},
+        {"max_depth": 4, "learning_rate": 0.05, "min_child_weight": 10, "num_leaves": 16, "min_child_samples": 10},
+        {"max_depth": 6, "learning_rate": 0.05, "min_child_weight": 20, "num_leaves": 64, "min_child_samples": 20},
+    )  # fmt: skip
+    assert CATBOOST_GRID == (
+        {"depth": 3, "learning_rate": 0.05},
+        {"depth": 4, "learning_rate": 0.05},
+        {"depth": 6, "learning_rate": 0.05},
+    )
+
+
+@pytest.mark.parametrize("name", EVERY_DETECTOR)
 def test_a_detector_is_chosen_on_validation_and_finds_a_planted_signal(name: str) -> None:
     train, validation = _table(600, seed=1), _table(300, seed=2)
     fitted = fit_detector(name, train, validation)
 
-    grid = XGB_GRID if name == "xgboost" else FOREST_GRID
-    assert len(fitted.search) == len(grid)
+    assert len(fitted.search) == len(GRIDS[name]) == 3  # the same search for every model
     assert fitted.validation_ap == max(row["validation_ap"] for row in fitted.search)
     assert 0 < fitted.threshold < 1
 
@@ -69,8 +97,12 @@ def test_a_detector_is_chosen_on_validation_and_finds_a_planted_signal(name: str
     ap = average_precision(fresh["target"].to_numpy(dtype=bool), fitted.score(fresh).to_numpy())
     base_rate = fresh["target"].astype(bool).mean()
     assert ap > base_rate + 0.2
-    assert fitted.importance().index[0] == "share_late"
-    assert fitted.importance().sum() == pytest.approx(1.0)
+    if name == "logistic regression":
+        with pytest.raises(TypeError, match="no tree importances"):
+            fitted.importance()
+    else:
+        assert fitted.importance().index[0] == "share_late"
+        assert fitted.importance().sum() == pytest.approx(1.0)
 
 
 def test_no_candidate_is_chosen_when_validation_has_nothing_to_find() -> None:
@@ -88,11 +120,12 @@ def test_no_detector_is_fitted_when_train_holds_one_class() -> None:
         fit_detector("xgboost", train, _table(50, seed=7))
 
 
-def test_a_forest_refitted_gives_bit_identical_scores() -> None:
-    """docs/08 §3.5: a re-run must reproduce. Parallel prediction did not, by 1e-16."""
+@pytest.mark.parametrize("name", EVERY_DETECTOR)
+def test_a_detector_refitted_gives_bit_identical_scores(name: str) -> None:
+    """docs/08 §3.5: a re-run must reproduce. The forest's parallel prediction did not, by 1e-16."""
     train, validation = _table(400, seed=8), _table(200, seed=9)
-    first = fit_detector("random forest", train, validation)
-    second = fit_detector("random forest", train, validation)
+    first = fit_detector(name, train, validation)
+    second = fit_detector(name, train, validation)
     fresh = known(_table(200, seed=10))
     assert np.array_equal(first.score(fresh).to_numpy(), second.score(fresh).to_numpy())
     assert first.threshold == second.threshold

@@ -7,6 +7,7 @@
     transit-train --all-rows           # sensitivity check: skip the reliability filter
     transit-train --keep-implausible   # audit what the plausibility bound excludes
     transit-train --keep-schedule-blind  # audit the dates with no timetable join
+    transit-train --compare            # also LightGBM and CatBoost on the same split; writes nothing
 
 **Rows the feed could not have meant.** GTFS-Realtime sometimes republishes the
 previous day's run under today's ``start_date``, which reconciles to a delay of
@@ -38,6 +39,11 @@ same margin.
 
 **The test split is scored once**, after hyperparameter selection has finished on
 validation. Nothing in this module fits or selects against it.
+
+**``--compare`` is the post-hoc comparison of ``docs/18``.** It prints the scored
+report unchanged, then fits LightGBM and CatBoost on the same split, by the same
+rule, and scores them on the same rows. It writes nothing, so the model the agent
+reads stays the scored XGBoost.
 """
 
 from __future__ import annotations
@@ -48,14 +54,17 @@ import logging
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import pandas as pd
 
 from transit_rag.config import PROJECT_ROOT
+from transit_rag.evaluation.stats import Interval, paired_by_date
 from transit_rag.prediction.features.quality import (
     CLOSE_OBSERVATION_STOPS_AHEAD,
     MAX_PLAUSIBLE_DELAY_S,
     MIN_SCHEDULE_COVERAGE,
+    Split,
     time_based_split,
 )
 from transit_rag.prediction.model import baseline, conformal, metrics
@@ -69,7 +78,14 @@ from transit_rag.prediction.model.dataset import (
     filter_schedule_covered,
     load_training_table,
 )
-from transit_rag.prediction.model.train import FittedModel, train
+from transit_rag.prediction.model.train import (
+    CATBOOST_GRID,
+    LGBM_GRID,
+    FittedModel,
+    train,
+    train_catboost,
+    train_lightgbm,
+)
 
 log = logging.getLogger("transit_rag.train")
 
@@ -133,10 +149,9 @@ def _fit_and_score(table: pd.DataFrame) -> tuple[FittedModel, dict[str, object]]
     # The margin is calibrated on validation only, then checked on every test
     # row, first stops included, because the tool answers for those too. The
     # global validation MAE is scored beside it as the margin it replaces.
+    validation_prediction = fitted.predict(validation_set.features)
     intervals = conformal.ConformalIntervals.fit(
-        validation_set.target,
-        fitted.predict(validation_set.features),
-        conformal.bin_keys(split.validation),
+        validation_set.target, validation_prediction, conformal.bin_keys(split.validation)
     )
     every_test_row = build_dataset(test, levels)
     test_prediction = fitted.predict(every_test_row.features)
@@ -192,6 +207,20 @@ def _fit_and_score(table: pd.DataFrame) -> tuple[FittedModel, dict[str, object]]
         },
     }
     summary["_levels"] = levels
+    # What --compare scores the added models on, kept rather than rebuilt so they
+    # can only ever meet the rows XGBoost was scored on.
+    summary["_sets"] = {
+        "train": train_set,
+        "validation": validation_set,
+        "compared": test_set,
+        "every_test_row": every_test_row,
+    }
+    summary["_split"] = split
+    # XGBoost's row in the comparison is read from here, never recomputed, so it
+    # cannot drift from the scored report.
+    summary["_outputs"] = _Outputs(
+        validation_prediction, model_prediction, test_prediction, intervals
+    )
     return fitted, summary
 
 
@@ -292,6 +321,151 @@ def _print_interval(summary: dict[str, object]) -> None:
         )
 
 
+class _Outputs(NamedTuple):
+    """What a delay model predicted, and the 90% interval calibrated on its validation."""
+
+    validation: pd.Series
+    compared: pd.Series
+    every_test_row: pd.Series
+    intervals: conformal.ConformalIntervals
+
+
+def _print_comparison(fitted: FittedModel, summary: dict[str, object]) -> None:
+    """LightGBM and CatBoost beside XGBoost and persistence, on the same rows (``docs/18``).
+
+    The split, the datasets and the compared test rows are the ones
+    :func:`_fit_and_score` built for the scored report, and XGBoost's row is read
+    from it. Each added model's 90% interval is calibrated on its own validation
+    residuals by the same bins, which shows whether the margin holds for a model
+    other than the one it was built for.
+    """
+    frames, sets, split = summary["_frames"], summary["_sets"], summary["_split"]
+    scored = summary["_outputs"]
+    assert isinstance(frames, dict) and isinstance(sets, dict)
+    assert isinstance(split, Split) and isinstance(scored, _Outputs)
+    validation_set = sets["validation"]
+    comparable = frames["comparable"]
+    baseline_scores = frames["baseline_scores"]
+    validation_keys = conformal.bin_keys(split.validation)
+
+    models: list[tuple[str, FittedModel, _Outputs]] = [("XGBoost", fitted, scored)]
+    for name, fit, grid in (
+        ("LightGBM", train_lightgbm, LGBM_GRID),
+        ("CatBoost", train_catboost, CATBOOST_GRID),
+    ):
+        log.info("fitting %d %s candidates", len(grid), name)
+        model = fit(sets["train"], validation_set)
+        validation = model.predict(validation_set.features)
+        models.append(
+            (
+                name,
+                model,
+                _Outputs(
+                    validation,
+                    model.predict(sets["compared"].features),
+                    model.predict(sets["every_test_row"].features),
+                    conformal.ConformalIntervals.fit(
+                        validation_set.target, validation, validation_keys
+                    ),
+                ),
+            )
+        )
+
+    print()
+    print(
+        f"Compared on the same {len(comparable):,} test rows (docs/18) -- each model "
+        f"chosen on validation MAE from a grid of {len(LGBM_GRID)}:"
+    )
+    print(
+        f"  {'':<20}{'val MAE':>8}{'MAE':>8}{'RMSE':>8}{'MAPE*':>7}{'MASE':>7}"
+        f"{'MAE - persistence':>19}  95% interval"
+    )
+    print(
+        f"  {'naive persistence':<20}{'':>8}{baseline_scores.mae_s:>7.1f}s"
+        f"{baseline_scores.rmse_s:>7.1f}s{_mape(baseline_scores):>7}"
+    )
+    truth = sets["compared"].target
+    for name, _, outputs in models:
+        # Measured from predictions for every model, XGBoost included, so the
+        # column is one measure (train._select).
+        validation_mae = metrics.score(validation_set.target, outputs.validation).mae_s
+        scores = metrics.score(truth, outputs.compared)
+        gap = _paired_mae_gap(comparable, truth, outputs.compared, frames["baseline_prediction"])
+        print(
+            f"  {name:<20}{validation_mae:>7.1f}s{scores.mae_s:>7.1f}s"
+            f"{scores.rmse_s:>7.1f}s{_mape(scores):>7}"
+            f"{metrics.mase(scores, baseline_scores):>7.3f}{gap.point:>+18.1f}s"
+            f"  {gap.bounds('+.1f')}"
+        )
+    print(
+        "  *MAPE over rows with a non-zero delay. The gap resamples the same "
+        f"{comparable['service_date'].nunique()} dates for both."
+    )
+
+    print()
+    print("  Chosen on validation:")
+    for name, model, _ in models:
+        settings = ", ".join(
+            f"{key} {model.params[key]}"
+            for key in (
+                "max_depth",
+                "depth",
+                "num_leaves",
+                "learning_rate",
+                "min_child_weight",
+                "min_child_samples",
+            )
+            if key in model.params
+        )
+        # The number the scored log calls its tree count, so the two agree.
+        print(f"    {name:<10}{settings} -- best iteration {model.best_iteration}")
+
+    print()
+    print(
+        "  90% interval on every test row, split conformal by line x lateness, "
+        "each calibrated on its own validation residuals:"
+    )
+    test_keys = conformal.bin_keys(split.test)
+    lateness = conformal.bin_columns(split.test)["lateness"]
+    bands = [band for band, _, _ in conformal.LATENESS_BANDS]
+    print(f"    {'':<10}" + "".join(f"{band:>19}" for band in bands) + f"{'all':>8}")
+    for name, _, outputs in models:
+        coverage = conformal.coverage_table(
+            sets["every_test_row"].target,
+            outputs.every_test_row,
+            outputs.intervals.half_width(test_keys),
+            lateness,
+        )
+        by_band = {row.segment: f"{row.coverage:.1%}" for row in coverage.itertuples(index=False)}
+        print(
+            f"    {name:<10}"
+            + "".join(f"{by_band.get(band, '--'):>19}" for band in bands)
+            + f"{by_band['all']:>8}"
+        )
+
+
+def _mape(scores: metrics.Scores) -> str:
+    return "n/a" if scores.mape_nonzero is None else f"{scores.mape_nonzero:.0f}%"
+
+
+def _mae_of(rows: pd.DataFrame, column: str) -> float:
+    return float(rows[column].abs().mean())
+
+
+def _paired_mae_gap(
+    rows: pd.DataFrame, truth: pd.Series, model: pd.Series, baseline: pd.Series
+) -> Interval:
+    """Model MAE minus persistence's, and its 95% interval from resampling whole dates."""
+    errors = pd.DataFrame(
+        {
+            "service_date": rows["service_date"].to_numpy(),
+            "model": model.to_numpy(dtype=float) - truth.to_numpy(dtype=float),
+            "baseline": baseline.to_numpy(dtype=float) - truth.to_numpy(dtype=float),
+        }
+    )
+    return paired_by_date(errors, _mae_of, "model", "baseline")
+
+
 def _run_curve(table: pd.DataFrame) -> None:
     """MAE against number of training days, from prefixes of one dataset.
 
@@ -362,14 +536,28 @@ def main() -> None:
             f"scheduled_arrival_s and stop_sequence entirely"
         ),
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--curve", action="store_true", help="Sweep training-set size and report MAE against days"
     )
+    mode.add_argument(
+        "--compare",
+        action="store_true",
+        help="Also fit LightGBM and CatBoost on the same split and compare (docs/18). Writes nothing",
+    )
     parser.add_argument("--report-only", action="store_true", help="Print, write nothing")
-    parser.add_argument("--model-out", type=Path, default=DEFAULT_MODEL)
-    parser.add_argument("--metrics-out", type=Path, default=DEFAULT_METRICS)
+    parser.add_argument("--model-out", type=Path, default=None, help=f"Default: {DEFAULT_MODEL}")
+    parser.add_argument(
+        "--metrics-out", type=Path, default=None, help=f"Default: {DEFAULT_METRICS}"
+    )
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
+    if args.compare and (args.model_out is not None or args.metrics_out is not None):
+        parser.error(
+            "--compare writes nothing (docs/18); run --model-out or --metrics-out without it"
+        )
+    model_out: Path = args.model_out or DEFAULT_MODEL
+    metrics_out: Path = args.metrics_out or DEFAULT_METRICS
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s %(message)s"
@@ -454,6 +642,9 @@ def main() -> None:
     fitted, summary = _fit_and_score(table)
     _print_report(fitted, summary)
 
+    if args.compare:
+        _print_comparison(fitted, summary)
+        return
     if args.report_only:
         return
 
@@ -462,7 +653,7 @@ def main() -> None:
     levels = summary["_levels"]
     assert isinstance(levels, dict)
 
-    args.model_out.parent.mkdir(parents=True, exist_ok=True)
+    model_out.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(
         {
             "model": fitted.booster,
@@ -475,9 +666,9 @@ def main() -> None:
             # The margin inference states, fitted on validation with the model.
             "conformal": summary["interval"],
         },
-        args.model_out,
+        model_out,
     )
-    log.info("wrote %s", args.model_out)
+    log.info("wrote %s", model_out)
 
     # The metrics file is the contract with the evaluation harness: the
     # faithfulness threshold reads MAE from here rather than hardcoding a
@@ -490,8 +681,8 @@ def main() -> None:
     serialisable["min_schedule_coverage"] = (
         None if args.keep_schedule_blind else MIN_SCHEDULE_COVERAGE
     )
-    args.metrics_out.write_text(json.dumps(serialisable, indent=2, default=str))
-    log.info("wrote %s", args.metrics_out)
+    metrics_out.write_text(json.dumps(serialisable, indent=2, default=str))
+    log.info("wrote %s", metrics_out)
 
 
 if __name__ == "__main__":

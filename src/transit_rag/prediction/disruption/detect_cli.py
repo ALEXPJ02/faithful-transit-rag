@@ -3,6 +3,7 @@
     transit-detect --db data/delay_observations_20261005.db              # baseline and detectors
     transit-detect --db ... --baseline-only                             # persistence alone
     transit-detect --db ... --out data/detection_table.csv              # also write the table
+    transit-detect --db ... --compare                                   # add docs/18's models
 
 Builds one row per T1/T4 window: what was known at its end, and whether the line
 was disrupted in the next 30 minutes (``docs/12``). It splits the rows
@@ -11,6 +12,11 @@ naive persistence, then XGBoost and a random forest chosen on validation, with
 and without the alert feature (``docs/08`` §3.5). The number of positive targets
 in each split is printed first, because at a few per split no comparison means
 anything. It reads the snapshot and writes only to ``--out``.
+
+``--compare`` adds LightGBM, CatBoost and logistic regression, after the scored
+detectors and in the same format, then ranks every system against persistence
+(``docs/18``). Without it the output is exactly what the scored run printed. It
+refuses ``--save`` and ``--out``: the comparison writes nothing.
 """
 
 from __future__ import annotations
@@ -19,11 +25,12 @@ import argparse
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import pandas as pd
 
 from transit_rag.evaluation.lead_time import lead_times, summarise
-from transit_rag.evaluation.stats import bootstrap_by_date
+from transit_rag.evaluation.stats import Interval, bootstrap_by_date, paired_by_date
 from transit_rag.ingestion.alerts import (
     DEFAULT_OVERRIDES,
     Incident,
@@ -61,17 +68,13 @@ def build(db: Path, overrides: Path, rule: LabelRule) -> tuple[pd.DataFrame, lis
 
 
 def _extras(
-    part: pd.DataFrame, score: pd.Series, threshold: float, incidents: list[Incident]
+    part: pd.DataFrame,
+    score: pd.Series,
+    threshold: float,
+    incidents: list[Incident],
+    interval: Interval,
 ) -> list[str]:
     """The AP's date-resampled 95% interval, and lead time against the operator's alerts."""
-    known = part["target"].notna()
-    scored = part.loc[known].assign(_score=score[known])
-    interval = bootstrap_by_date(
-        scored,
-        lambda rows: average_precision(
-            rows["target"].to_numpy(dtype=bool), rows["_score"].to_numpy(dtype=float)
-        ),
-    )
     leads = summarise(lead_times(part, score >= threshold, incidents))
     return [f"      AP {interval.describe()}", f"      lead time: {leads.describe()}"]
 
@@ -127,13 +130,21 @@ def command_detect(args: argparse.Namespace) -> int:
         f"  {'':<11}{'rows':>6}{'pos':>6}{'AP':>8}{'prec':>7}{'recall':>7}{'F1':>6}"
         f"{'FA/day':>9}{'rec (a)':>8}{'rec (b)':>8}"
     )
+    parts: dict[str, _Part] = {}
     for name in ("validation", "test"):
         part = getattr(split, name)
-        print(_score_line(name, score_detector(part, persistence(part), threshold=0.5)))
-        print("\n".join(_extras(part, persistence(part), 0.5, incidents)))
+        score = persistence(part)
+        parts[name] = _Part(
+            score, score_detector(part, score, threshold=0.5), _ap_interval(part, score)
+        )
+        print(_score_line(name, parts[name].scores))
+        print("\n".join(_extras(part, score, 0.5, incidents, parts[name].interval)))
+    baseline = _Scored(
+        validation_ap=parts["validation"].scores.average_precision, test=parts["test"]
+    )
 
     if not args.baseline_only:
-        chosen = _print_detectors(split, incidents)
+        chosen = _print_detectors(split, incidents, baseline, compare=args.compare)
         if args.save is not None:
             save_detector(
                 chosen,
@@ -163,34 +174,143 @@ def command_detect(args: argparse.Namespace) -> int:
 WITHOUT_ALERT: tuple[str, ...] = tuple(c for c in FEATURE_COLUMNS if c != "alert_in_feed")
 
 
-def _print_detectors(split: Split, incidents: list[Incident]) -> FittedDetector:
+#: What the scored run fitted, in the order it printed them: (label, model, features).
+SCORED_RUNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("xgboost", "xgboost", FEATURE_COLUMNS),
+    ("forest", "random forest", FEATURE_COLUMNS),
+    ("xgb -alert", "xgboost", WITHOUT_ALERT),
+    ("rf -alert", "random forest", WITHOUT_ALERT),
+)
+#: ``docs/18``'s post-hoc comparison, each with and without the alert feature too.
+ADDED_RUNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("lightgbm", "lightgbm", FEATURE_COLUMNS),
+    ("catboost", "catboost", FEATURE_COLUMNS),
+    ("logistic", "logistic regression", FEATURE_COLUMNS),
+    ("lgbm -alert", "lightgbm", WITHOUT_ALERT),
+    ("cat -alert", "catboost", WITHOUT_ALERT),
+    ("logit -alert", "logistic regression", WITHOUT_ALERT),
+)
+
+
+class _Part(NamedTuple):
+    """What one system scored on one partition, kept as printed."""
+
+    score: pd.Series
+    scores: DetectionScores
+    interval: Interval
+
+
+class _Scored(NamedTuple):
+    """What the comparison needs of one system, so it computes none of it twice."""
+
+    validation_ap: float
+    test: _Part
+
+
+def _print_detectors(
+    split: Split, incidents: list[Incident], baseline: _Scored, *, compare: bool = False
+) -> FittedDetector:
     """Fit and score each detector; return the full-feature XGBoost one, the headline."""
-    chosen: FittedDetector | None = None
+    detectors: dict[str, FittedDetector] = {}
+    runs: dict[str, _Scored] = {}
     print()
     print("Detectors -- chosen on validation by average precision; test scored once:")
     print(
         f"  {'':<11}{'rows':>6}{'pos':>6}{'AP':>8}{'prec':>7}{'recall':>7}{'F1':>6}"
         f"{'FA/day':>9}{'rec (a)':>8}{'rec (b)':>8}"
     )
-    for label, name, columns in (
-        ("xgboost", "xgboost", FEATURE_COLUMNS),
-        ("forest", "random forest", FEATURE_COLUMNS),
-        ("xgb -alert", "xgboost", WITHOUT_ALERT),
-        ("rf -alert", "random forest", WITHOUT_ALERT),
-    ):
-        fitted = fit_detector(name, split.train, split.validation, columns)
-        print(f"  {label} (threshold {fitted.threshold:.3f}, {fitted.params})")
-        for part_name in ("validation", "test"):
-            part = getattr(split, part_name)
-            score = fitted.score(part)
-            print(_score_line(part_name, score_detector(part, score, fitted.threshold)))
-            print("\n".join(_extras(part, score, fitted.threshold, incidents)))
+    for label, name, columns in SCORED_RUNS:
+        detectors[label], runs[label] = _fit_and_print(label, name, columns, split, incidents)
         if label == "xgboost":
-            chosen = fitted
-            top = fitted.importance().head(6)
+            top = detectors[label].importance().head(6)
             print("    importance: " + ", ".join(f"{k} {v:.0%}" for k, v in top.items()))
-    assert chosen is not None
-    return chosen
+
+    if compare:
+        print()
+        print("Added for comparison (docs/18) -- the same rule, after the scored run:")
+        for label, name, columns in ADDED_RUNS:
+            detectors[label], runs[label] = _fit_and_print(label, name, columns, split, incidents)
+        _print_comparison(split.test, baseline, runs)
+    return detectors["xgboost"]
+
+
+def _fit_and_print(
+    label: str, name: str, columns: tuple[str, ...], split: Split, incidents: list[Incident]
+) -> tuple[FittedDetector, _Scored]:
+    detector = fit_detector(name, split.train, split.validation, columns)
+    print(f"  {label} (threshold {detector.threshold:.3f}, {detector.params})")
+    parts: dict[str, _Part] = {}
+    for part_name in ("validation", "test"):
+        part = getattr(split, part_name)
+        score = detector.score(part)
+        parts[part_name] = _Part(
+            score, score_detector(part, score, detector.threshold), _ap_interval(part, score)
+        )
+        print(_score_line(part_name, parts[part_name].scores))
+        print(
+            "\n".join(
+                _extras(part, score, detector.threshold, incidents, parts[part_name].interval)
+            )
+        )
+    return detector, _Scored(validation_ap=detector.validation_ap, test=parts["test"])
+
+
+def _ap_of(rows: pd.DataFrame, column: str) -> float:
+    return average_precision(
+        rows["target"].to_numpy(dtype=bool), rows[column].to_numpy(dtype=float)
+    )
+
+
+def _ap_interval(part: pd.DataFrame, score: pd.Series) -> Interval:
+    """AP on the rows whose target is known, and its date-resampled 95% interval."""
+    known = part["target"].notna()
+    scored = part.loc[known].assign(_score=score[known])
+    return bootstrap_by_date(scored, lambda rows: _ap_of(rows, "_score"))
+
+
+def paired_gap(part: pd.DataFrame, score: pd.Series, baseline: pd.Series) -> Interval:
+    """AP(score) minus AP(baseline), and its 95% interval from resampling whole dates.
+
+    Paired: each resample scores both systems on the same drawn dates, so a hard
+    day lowers both. Over five test dates the two systems' own intervals overlap
+    almost entirely, and comparing them would hide a gap that holds on every draw.
+    """
+    known = part["target"].notna()
+    scored = part.loc[known].assign(_score=score[known], _baseline=baseline[known])
+    return paired_by_date(scored, _ap_of, "_score", "_baseline")
+
+
+def _print_comparison(test: pd.DataFrame, baseline: _Scored, runs: dict[str, _Scored]) -> None:
+    """Every system on test, beside persistence, with the gap paired by date."""
+    print()
+    print(
+        f"Every system on test ({baseline.test.scores.positives} positives over "
+        f"{baseline.test.scores.days} dates). The gap to persistence resamples the same "
+        "dates for both:"
+    )
+    print(
+        f"  {'':<13}{'val AP':>7}{'test AP':>8}  {'95% interval':<16}"
+        f"{'AP - persistence':>17}  {'95% interval':<18}{'F1':>5}{'FA/day':>8}"
+    )
+    persisted = baseline.test
+    print(
+        f"  {'persistence':<13}{baseline.validation_ap:>7.3f}"
+        f"{persisted.scores.average_precision:>8.3f}  {persisted.interval.bounds():<16}"
+        f"{'--':>17}  {'':<18}{persisted.scores.f1:>5.0%}"
+        f"{persisted.scores.false_alarms_per_day:>8.1f}"
+    )
+    partial: list[str] = []
+    for label, run in runs.items():
+        gap = paired_gap(test, run.test.score, persisted.score)
+        if 0 < gap.defined < 1:
+            partial.append(f"{label} ({gap.defined:.0%})")
+        print(
+            f"  {label:<13}{run.validation_ap:>7.3f}{run.test.scores.average_precision:>8.3f}"
+            f"  {run.test.interval.bounds():<16}{gap.point:>+17.3f}  {gap.bounds('+.3f'):<18}"
+            f"{run.test.scores.f1:>5.0%}{run.test.scores.false_alarms_per_day:>8.1f}"
+        )
+    if partial:
+        print("  gap defined in fewer than every resample: " + ", ".join(partial))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -208,8 +328,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=MIN_SERVICES,
         help="fewest observed services the label's rule (b) may fire on (default: 5)",
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--baseline-only", action="store_true", help="score persistence and fit nothing"
+    )
+    mode.add_argument(
+        "--compare",
+        action="store_true",
+        help="also fit LightGBM, CatBoost and logistic regression, and rank every system (docs/18)",
     )
     parser.add_argument(
         "--save", type=Path, default=None, help="write the XGBoost detector, for the agent"
@@ -219,7 +345,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.compare and (args.save is not None or args.out is not None):
+        parser.error("--compare writes nothing (docs/18); run --save or --out without it")
     try:
         result: int = args.handler(args)
         return result

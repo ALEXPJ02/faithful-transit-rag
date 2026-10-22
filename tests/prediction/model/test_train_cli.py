@@ -151,6 +151,52 @@ class TestHelpRenders:
         assert "--keep-schedule-blind" in capsys.readouterr().out
 
 
+class TestCompare:
+    def test_it_appends_to_the_scored_report_and_writes_nothing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """docs/18 sits beside docs/17: --compare may add rows, never change one or save."""
+        pytest.importorskip("lightgbm", reason="install the 'prediction' extra")
+        pytest.importorskip("catboost", reason="install the 'prediction' extra")
+        table = make_table({f"2026-09-{day:02d}": 1.0 for day in range(3, 13)})
+        # Point the defaults somewhere harmless: --compare must not write even there.
+        model_out, metrics_out = tmp_path / "model.joblib", tmp_path / "metrics.json"
+        monkeypatch.setattr(cli, "DEFAULT_MODEL", model_out)
+        monkeypatch.setattr(cli, "DEFAULT_METRICS", metrics_out)
+
+        _run(monkeypatch, table, tmp_path, "--report-only")
+        scored = capsys.readouterr().out
+        _run(monkeypatch, table, tmp_path, "--compare")
+        compared = capsys.readouterr().out
+
+        assert compared.startswith(scored)
+        added = compared[len(scored) :]
+        for name in ("naive persistence", "XGBoost", "LightGBM", "CatBoost"):
+            assert f"  {name}" in added
+        assert "each calibrated on its own validation residuals" in added
+        assert not model_out.exists() and not metrics_out.exists()
+
+    @pytest.mark.parametrize("flag", ["--model-out", "--metrics-out"])
+    def test_it_refuses_an_output_path_rather_than_ignore_it(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, flag: str
+    ) -> None:
+        target = tmp_path / "written"
+        with pytest.raises(SystemExit) as refused:
+            _run(
+                monkeypatch,
+                make_table({"2026-09-03": 1.0}),
+                tmp_path,
+                "--compare",
+                flag,
+                str(target),
+            )
+        assert refused.value.code == 2
+        assert not target.exists()
+
+
 class TestInterval:
     def test_it_is_calibrated_on_validation_and_saved_with_the_model(
         self,

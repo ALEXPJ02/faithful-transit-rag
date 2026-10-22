@@ -56,6 +56,11 @@ which made 18 urgent repairs published as `MAINTENANCE` into incidents by overri
 **Do not re-run the scored chain.** Its outputs are the results. The model answers are
 sampled, so a re-run changes them, and any change needs a new run disclosed beside these.
 
+**One post-hoc comparison is disclosed beside them** (`docs/18`), at the supervisor's
+request. `transit-detect --compare` and `transit-train --compare` add LightGBM, CatBoost
+and logistic regression on the same frozen file. Both reproduce the scored rows byte for
+byte and write nothing, so the run changes no result. The agent keeps the scored models.
+
 **Built, tested, running:**
 
 - Delay collection — `transit-poller` (`src/transit_rag/prediction/collection/`).
@@ -315,6 +320,16 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
   **A random forest for the unknown alerts**, which the supervisor suggested, was
   answered as not useful (`docs/08` §3.3). One incident has no published cause, so there
   is no ground truth to learn or check, and 17 known-cause incidents are too few.
+- **More models are a post-hoc comparison, not the result** (`docs/18`, built
+  2026-10-23 at the supervisor's request, after the scored run).
+  - **What it adds.** Detection adds LightGBM, CatBoost and logistic regression, and
+    delay adds LightGBM and CatBoost.
+  - **The grids mirror XGBoost's.** Depths and learning rates are the same, and
+    `num_leaves` is 2^depth. `min_child_weight` is the same hessian floor in both
+    libraries, which is not a row count under log loss.
+  - **The grids are frozen.** They were merged before any added model touched test.
+    Never tune them after seeing test, and never promote a model to the agent on its
+    test score: that would be choosing on test.
 - **Opal fare policy is out of scope**, set 2026-09-22. RAG stays; the corpus
   becomes past T1/T4 service alerts. The Opal PDFs, `ingestion/corpus.py` and the
   built `opal_policy` collection are **retained, not deleted** — they are working,
@@ -360,4 +375,5 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
 `docs/04-implementation-plan.md`'s status table and the README's status section
 both make dated claims, so they go stale silently. When you change what the system
 does, update them in the same pass rather than leaving a later reader to be misled.
-Both were last reconciled against the repo and the scored run on 2026-10-20.
+Both were last reconciled against the repo and the scored run on 2026-10-20, and
+against the post-hoc comparison (`docs/18`) on 2026-10-23.

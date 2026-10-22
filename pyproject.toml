@@ -36,9 +36,15 @@ rag = [
     "pypdf>=6.21.1",  # 6.21.1 fixes the last advisory against earlier releases
     "pydantic>=2.7",
 ]
-# Phase 1b prediction layer (see docs/02-tech-stack.md).
+# Phase 1b prediction layer (see docs/02-tech-stack.md). LightGBM and CatBoost are
+# the supervisor's post-hoc comparison (docs/18), not what the agent runs. Their
+# floors are the versions the comparison was tested on: both LightGBM fits pass
+# eval_X/eval_y, which 4.6 does not have, and CatBoost was checked only on 1.2.10
+# with numpy 2 and pandas 3.
 prediction = [
     "xgboost>=2.1",
+    "lightgbm>=4.7",
+    "catboost>=1.2.10",
     "scikit-learn>=1.5",
     "pandas>=2.2",
     "numpy>=1.26",
@@ -135,6 +141,8 @@ module = [
     "voyageai.*",
     "google.transit.*",
     "xgboost.*",
+    "lightgbm.*",
+    "catboost.*",
     "sklearn.*",
     "joblib.*",
     "ragas.*",
