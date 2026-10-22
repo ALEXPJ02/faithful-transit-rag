@@ -26,6 +26,9 @@ keeps everything the scored run fixed, and fixes the rest before it runs:
   scored:
   - its trees were capped one leaf short (2^depth − 1);
   - in detection, its leaf minimum counted rows where XGBoost's counts hessian.
+
+  The grids are now derived in code from XGBoost's, so they cannot drift from it
+  again.
 - **The scored rows do not move.** `--compare` appends to what the scored commands
   print and changes none of it (§3).
 
@@ -59,7 +62,8 @@ linear model would need one coefficient for each.
 Each boosting grid **mirrors XGBoost's**: the same depths, learning rates and leaf
 minimums, so no library is searched harder, or held tighter, than another. A leaf-wise
 LightGBM tree is held to `num_leaves = 2^depth`, every leaf a depth-wise tree of that
-depth can hold. A test pins the mirroring, so the grids cannot drift apart.
+depth can hold. The LightGBM and CatBoost grids are derived in code from XGBoost's, and
+a test pins the values that were frozen.
 
 | Detection, 3 candidates each | Candidates | Fixed |
 | --- | --- | --- |
@@ -75,7 +79,7 @@ depth can hold. A test pins the mirroring, so the grids cannot drift apart.
 | LightGBM | depth 4/6/6/8, `num_leaves` 16/64/64/256, learning rate as XGBoost's, `min_child_weight` 5/5/20/20 | L1 loss, 2,000 trees, early stopping on validation MAE |
 | CatBoost | depth 4/6/6/8, learning rate as XGBoost's | MAE loss, 2,000 iterations, early stopping on validation MAE; the line and stop are named as categories |
 
-Three choices need their reasons:
+These choices need their reasons:
 
 - **Leaf sizes.** `min_child_weight` is the least hessian a leaf may hold, and means
   the same in XGBoost and LightGBM, so LightGBM takes XGBoost's numbers.
@@ -87,6 +91,9 @@ Three choices need their reasons:
     1, so both floors match XGBoost's exactly.
   - **CatBoost has no leaf-size control.** Its symmetric trees have no minimum leaf
     size, so its grid varies depth and learning rate alone.
+- **A missing line or stop.** XGBoost and LightGBM take a missing category natively.
+  CatBoost rejects one, so it is named `<missing>` when CatBoost fits and predicts. The
+  frozen table has none, so this changes nothing in the run.
 - **Missing values in the linear model.** It cannot split on a missing value as the
   trees do. A window with no service is information, not a gap (`12` §2), so the
   indicator column carries it.
@@ -117,9 +124,15 @@ between two scores (`12` §3). Test is scored once.
 predictions, XGBoost's included. XGBoost's selection itself read its float32 eval
 metric, as in the scored run, which this comparison does not change.
 
-**Re-runs reproduce.** LightGBM runs with `deterministic` and `force_row_wise`, and
-every model has a fixed seed. A test refits each detector and checks that its scores
-are bit-identical, as the forest's are (`12` §5).
+**Re-runs reproduce on the same machine.** LightGBM runs with `deterministic` and
+`force_row_wise`, and every model has a fixed seed. A test refits each detector and
+checks that its scores are bit-identical, as the forest's are (`12` §5).
+
+The boosters use every core, so the order in which threads sum a histogram follows the
+thread count. On a machine with a different count, or a different processor, scores
+can differ in their last bits. The scored XGBoost has the same property. The run is
+made on an Apple M1 Pro with 8 cores, which reproduces the scored output byte for byte
+(below).
 
 **Checked before any added model was scored, on 2026-10-23.** The refactor that makes
 room for `--compare` leaves the scored output unchanged:
@@ -131,9 +144,10 @@ room for `--compare` leaves the scored output unchanged:
 - The frozen file's checksum did not move.
 
 **Both commands write nothing under `--compare`.** No table, no model, no metrics
-file. `transit-detect --compare` refuses `--save` and `--out`, so it cannot overwrite
-the agent's detector. They only print, and the log is the record, as it is for the
-scored run.
+file. `transit-detect --compare` refuses `--save` and `--out`, and
+`transit-train --compare` refuses `--model-out` and `--metrics-out`, so neither can
+overwrite what the agent reads. They only print, and the log is the record, as it is
+for the scored run.
 
 ## 4. Running it
 

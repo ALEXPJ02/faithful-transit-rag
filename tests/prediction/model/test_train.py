@@ -118,14 +118,33 @@ class TestTrain:
 class TestTheAddedRegressors:
     """docs/18: LightGBM and CatBoost, chosen by the same rule as XGBoost."""
 
-    def test_their_grids_mirror_xgboost_s(self) -> None:
-        """Under absolute error every row's hessian is 1 in both libraries, so the
-        least hessian per leaf is also a row count, and both floors match XGBoost's."""
-        for xgb, lgbm, cat in zip(PARAM_GRID, LGBM_GRID, CATBOOST_GRID, strict=True):
-            assert lgbm["max_depth"] == cat["depth"] == xgb["max_depth"]
-            assert lgbm["learning_rate"] == cat["learning_rate"] == xgb["learning_rate"]
-            assert lgbm["num_leaves"] == 2 ** xgb["max_depth"]
-            assert lgbm["min_child_weight"] == lgbm["min_child_samples"] == xgb["min_child_weight"]
+    def test_their_grids_are_the_ones_frozen_before_the_run(self) -> None:
+        """Derived from PARAM_GRID, so they cannot drift from it; pinned as the record."""
+        assert LGBM_GRID == (
+            {"max_depth": 4, "learning_rate": 0.10, "min_child_weight": 5, "num_leaves": 16, "min_child_samples": 5},
+            {"max_depth": 6, "learning_rate": 0.10, "min_child_weight": 5, "num_leaves": 64, "min_child_samples": 5},
+            {"max_depth": 6, "learning_rate": 0.05, "min_child_weight": 20, "num_leaves": 64, "min_child_samples": 20},
+            {"max_depth": 8, "learning_rate": 0.05, "min_child_weight": 20, "num_leaves": 256, "min_child_samples": 20},
+        )  # fmt: skip
+        assert CATBOOST_GRID == (
+            {"depth": 4, "learning_rate": 0.10},
+            {"depth": 6, "learning_rate": 0.10},
+            {"depth": 6, "learning_rate": 0.05},
+            {"depth": 8, "learning_rate": 0.05},
+        )
+
+    def test_catboost_takes_a_missing_stop_as_xgboost_does(self) -> None:
+        """CatBoost raises on a missing category; reconciliation keeps unmatched trips."""
+        pytest.importorskip("catboost", reason="install the 'prediction' extra")
+        table = synthetic_table()
+        table.loc[[3, 6], "stop_id"] = None  # one fitted on (2026-09-06), one held out (09-09)
+        fit_set, validation_set = split_sets(table)
+        assert fit_set.features["stop_id"].isna().any()
+        assert validation_set.features["stop_id"].isna().any()
+
+        predicted = train_catboost(fit_set, validation_set).predict(validation_set.features)
+
+        assert np.isfinite(np.asarray(predicted, dtype=float)).all()
 
     @pytest.mark.parametrize(
         ("fit", "grid", "library"),

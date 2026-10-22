@@ -69,23 +69,21 @@ def test_only_rows_with_a_known_target_are_fitted_or_scored() -> None:
     assert len(known(table)) == 15
 
 
-def test_the_boosting_grids_mirror_xgboost_s() -> None:
-    """docs/18 §2: no boosting library is searched harder, or held tighter, than XGBoost."""
-    for xgb, lgbm, cat in zip(XGB_GRID, LGBM_GRID, CATBOOST_GRID, strict=True):
-        assert lgbm["max_depth"] == cat["depth"] == xgb["max_depth"]
-        assert lgbm["learning_rate"] == cat["learning_rate"] == xgb["learning_rate"]
-        # Every leaf a depth-wise tree of that depth can hold: 2^depth, not 2^depth - 1.
-        assert lgbm["num_leaves"] == 2 ** xgb["max_depth"]
-        # The same least hessian per leaf. Under log loss a row adds at most 0.25, so
-        # the hessian floor already demands 4x as many rows as the row floor allows.
-        assert lgbm["min_child_weight"] == xgb["min_child_weight"]
-        assert lgbm["min_child_samples"] <= 4 * lgbm["min_child_weight"]
-
-
-def test_the_scored_run_s_detectors_are_still_the_default() -> None:
-    """docs/17 is reproduced by transit-detect without --compare; this is what it fits."""
-    assert SCORED_DETECTORS == ("xgboost", "random forest")
-    assert not set(ADDED_DETECTORS) & set(SCORED_DETECTORS)
+def test_the_boosting_grids_are_the_ones_frozen_before_the_run() -> None:
+    """docs/18 §2. Derived from XGBoost's, so they cannot drift from it; pinned here
+    as the record of what was fixed before any added model saw test."""
+    assert LGBM_GRID == (
+        {"max_depth": 3, "learning_rate": 0.05, "min_child_weight": 5, "num_leaves": 8, "min_child_samples": 5},
+        {"max_depth": 4, "learning_rate": 0.05, "min_child_weight": 10, "num_leaves": 16, "min_child_samples": 10},
+        {"max_depth": 6, "learning_rate": 0.05, "min_child_weight": 20, "num_leaves": 64, "min_child_samples": 20},
+    )  # fmt: skip
+    assert CATBOOST_GRID == (
+        {"depth": 3, "learning_rate": 0.05},
+        {"depth": 4, "learning_rate": 0.05},
+        {"depth": 6, "learning_rate": 0.05},
+    )
+    # Under log loss a row adds at most 0.25 hessian, so LightGBM's row floor never binds.
+    assert all(g["min_child_samples"] <= 4 * g["min_child_weight"] for g in LGBM_GRID)
 
 
 @pytest.mark.parametrize("name", EVERY_DETECTOR)

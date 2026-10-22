@@ -62,7 +62,7 @@ FOREST_GRID: tuple[dict[str, Any], ...] = (
 )
 FOREST_BASE: dict[str, Any] = {"n_estimators": 500, "random_state": 42, "n_jobs": -1}
 
-#: XGBoost's candidates, translated:
+#: XGBoost's candidates, translated rather than copied, so the two cannot drift:
 #:
 #: - ``num_leaves`` is 2^depth, every leaf a depth-wise tree of that depth can hold,
 #:   so leaf-wise growth gets the same room and no more.
@@ -70,28 +70,13 @@ FOREST_BASE: dict[str, Any] = {"n_estimators": 500, "random_state": 42, "n_jobs"
 #:   leaf may hold. Under log loss a row adds p(1 - p), at most 0.25, so it is not
 #:   a row count. ``min_child_samples``, LightGBM's own row floor, is set to the
 #:   same number, which those hessian floors already exceed, so it never binds.
-LGBM_GRID: tuple[dict[str, Any], ...] = (
+LGBM_GRID: tuple[dict[str, Any], ...] = tuple(
     {
-        "max_depth": 3,
-        "num_leaves": 8,
-        "learning_rate": 0.05,
-        "min_child_weight": 5,
-        "min_child_samples": 5,
-    },
-    {
-        "max_depth": 4,
-        "num_leaves": 16,
-        "learning_rate": 0.05,
-        "min_child_weight": 10,
-        "min_child_samples": 10,
-    },
-    {
-        "max_depth": 6,
-        "num_leaves": 64,
-        "learning_rate": 0.05,
-        "min_child_weight": 20,
-        "min_child_samples": 20,
-    },
+        **candidate,
+        "num_leaves": 2 ** candidate["max_depth"],
+        "min_child_samples": candidate["min_child_weight"],
+    }
+    for candidate in XGB_GRID
 )
 LGBM_BASE: dict[str, Any] = {
     "objective": "binary",
@@ -108,10 +93,10 @@ LGBM_BASE: dict[str, Any] = {
     "verbose": -1,
 }
 
-CATBOOST_GRID: tuple[dict[str, Any], ...] = (
-    {"depth": 3, "learning_rate": 0.05},
-    {"depth": 4, "learning_rate": 0.05},
-    {"depth": 6, "learning_rate": 0.05},
+#: Symmetric trees have no minimum leaf size, so only depth and learning rate carry over.
+CATBOOST_GRID: tuple[dict[str, Any], ...] = tuple(
+    {"depth": candidate["max_depth"], "learning_rate": candidate["learning_rate"]}
+    for candidate in XGB_GRID
 )
 CATBOOST_BASE: dict[str, Any] = {
     "loss_function": "Logloss",
@@ -248,9 +233,11 @@ def _fit_logistic(
     """A linear reference: whether the tree ensembles earn their complexity.
 
     A linear model cannot split on a missing value, so missing values are filled
-    with the training median and each gets an indicator column. The indicator
-    carries what the trees read from NaN: a thin window is information, not a gap.
-    Scaling puts the penalty on every feature equally.
+    with the training median, and each feature missing in training gets an
+    indicator column. The indicator carries what the trees read from NaN: a thin
+    window is information, not a gap. A feature never missing in training gets
+    none, and needs none: no model has seen it missing, so none has learned
+    anything from its absence. Scaling puts the penalty on every feature equally.
     """
     from sklearn.impute import SimpleImputer
     from sklearn.linear_model import LogisticRegression

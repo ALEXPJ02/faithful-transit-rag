@@ -130,14 +130,17 @@ def command_detect(args: argparse.Namespace) -> int:
         f"  {'':<11}{'rows':>6}{'pos':>6}{'AP':>8}{'prec':>7}{'recall':>7}{'F1':>6}"
         f"{'FA/day':>9}{'rec (a)':>8}{'rec (b)':>8}"
     )
+    kept: dict[str, tuple[pd.Series, DetectionScores, Interval]] = {}
     for name in ("validation", "test"):
         part = getattr(split, name)
         score = persistence(part)
-        print(_score_line(name, score_detector(part, score, threshold=0.5)))
-        print("\n".join(_extras(part, score, 0.5, incidents, _ap_interval(part, score))))
+        kept[name] = (score, score_detector(part, score, threshold=0.5), _ap_interval(part, score))
+        print(_score_line(name, kept[name][1]))
+        print("\n".join(_extras(part, score, 0.5, incidents, kept[name][2])))
+    baseline = _Scored(kept["validation"][1].average_precision, *kept["test"])
 
     if not args.baseline_only:
-        chosen = _print_detectors(split, incidents, compare=args.compare)
+        chosen = _print_detectors(split, incidents, baseline, compare=args.compare)
         if args.save is not None:
             save_detector(
                 chosen,
@@ -185,20 +188,21 @@ ADDED_RUNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 )
 
 
-class _Run(NamedTuple):
-    """A fitted detector and what it scored, so the comparison computes nothing twice."""
+class _Scored(NamedTuple):
+    """What one system scored, kept as printed so the comparison computes none of it twice."""
 
-    detector: FittedDetector
-    validation_score: pd.Series
+    validation_ap: float
     test_score: pd.Series
+    test: DetectionScores
     test_interval: Interval
 
 
 def _print_detectors(
-    split: Split, incidents: list[Incident], *, compare: bool = False
+    split: Split, incidents: list[Incident], baseline: _Scored, *, compare: bool = False
 ) -> FittedDetector:
     """Fit and score each detector; return the full-feature XGBoost one, the headline."""
-    runs: dict[str, _Run] = {}
+    detectors: dict[str, FittedDetector] = {}
+    runs: dict[str, _Scored] = {}
     print()
     print("Detectors -- chosen on validation by average precision; test scored once:")
     print(
@@ -206,40 +210,34 @@ def _print_detectors(
         f"{'FA/day':>9}{'rec (a)':>8}{'rec (b)':>8}"
     )
     for label, name, columns in SCORED_RUNS:
-        runs[label] = _fit_and_print(label, name, columns, split, incidents)
+        detectors[label], runs[label] = _fit_and_print(label, name, columns, split, incidents)
         if label == "xgboost":
-            top = runs[label].detector.importance().head(6)
+            top = detectors[label].importance().head(6)
             print("    importance: " + ", ".join(f"{k} {v:.0%}" for k, v in top.items()))
 
     if compare:
         print()
         print("Added for comparison (docs/18) -- the same rule, after the scored run:")
         for label, name, columns in ADDED_RUNS:
-            runs[label] = _fit_and_print(label, name, columns, split, incidents)
-        _print_comparison(split, runs)
-    return runs["xgboost"].detector
+            detectors[label], runs[label] = _fit_and_print(label, name, columns, split, incidents)
+        _print_comparison(split.test, baseline, runs)
+    return detectors["xgboost"]
 
 
 def _fit_and_print(
     label: str, name: str, columns: tuple[str, ...], split: Split, incidents: list[Incident]
-) -> _Run:
+) -> tuple[FittedDetector, _Scored]:
     detector = fit_detector(name, split.train, split.validation, columns)
     print(f"  {label} (threshold {detector.threshold:.3f}, {detector.params})")
-    scores: dict[str, pd.Series] = {}
-    intervals: dict[str, Interval] = {}
     for part_name in ("validation", "test"):
         part = getattr(split, part_name)
-        scores[part_name] = detector.score(part)
-        intervals[part_name] = _ap_interval(part, scores[part_name])
-        print(_score_line(part_name, score_detector(part, scores[part_name], detector.threshold)))
-        print(
-            "\n".join(
-                _extras(
-                    part, scores[part_name], detector.threshold, incidents, intervals[part_name]
-                )
-            )
-        )
-    return _Run(detector, scores["validation"], scores["test"], intervals["test"])
+        score = detector.score(part)
+        scores = score_detector(part, score, detector.threshold)
+        interval = _ap_interval(part, score)
+        print(_score_line(part_name, scores))
+        print("\n".join(_extras(part, score, detector.threshold, incidents, interval)))
+    # The loop ends on test, so these are test's.
+    return detector, _Scored(detector.validation_ap, score, scores, interval)
 
 
 def _ap_of(rows: pd.DataFrame, column: str) -> float:
@@ -267,39 +265,31 @@ def paired_gap(part: pd.DataFrame, score: pd.Series, baseline: pd.Series) -> Int
     return paired_by_date(scored, _ap_of, "_score", "_baseline")
 
 
-def _print_comparison(split: Split, runs: dict[str, _Run]) -> None:
+def _print_comparison(test: pd.DataFrame, baseline: _Scored, runs: dict[str, _Scored]) -> None:
     """Every system on test, beside persistence, with the gap paired by date."""
-    test, validation = split.test, split.validation
-    baseline = persistence(test)
-    positives = int(test.loc[test["target"].notna(), "target"].astype(bool).sum())
-    dates = test["service_date"].nunique()
-
     print()
     print(
-        f"Every system on test ({positives} positives over {dates} dates). The gap to "
-        "persistence resamples the same dates for both:"
+        f"Every system on test ({baseline.test.positives} positives over {baseline.test.days} "
+        "dates). The gap to persistence resamples the same dates for both:"
     )
     print(
         f"  {'':<13}{'val AP':>7}{'test AP':>8}  {'95% interval':<16}"
         f"{'AP - persistence':>17}  {'95% interval':<18}{'F1':>5}{'FA/day':>8}"
     )
-    held = score_detector(validation, persistence(validation), threshold=0.5)
-    scores = score_detector(test, baseline, threshold=0.5)
     print(
-        f"  {'persistence':<13}{held.average_precision:>7.3f}{scores.average_precision:>8.3f}"
-        f"  {_ap_interval(test, baseline).bounds():<16}{'--':>17}  {'':<18}"
-        f"{scores.f1:>5.0%}{scores.false_alarms_per_day:>8.1f}"
+        f"  {'persistence':<13}{baseline.validation_ap:>7.3f}"
+        f"{baseline.test.average_precision:>8.3f}  {baseline.test_interval.bounds():<16}"
+        f"{'--':>17}  {'':<18}{baseline.test.f1:>5.0%}{baseline.test.false_alarms_per_day:>8.1f}"
     )
     partial: list[str] = []
     for label, run in runs.items():
-        scores = score_detector(test, run.test_score, run.detector.threshold)
-        gap = paired_gap(test, run.test_score, baseline)
+        gap = paired_gap(test, run.test_score, baseline.test_score)
         if 0 < gap.defined < 1:
             partial.append(f"{label} ({gap.defined:.0%})")
         print(
-            f"  {label:<13}{run.detector.validation_ap:>7.3f}{scores.average_precision:>8.3f}"
+            f"  {label:<13}{run.validation_ap:>7.3f}{run.test.average_precision:>8.3f}"
             f"  {run.test_interval.bounds():<16}{gap.point:>+17.3f}  {gap.bounds('+.3f'):<18}"
-            f"{scores.f1:>5.0%}{scores.false_alarms_per_day:>8.1f}"
+            f"{run.test.f1:>5.0%}{run.test.false_alarms_per_day:>8.1f}"
         )
     if partial:
         print("  gap defined in fewer than every resample: " + ", ".join(partial))

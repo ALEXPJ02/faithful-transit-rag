@@ -375,4 +375,5 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
 `docs/04-implementation-plan.md`'s status table and the README's status section
 both make dated claims, so they go stale silently. When you change what the system
 does, update them in the same pass rather than leaving a later reader to be misled.
-Both were last reconciled against the repo and the scored run on 2026-10-20.
+Both were last reconciled against the repo and the scored run on 2026-10-20, and
+against the post-hoc comparison (`docs/18`) on 2026-10-23.

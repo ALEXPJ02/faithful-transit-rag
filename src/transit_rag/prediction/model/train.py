@@ -63,40 +63,19 @@ LGBM_BASE: dict[str, Any] = {
     "force_row_wise": True,
     "verbose": -1,
 }
-#: :data:`PARAM_GRID`, translated as the detection grid is (``disruption/models.py``):
-#: ``num_leaves`` is 2^depth, every leaf a depth-wise tree of that depth can hold,
-#: and ``min_child_weight`` is the least hessian a leaf may hold in both libraries.
-#: Under an absolute-error loss both give every row a hessian of 1, so here it is
-#: also a row count, and ``min_child_samples`` set to the same number matches it.
-LGBM_GRID: tuple[dict[str, Any], ...] = (
+#: :data:`PARAM_GRID`, translated as the detection grid is (``disruption/models.py``),
+#: so the two cannot drift: ``num_leaves`` is 2^depth, every leaf a depth-wise tree
+#: of that depth can hold, and ``min_child_weight`` is the least hessian a leaf may
+#: hold in both libraries. Under an absolute-error loss both give every row a
+#: hessian of 1, so here it is also a row count, and ``min_child_samples`` set to
+#: the same number matches it.
+LGBM_GRID: tuple[dict[str, Any], ...] = tuple(
     {
-        "max_depth": 4,
-        "num_leaves": 16,
-        "learning_rate": 0.10,
-        "min_child_weight": 5,
-        "min_child_samples": 5,
-    },
-    {
-        "max_depth": 6,
-        "num_leaves": 64,
-        "learning_rate": 0.10,
-        "min_child_weight": 5,
-        "min_child_samples": 5,
-    },
-    {
-        "max_depth": 6,
-        "num_leaves": 64,
-        "learning_rate": 0.05,
-        "min_child_weight": 20,
-        "min_child_samples": 20,
-    },
-    {
-        "max_depth": 8,
-        "num_leaves": 256,
-        "learning_rate": 0.05,
-        "min_child_weight": 20,
-        "min_child_samples": 20,
-    },
+        **candidate,
+        "num_leaves": 2 ** candidate["max_depth"],
+        "min_child_samples": candidate["min_child_weight"],
+    }
+    for candidate in PARAM_GRID
 )
 
 CATBOOST_BASE: dict[str, Any] = {
@@ -109,13 +88,15 @@ CATBOOST_BASE: dict[str, Any] = {
     "verbose": False,
 }
 #: CatBoost grows symmetric trees, where a minimum leaf size does not apply, so
-#: its grid varies depth and learning rate alone.
-CATBOOST_GRID: tuple[dict[str, Any], ...] = (
-    {"depth": 4, "learning_rate": 0.10},
-    {"depth": 6, "learning_rate": 0.10},
-    {"depth": 6, "learning_rate": 0.05},
-    {"depth": 8, "learning_rate": 0.05},
+#: only depth and learning rate carry over.
+CATBOOST_GRID: tuple[dict[str, Any], ...] = tuple(
+    {"depth": candidate["max_depth"], "learning_rate": candidate["learning_rate"]}
+    for candidate in PARAM_GRID
 )
+
+#: What a missing line or stop becomes for CatBoost, which rejects a missing
+#: category where XGBoost and LightGBM take it natively.
+MISSING_CATEGORY = "<missing>"
 
 
 @dataclass
@@ -280,10 +261,29 @@ def train_catboost(train_set: Dataset, validation_set: Dataset) -> FittedModel:
     def fit(params: dict[str, Any]) -> tuple[Any, int]:
         model = CatBoostRegressor(**params, cat_features=list(CATEGORICAL_COLUMNS))
         model.fit(
-            train_set.features,
+            _named_categories(train_set.features),
             train_set.target,
-            eval_set=(validation_set.features, validation_set.target),
+            eval_set=(_named_categories(validation_set.features), validation_set.target),
         )
-        return model, int(model.get_best_iteration())
+        return _NamedCategories(model), int(model.get_best_iteration())
 
     return _select(CATBOOST_GRID, CATBOOST_BASE, fit, validation_set)
+
+
+def _named_categories(features: pd.DataFrame) -> pd.DataFrame:
+    """The categorical columns as strings, with a missing value named :data:`MISSING_CATEGORY`."""
+    named = features.copy()
+    for column in CATEGORICAL_COLUMNS:
+        values = named[column].astype(object)
+        named[column] = values.where(values.notna(), MISSING_CATEGORY)
+    return named
+
+
+class _NamedCategories:
+    """A fitted CatBoost that names missing categories when it predicts, as it did to fit."""
+
+    def __init__(self, model: Any) -> None:
+        self.model = model
+
+    def predict(self, features: pd.DataFrame) -> Any:
+        return self.model.predict(_named_categories(features))

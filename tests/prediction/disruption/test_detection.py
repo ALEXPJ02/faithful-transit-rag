@@ -19,8 +19,13 @@ import pytest
 
 from transit_rag.ingestion.alerts import AlertRecord
 from transit_rag.prediction.collection.store import SqliteObservationStore
+from transit_rag.prediction.disruption.detect_cli import (
+    ADDED_RUNS,
+    SCORED_RUNS,
+    WITHOUT_ALERT,
+    paired_gap,
+)
 from transit_rag.prediction.disruption.detect_cli import main as detect_main
-from transit_rag.prediction.disruption.detect_cli import paired_gap
 from transit_rag.prediction.disruption.detection import (
     best_f1_threshold,
     persistence,
@@ -34,6 +39,7 @@ from transit_rag.prediction.disruption.features import (
     detection_table,
 )
 from transit_rag.prediction.disruption.labels import Coverage, label_windows
+from transit_rag.prediction.disruption.models import ADDED_DETECTORS, SCORED_DETECTORS
 from transit_rag.realtime.parsing import StopDelayObservation
 
 # 10:00 Sydney time, a Tuesday before daylight saving.
@@ -342,6 +348,18 @@ def test_compare_only_appends_to_what_the_scored_run_printed(
     for label in ("lightgbm", "catboost", "logistic", "lgbm -alert", "cat -alert", "logit -alert"):
         assert f"  {label} (threshold" in added
     assert "Every system on test" in added
+
+
+def test_plain_transit_detect_fits_exactly_what_the_scored_run_did() -> None:
+    """docs/17 §10 reproduces only if the default runs never change; --compare adds the rest."""
+    assert SCORED_RUNS == (
+        ("xgboost", "xgboost", FEATURE_COLUMNS),
+        ("forest", "random forest", FEATURE_COLUMNS),
+        ("xgb -alert", "xgboost", WITHOUT_ALERT),
+        ("rf -alert", "random forest", WITHOUT_ALERT),
+    )
+    assert {name for _, name, _ in SCORED_RUNS} == set(SCORED_DETECTORS)
+    assert {name for _, name, _ in ADDED_RUNS} == set(ADDED_DETECTORS)
 
 
 @pytest.mark.parametrize("flag", ["--save", "--out"])
