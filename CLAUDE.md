@@ -60,6 +60,12 @@ sampled, so a re-run changes them, and any change needs a new run disclosed besi
 request. `transit-detect --compare` and `transit-train --compare` add LightGBM, CatBoost
 and logistic regression on the same frozen file. Both reproduce the scored rows byte for
 byte and write nothing, so the run changes no result. The agent keeps the scored models.
+It was run once, on 2026-10-23 from `ee5fbd1`. Its logs are
+`data/logs_20261018/v3_*`.
+- **Delay:** LightGBM beats persistence clearly, at MASE 0.813 with a paired interval of
+  [−5.2, −3.3] s, and on RMSE too. Validation would have chosen it.
+- **Detection:** nothing beats persistence significantly, even paired by date, and
+  logistic regression ranks windows as well as the boosted trees.
 
 **Built, tested, running:**
 

@@ -311,7 +311,7 @@ scored; a shortfall is reported there, with its consequences.
 | | Detecting disruptions | Identifying the reason |
 | --- | --- | --- |
 | **Baselines** | Persistence: the next window is disrupted if this one is | Most-common-cause; and the same LLM **without retrieval** (Chen et al., 2024) |
-| **Compared** | XGBoost classifier on line-level window features; random forest on the same (Cottreau et al., 2025); LSTM if time allows (Boudabbous et al., 2026) | The LLM given the five most similar past alerts — the proposed RAG approach |
+| **Compared** | XGBoost classifier on line-level window features; random forest on the same (Cottreau et al., 2025); LSTM if time allows (Boudabbous et al., 2026). LightGBM, CatBoost and logistic regression were added after the scored run, at the supervisor's request (`18`) | The LLM given the five most similar past alerts — the proposed RAG approach |
 
 Baselines are written **before** the models they are compared against, as
 `baseline.py` was, so no comparison can be retrofitted.

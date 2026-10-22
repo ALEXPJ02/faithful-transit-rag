@@ -182,6 +182,10 @@ dates. Its comparison is in [`17`](./17-results.md) §3.
 
 - ~~**The scored run**~~: done ([`17`](./17-results.md) §3), with every figure beside its
   count of positive targets and its date-resampled interval. No LSTM was added.
+- ~~**More models**~~: LightGBM, CatBoost and logistic regression, compared after the
+  scored run ([`18`](./18-model-comparison.md) §5). None beats persistence
+  significantly, even on intervals paired by date, and the linear model ranks windows as
+  well as the boosted trees.
 - **Timetabled services and cancellations as features.** Cancelled calls can now be
   placed in windows, which is how the label check does it (`11` §7). They exist only from
   2026-09-29, so the feature is `pd.NA` before then. A count of *timetabled* services

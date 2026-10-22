@@ -6,6 +6,12 @@
 > prediction, on the frozen file the scored run read. It is **post-hoc**: it was asked
 > for, built and run after the results in [`17`](./17-results.md) were known. It sits
 > beside them and replaces none of them.
+>
+> **In short:**
+> - **Delay:** LightGBM beats persistence clearly, at MASE 0.813, with a paired interval
+>   clear of zero. It is also the model a choice on validation would have made (§6).
+> - **Detection:** no model from any family beats persistence significantly, and a
+>   linear model ranks windows as well as the boosted trees (§5).
 
 ## 1. What a comparison made now can claim
 
@@ -32,8 +38,8 @@ keeps everything the scored run fixed, and fixes the rest before it runs:
 - **The scored rows do not move.** `--compare` appends to what the scored commands
   print and changes none of it (§3).
 
-What it can then claim is how these models rank on these five test dates under one
-protocol fixed in advance. It cannot promote a model. The agent keeps the scored
+What it can then claim is how these models rank on these test dates (five for
+detection, six for delay) under one protocol fixed in advance. It cannot promote a model. The agent keeps the scored
 XGBoost detector and delay model, because choosing the best of several on test would
 be choosing on test.
 
@@ -182,5 +188,167 @@ shasum -a 256 data/evaluation_20261018.db
   stdout is buffered, so a warning from an added fit could land above the scored rows
   and fail the `diff` on output that never changed. The warnings are kept, and read.
 
-The results, and what they change in `17` §8, are added here by the pull request that
-records the run.
+**The run** was made once, at 03:08 Sydney time on 23 October 2026, from `ee5fbd1`, the
+merge of the pull request that froze the grids. Both `diff`s printed nothing, and the
+checksum read `44e90956…32ac` before and after. Detection wrote nothing to stderr, and
+delay only its progress lines. Detection took a minute, delay 26 minutes. The four
+files are in `data/logs_20261018/`, as `v3_06_detect_compare` and
+`v3_05_train_compare`, each a `.log` and an `.err`. One deviation: the local venv
+predates the `transit-detect` script, so detection ran as `python -m
+transit_rag.prediction.disruption.detect_cli`, the same `main()`.
+
+## 5. Detection (RQ2)
+
+The test split is `17` §3's: 904 windows whose next 30 minutes are known, **114 of them
+positive, over 5 dates**. They are not spread evenly. **68 of the 114 fall on 15
+October**, and 17 October has none.
+
+| Test, 114 positives | Validation AP | Test AP | 95% interval | AP − persistence, paired | F1 | False alarms / day |
+| --- | --- | --- | --- | --- | --- | --- |
+| Persistence | 0.688 | 0.722 | [0.286, 0.829] | | **83%** | 2.2 |
+| XGBoost (scored) | 0.878 | 0.745 | [0.285, 0.876] | +0.022 [−0.115, +0.151] | 69% | **1.8** |
+| Random forest (scored) | **0.887** | **0.799** | [0.305, 0.897] | +0.076 [−0.054, +0.160] | 72% | 2.0 |
+| LightGBM | 0.882 | 0.757 | [0.292, 0.878] | +0.035 [−0.095, +0.147] | 70% | 2.2 |
+| CatBoost | 0.885 | 0.764 | [0.294, 0.883] | +0.042 [−0.079, +0.146] | 69% | 2.6 |
+| Logistic regression | 0.864 | 0.780 | [0.315, 0.877] | +0.058 [−0.058, +0.157] | 69% | 3.6 |
+
+| The same, without the alert feature | Validation AP | Test AP | 95% interval | AP − persistence, paired | F1 | False alarms / day |
+| --- | --- | --- | --- | --- | --- | --- |
+| XGBoost (scored) | 0.866 | 0.756 | [0.257, 0.854] | +0.033 [−0.128, +0.136] | 70% | 5.2 |
+| Random forest (scored) | 0.868 | 0.796 | [0.300, 0.889] | +0.074 [−0.075, +0.175] | 70% | 2.2 |
+| LightGBM | 0.864 | 0.750 | [0.248, 0.855] | +0.028 [−0.148, +0.141] | 67% | 3.6 |
+| CatBoost | 0.869 | 0.793 | [0.307, 0.880] | +0.070 [−0.062, +0.167] | 72% | 3.8 |
+| Logistic regression | 0.845 | 0.796 | [0.329, 0.879] | +0.073 [−0.041, +0.166] | 69% | 4.6 |
+
+The scored rows are `17` §3's, reproduced. What is new for them is the paired gap.
+
+- **No detector beats persistence, even paired.** All ten gaps are positive, from +0.02
+  to +0.08, and every interval includes zero. Pairing narrows them a lot: the forest's
+  own interval is 0.59 wide, and its gap's is 0.21. Five dates are not enough even so,
+  when one of them holds 60% of the positives.
+- **The random forest is still the best ranker,** at 0.799. It also had the best
+  validation AP, so choosing on validation would pick it.
+- **The linear model ranks windows as well as the boosted trees.** Logistic
+  regression's test AP, 0.780, is above all three boosting libraries', which run from
+  0.745 to 0.764 with the alert feature. The gap is within noise either way. On this
+  split nothing shows the tree ensembles earning their complexity over a linear model.
+- **Validation's ranking did not carry to test, apart from the forest at the top.**
+  Logistic regression was last on validation and near the top on test. XGBoost was
+  fourth on validation and last on test. Five test dates allow that much.
+- **Persistence is still the better alarm.** At the thresholds chosen on validation,
+  every detector's F1 is 67–72%, against persistence's 83%, as in `17` §3.
+- **The operator's alert still adds nothing measurable.** Without it, CatBoost and
+  logistic regression score higher on test, and LightGBM lower, all within noise.
+- **Lead time does not separate them.**
+  - **Flagging:** every detector, scored or added, flags 6 of the 8 test incidents,
+    where persistence flags all 8.
+  - **Median leads** are 0 minutes. The exceptions are CatBoost and XGBoost without the
+    alert feature, at +3 minutes with 4 of their 6 before the alert.
+  - **Resolution:** a lead time is good to about 30 minutes (`12` §5), so none of
+    these differ.
+- **The log's "defined in fewer than every resample (100%)".** One resample of 2,000
+  drew 17 October, which has no positive target, five times. The share is 99.95%,
+  printed as 100%. The same is true of every AP interval in `17` §3.
+
+## 6. Delay prediction (RQ1 Objective 2)
+
+The compared test rows are `17` §4's, 72,728 of them over 6 dates, and so is the
+persistence baseline.
+
+| Test, 72,728 rows | Validation MAE | MAE | RMSE | MAPE* | MASE | MAE − persistence, paired |
+| --- | --- | --- | --- | --- | --- | --- |
+| Naive persistence | | 22.8 s | 66.5 s | 81% | | |
+| XGBoost (scored) | 22.6 s | 22.0 s | 78.8 s | **56%** | 0.963 | −0.9 s [−3.0, +2.7] |
+| **LightGBM** | **21.0 s** | **18.5 s** | **61.0 s** | 58% | **0.813** | **−4.3 s [−5.2, −3.3]** |
+| CatBoost | 22.2 s | 20.2 s | 67.0 s | 63% | 0.884 | −2.6 s [−3.7, −1.1] |
+
+\*MAPE covers only the 51% of rows with a non-zero delay. All three chose depth 8 and
+learning rate 0.05.
+
+- **LightGBM beats persistence clearly.** Its MAE is 19% lower, and the paired interval
+  excludes zero by 3.3 seconds. **CatBoost does too**, by 12%. The scored XGBoost's 3.7%
+  gain has a paired interval that includes zero, so on its own it is not distinguishable
+  from persistence.
+- **LightGBM also beats persistence on RMSE,** at 61.0 seconds against 66.5, where
+  XGBoost loses (78.8). `17` §4 put XGBoost's RMSE loss down to its absolute-error
+  training. LightGBM trains on the same loss and does not lose, so the loss alone does
+  not explain it. Why XGBoost's large misses are larger was not investigated.
+- **Validation agrees with test.** LightGBM also has the lowest validation MAE, 21.0
+  seconds against 22.2 and 22.6. Choosing the library on validation, as the
+  hyperparameters were chosen, would have picked it without looking at test. Unlike
+  detection's ranking, this one holds on both, by a clear margin. No interval was
+  computed for LightGBM against XGBoost directly. The plan set the gap to persistence as
+  the comparison.
+- **The tree cap binds for LightGBM and CatBoost.** The cap of 2,000 trees is the scored
+  XGBoost's, kept for parity, and XGBoost stopped early (best iteration 1,690).
+  - **LightGBM's** chosen candidate used every tree it was allowed (best iteration
+    1,999).
+  - **CatBoost's** best was at 1,985, nearer the cap than its 50-round patience, so the
+    cap ended its fit too.
+
+  More trees might improve both, so their figures are if anything conservative.
+- **The 90% interval holds for every model.** Calibrated on each model's own validation
+  residuals:
+
+  | How late the train already is | XGBoost | LightGBM | CatBoost |
+  | --- | --- | --- | --- |
+  | First stop | 86.5% | 86.4% | 86.5% |
+  | On time (≤ 60 s) | 88.8% | 89.0% | 88.9% |
+  | Late 1–5 min | 89.7% | 89.4% | 90.1% |
+  | Late > 5 min | 89.9% | 91.8% | 91.7% |
+  | All | 88.9% | 89.1% | 89.2% |
+
+  The shortfall at first stops is the same for all three, so it belongs to the method
+  and the data, not to one model. `17` §4 traces it to the test dates following the
+  calibration dates.
+
+## 7. What this changes in `17` §8
+
+**RQ1 Objective 2, prediction with its margin: feasible, with a real gain from the
+right library.**
+- **What `17` §8 said:** "small gains". XGBoost beat persistence by 3.7% on MAE, and
+  the paired interval here shows that gain is not distinguishable from zero.
+- **What changes:** LightGBM, which a choice on validation would have made, beats
+  persistence by 19% on MAE and on RMSE too, with a paired interval clear of zero.
+- **What holds:** the conformal margin holds at about 89% whichever model it wraps.
+
+**RQ2, which model detects disruptions better: unchanged, on stronger evidence.**
+- Five learners from three families (linear, bagged and boosted) now stand beside
+  persistence. None beats it significantly, now on paired intervals as well as overlapping
+  ones, and persistence stays the better alarm.
+- A linear model ranks windows as well as any boosted tree.
+
+**What these results do not support:**
+- that any detector, from any of these families, beats persistence significantly on
+  these five dates;
+- that one boosting library detects better than another;
+- that LightGBM beats XGBoost on delay by a margin with its own interval, which was not
+  computed.
+
+**The agent keeps the scored models.** Its answers were scored with them (`17` §6).
+Moving its delay tool to LightGBM, the model a fresh choice on validation would make,
+is future work, and it would need its own disclosed run.
+
+## 8. Threats to validity
+
+- **The comparison is post-hoc.** The scored results were known when these models were
+  added.
+  - **Mitigations:** the grids and rules were frozen in a merged pull request before
+    any added model touched test, the run was made once, and the scored rows reproduced
+    byte for byte.
+  - **What they cannot undo:** which families to add was chosen knowing the scored
+    results. The supervisor named LightGBM and CatBoost, and logistic regression was
+    added as the linear reference. None was chosen for how it scored.
+- **Five test dates, one of them dominant.** 15 October holds 68 of detection's 114
+  positives, and 17 October none, which is why every detection interval is wide. Delay
+  rests on six dates.
+- **The comparisons are uncorrected.** There are ten detection gaps and three delay
+  gaps, each at 95%. No detection interval excludes zero, so a correction cannot change
+  that conclusion.
+- **Equal candidate counts are not equal tuning.** Each library keeps its own defaults
+  where there is no shared parameter (§2), and the tree cap binds for two of the three
+  boosters on delay.
+- **Re-runs reproduce on the same machine** (§3). On another thread count or processor
+  the last bits of a score can differ, as the scored run's can.
+- **Importances are not compared.** Each library defines importance its own way, so only
+  XGBoost's is printed, as in the scored run.

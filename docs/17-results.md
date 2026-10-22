@@ -6,6 +6,11 @@ and its thresholds (`08` §5), the retrain window, and the reasons prompt (`13` 
 judge and its rubric were fixed by validation (`15` §4). The figures elsewhere in these
 docs are development figures. These are the results.
 
+**More models were compared afterwards, on the same file** ([`18`](./18-model-comparison.md)).
+The supervisor asked for the comparison after this run. Its grids were frozen before
+any added model saw test, it reproduces every figure on this page that it touches, and
+it replaces none of them.
+
 **The scored run was made twice, and the second run is the result.** The first used the
 alert rule as it stood on 2026-10-11. Reading its outputs showed that the rule's
 held-out check had stopped on that date, although `09` §7 commits to continuing it to
@@ -140,7 +145,8 @@ validation MAE.
 
 **The model beats persistence by 3.7% on MAE, MASE 0.963, and loses on RMSE.** It is
 trained on absolute error, which rewards many small gains over avoiding a few large
-misses. In development, on the 17 schedule-covered dates to 2026-09-24, MASE was 0.828.
+misses. That is not the whole story: LightGBM, trained on the same loss, beats
+persistence on RMSE too (`18` §6). In development, on the 17 schedule-covered dates to 2026-09-24, MASE was 0.828.
 On the scored test dates the margin is much narrower. Peak MAE is 27.7 s and off-peak
 18.5 s. The previous stop's delay carries 82% of the gain.
 

@@ -216,10 +216,16 @@ Every figure below is from the scored run on the frozen evaluation file at the
   adds LightGBM, CatBoost and logistic regression to detection, and LightGBM and
   CatBoost to delay prediction, on the same frozen file
   ([`docs/18`](./docs/18-model-comparison.md)). Their grids mirror XGBoost's and were
-  fixed before any of them was scored. It is a comparison disclosed beside the result,
-  never part of it, and the agent keeps the scored models. The run is next.
-- **Next** — the comparison run, then the write-up. A live feed behind the agent's tools
-  is future work. The MCP server is built (`transit-mcp`,
+  frozen before any of them saw test. Run once on 2026-10-23:
+  - **Delay:** LightGBM beats persistence clearly, **MASE 0.813**, with a paired 95%
+    interval of [−5.2, −3.3] s. It beats persistence on RMSE as well, where XGBoost
+    loses, and validation would also have chosen it.
+  - **Detection:** no model beats persistence significantly, even paired by date.
+    Logistic regression (AP 0.78) ranks as well as the boosted trees (0.75–0.76).
+
+  It is disclosed beside the result, never part of it, and the agent keeps the scored
+  models.
+- **Next** — the write-up. A live feed behind the agent's tools is future work. The MCP server is built (`transit-mcp`,
   [`docs/16`](./docs/16-mcp-server.md)).
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
