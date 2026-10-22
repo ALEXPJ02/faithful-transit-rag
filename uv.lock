@@ -4097,7 +4097,7 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'prediction'", specifier = ">=2.2" },
     { name = "protobuf", marker = "extra == 'realtime'", specifier = ">=4.25" },
     { name = "pydantic", marker = "extra == 'rag'", specifier = ">=2.7" },
-    { name = "pypdf", marker = "extra == 'rag'", specifier = ">=5.0" },
+    { name = "pypdf", marker = "extra == 'rag'", specifier = ">=6.21.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
