@@ -21,6 +21,11 @@ keeps everything the scored run fixed, and fixes the rest before it runs:
   request before any added model was scored on test. The run is made once. If a model
   had failed on real data, the code would have been fixed, never the grid, and the
   fix recorded here.
+- **Corrected in review, before the run.** Review of that pull request found two places
+  where LightGBM's grid did not mirror XGBoost's. Both were fixed before anything was
+  scored:
+  - its trees were capped one leaf short (2^depth − 1);
+  - in detection, its leaf minimum counted rows where XGBoost's counts hessian.
 - **The scored rows do not move.** `--compare` appends to what the scored commands
   print and changes none of it (§3).
 
@@ -51,30 +56,37 @@ linear model would need one coefficient for each.
 
 ### The grids
 
-Each boosting grid **mirrors XGBoost's depths and learning rates**, so no library is
-searched harder than another. A leaf-wise LightGBM tree is held to `num_leaves =
-2^depth − 1`, the most a depth-wise tree of that depth can have.
+Each boosting grid **mirrors XGBoost's**: the same depths, learning rates and leaf
+minimums, so no library is searched harder, or held tighter, than another. A leaf-wise
+LightGBM tree is held to `num_leaves = 2^depth`, every leaf a depth-wise tree of that
+depth can hold. A test pins the mirroring, so the grids cannot drift apart.
 
 | Detection, 3 candidates each | Candidates | Fixed |
 | --- | --- | --- |
 | XGBoost (scored) | depth 3/4/6, learning rate 0.05, `min_child_weight` 5/10/20 | 1,000 trees, early stopping on validation AP (`aucpr`) |
 | Random forest (scored) | depth 6/10/unlimited, `min_samples_leaf` 5/10/20 | 500 trees |
-| LightGBM | depth 3/4/6, `num_leaves` 7/15/63, learning rate 0.05, `min_child_samples` 5/10/20 | 1,000 trees, early stopping on validation AP, the only metric tracked |
+| LightGBM | depth 3/4/6, `num_leaves` 8/16/64, learning rate 0.05, `min_child_weight` 5/10/20 | 1,000 trees, early stopping on validation AP, the only metric tracked |
 | CatBoost | depth 3/4/6, learning rate 0.05 | 1,000 iterations, early stopping on validation PR-AUC |
 | Logistic regression | C 0.01/0.1/1 | Median imputation with an indicator per missing column, then standard scaling |
 
 | Delay, 4 candidates each | Candidates | Fixed |
 | --- | --- | --- |
 | XGBoost (scored) | depth 4/6/6/8, learning rate 0.10/0.10/0.05/0.05, `min_child_weight` 5/5/20/20 | Absolute-error loss, 2,000 trees, early stopping on validation MAE |
-| LightGBM | depth 4/6/6/8, `num_leaves` 15/63/63/255, learning rate as XGBoost's, `min_child_samples` 5/5/20/20 | L1 loss, 2,000 trees, early stopping on validation MAE |
+| LightGBM | depth 4/6/6/8, `num_leaves` 16/64/64/256, learning rate as XGBoost's, `min_child_weight` 5/5/20/20 | L1 loss, 2,000 trees, early stopping on validation MAE |
 | CatBoost | depth 4/6/6/8, learning rate as XGBoost's | MAE loss, 2,000 iterations, early stopping on validation MAE; the line and stop are named as categories |
 
 Three choices need their reasons:
 
-- **Leaf sizes.** Under an absolute-error loss every row weighs the same, so XGBoost's
-  `min_child_weight` counts rows. LightGBM's `min_child_samples` takes the same
-  numbers. CatBoost's symmetric trees have no minimum leaf size, so its grid varies
-  depth and learning rate alone.
+- **Leaf sizes.** `min_child_weight` is the least hessian a leaf may hold, and means
+  the same in XGBoost and LightGBM, so LightGBM takes XGBoost's numbers.
+  - **In detection it is not a row count.** Under log loss a row adds p(1 − p), at
+    most 0.25, and near the 6% base rate about 0.06. LightGBM's own row floor,
+    `min_child_samples`, is set to the same number, which the hessian floor already
+    exceeds, so it never binds.
+  - **In delay it is.** Under absolute error both libraries give every row a hessian of
+    1, so both floors match XGBoost's exactly.
+  - **CatBoost has no leaf-size control.** Its symmetric trees have no minimum leaf
+    size, so its grid varies depth and learning rate alone.
 - **Missing values in the linear model.** It cannot split on a missing value as the
   trees do. A window with no service is information, not a gap (`12` §2), so the
   indicator column carries it.
@@ -101,6 +113,10 @@ between two scores (`12` §3). Test is scored once.
   lateness, calibrated on that model's validation residuals (`08` §4). This shows
   whether the margin method holds for a model other than the one it was built for.
 
+**Validation MAE is measured one way in the delay table**: from each model's own
+predictions, XGBoost's included. XGBoost's selection itself read its float32 eval
+metric, as in the scored run, which this comparison does not change.
+
 **Re-runs reproduce.** LightGBM runs with `deterministic` and `force_row_wise`, and
 every model has a fixed seed. A test refits each detector and checks that its scores
 are bit-identical, as the forest's are (`12` §5).
@@ -115,7 +131,9 @@ room for `--compare` leaves the scored output unchanged:
 - The frozen file's checksum did not move.
 
 **Both commands write nothing under `--compare`.** No table, no model, no metrics
-file. They only print, and the log is the record, as it is for the scored run.
+file. `transit-detect --compare` refuses `--save` and `--out`, so it cannot overwrite
+the agent's detector. They only print, and the log is the record, as it is for the
+scored run.
 
 ## 4. Running it
 
@@ -124,9 +142,9 @@ are what make the run admissible:
 
 ```bash
 shasum -a 256 data/evaluation_20261018.db
-transit-detect --db data/evaluation_20261018.db --compare 2>&1 | tee data/logs_20261018/v3_06_detect_compare.log
+transit-detect --db data/evaluation_20261018.db --compare > data/logs_20261018/v3_06_detect_compare.log 2> data/logs_20261018/v3_06_detect_compare.err
 diff <(head -n 50 data/logs_20261018/v2_06_detect.log) <(head -n 50 data/logs_20261018/v3_06_detect_compare.log)
-transit-train --table data/training_table_20261018.csv --compare > data/logs_20261018/v3_05_train_compare.log
+transit-train --table data/training_table_20261018.csv --compare > data/logs_20261018/v3_05_train_compare.log 2> data/logs_20261018/v3_05_train_compare.err
 diff <(grep -v '^INFO' data/logs_20261018/05_train.log) <(head -n 48 data/logs_20261018/v3_05_train_compare.log)
 shasum -a 256 data/evaluation_20261018.db
 ```
@@ -135,8 +153,10 @@ shasum -a 256 data/evaluation_20261018.db
 - **Both `diff`s** must print nothing:
   - the first 50 lines of the detection log are the scored detection output, before its
     `--save` and `--out` lines;
-  - the first 48 lines of the delay log are the scored delay report. Its progress lines
-    go to the terminal, not the log.
+  - the first 48 lines of the delay log are the scored delay report.
+- **Stderr is kept in its own file**, the `.err` beside each log. Written to a pipe,
+  stdout is buffered, so a warning from an added fit could land above the scored rows
+  and fail the `diff` on output that never changed. The warnings are kept, and read.
 
 The results, and what they change in `17` §8, are added here by the pull request that
 records the run.

@@ -15,21 +15,22 @@ anything. It reads the snapshot and writes only to ``--out``.
 
 ``--compare`` adds LightGBM, CatBoost and logistic regression, after the scored
 detectors and in the same format, then ranks every system against persistence
-(``docs/18``). Without it the output is exactly what the scored run printed.
+(``docs/18``). Without it the output is exactly what the scored run printed. It
+refuses ``--save`` and ``--out``: the comparison writes nothing.
 """
 
 from __future__ import annotations
 
 import argparse
-import math
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import pandas as pd
 
 from transit_rag.evaluation.lead_time import lead_times, summarise
-from transit_rag.evaluation.stats import Interval, bootstrap_by_date
+from transit_rag.evaluation.stats import Interval, bootstrap_by_date, paired_by_date
 from transit_rag.ingestion.alerts import (
     DEFAULT_OVERRIDES,
     Incident,
@@ -67,10 +68,13 @@ def build(db: Path, overrides: Path, rule: LabelRule) -> tuple[pd.DataFrame, lis
 
 
 def _extras(
-    part: pd.DataFrame, score: pd.Series, threshold: float, incidents: list[Incident]
+    part: pd.DataFrame,
+    score: pd.Series,
+    threshold: float,
+    incidents: list[Incident],
+    interval: Interval,
 ) -> list[str]:
     """The AP's date-resampled 95% interval, and lead time against the operator's alerts."""
-    interval = _ap_interval(part, score)
     leads = summarise(lead_times(part, score >= threshold, incidents))
     return [f"      AP {interval.describe()}", f"      lead time: {leads.describe()}"]
 
@@ -128,8 +132,9 @@ def command_detect(args: argparse.Namespace) -> int:
     )
     for name in ("validation", "test"):
         part = getattr(split, name)
-        print(_score_line(name, score_detector(part, persistence(part), threshold=0.5)))
-        print("\n".join(_extras(part, persistence(part), 0.5, incidents)))
+        score = persistence(part)
+        print(_score_line(name, score_detector(part, score, threshold=0.5)))
+        print("\n".join(_extras(part, score, 0.5, incidents, _ap_interval(part, score))))
 
     if not args.baseline_only:
         chosen = _print_detectors(split, incidents, compare=args.compare)
@@ -180,11 +185,20 @@ ADDED_RUNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 )
 
 
+class _Run(NamedTuple):
+    """A fitted detector and what it scored, so the comparison computes nothing twice."""
+
+    detector: FittedDetector
+    validation_score: pd.Series
+    test_score: pd.Series
+    test_interval: Interval
+
+
 def _print_detectors(
     split: Split, incidents: list[Incident], *, compare: bool = False
 ) -> FittedDetector:
     """Fit and score each detector; return the full-feature XGBoost one, the headline."""
-    fitted: dict[str, FittedDetector] = {}
+    runs: dict[str, _Run] = {}
     print()
     print("Detectors -- chosen on validation by average precision; test scored once:")
     print(
@@ -192,31 +206,53 @@ def _print_detectors(
         f"{'FA/day':>9}{'rec (a)':>8}{'rec (b)':>8}"
     )
     for label, name, columns in SCORED_RUNS:
-        fitted[label] = _fit_and_print(label, name, columns, split, incidents)
+        runs[label] = _fit_and_print(label, name, columns, split, incidents)
         if label == "xgboost":
-            top = fitted[label].importance().head(6)
+            top = runs[label].detector.importance().head(6)
             print("    importance: " + ", ".join(f"{k} {v:.0%}" for k, v in top.items()))
 
     if compare:
         print()
         print("Added for comparison (docs/18) -- the same rule, after the scored run:")
         for label, name, columns in ADDED_RUNS:
-            fitted[label] = _fit_and_print(label, name, columns, split, incidents)
-        _print_comparison(split, fitted)
-    return fitted["xgboost"]
+            runs[label] = _fit_and_print(label, name, columns, split, incidents)
+        _print_comparison(split, runs)
+    return runs["xgboost"].detector
 
 
 def _fit_and_print(
     label: str, name: str, columns: tuple[str, ...], split: Split, incidents: list[Incident]
-) -> FittedDetector:
+) -> _Run:
     detector = fit_detector(name, split.train, split.validation, columns)
     print(f"  {label} (threshold {detector.threshold:.3f}, {detector.params})")
+    scores: dict[str, pd.Series] = {}
+    intervals: dict[str, Interval] = {}
     for part_name in ("validation", "test"):
         part = getattr(split, part_name)
-        score = detector.score(part)
-        print(_score_line(part_name, score_detector(part, score, detector.threshold)))
-        print("\n".join(_extras(part, score, detector.threshold, incidents)))
-    return detector
+        scores[part_name] = detector.score(part)
+        intervals[part_name] = _ap_interval(part, scores[part_name])
+        print(_score_line(part_name, score_detector(part, scores[part_name], detector.threshold)))
+        print(
+            "\n".join(
+                _extras(
+                    part, scores[part_name], detector.threshold, incidents, intervals[part_name]
+                )
+            )
+        )
+    return _Run(detector, scores["validation"], scores["test"], intervals["test"])
+
+
+def _ap_of(rows: pd.DataFrame, column: str) -> float:
+    return average_precision(
+        rows["target"].to_numpy(dtype=bool), rows[column].to_numpy(dtype=float)
+    )
+
+
+def _ap_interval(part: pd.DataFrame, score: pd.Series) -> Interval:
+    """AP on the rows whose target is known, and its date-resampled 95% interval."""
+    known = part["target"].notna()
+    scored = part.loc[known].assign(_score=score[known])
+    return bootstrap_by_date(scored, lambda rows: _ap_of(rows, "_score"))
 
 
 def paired_gap(part: pd.DataFrame, score: pd.Series, baseline: pd.Series) -> Interval:
@@ -228,29 +264,10 @@ def paired_gap(part: pd.DataFrame, score: pd.Series, baseline: pd.Series) -> Int
     """
     known = part["target"].notna()
     scored = part.loc[known].assign(_score=score[known], _baseline=baseline[known])
-
-    def gap(rows: pd.DataFrame) -> float:
-        target = rows["target"].to_numpy(dtype=bool)
-        return average_precision(target, rows["_score"].to_numpy(dtype=float)) - (
-            average_precision(target, rows["_baseline"].to_numpy(dtype=float))
-        )
-
-    return bootstrap_by_date(scored, gap)
+    return paired_by_date(scored, _ap_of, "_score", "_baseline")
 
 
-def _ap_interval(part: pd.DataFrame, score: pd.Series) -> Interval:
-    """AP on the rows whose target is known, and its date-resampled 95% interval."""
-    known = part["target"].notna()
-    scored = part.loc[known].assign(_score=score[known])
-    return bootstrap_by_date(
-        scored,
-        lambda rows: average_precision(
-            rows["target"].to_numpy(dtype=bool), rows["_score"].to_numpy(dtype=float)
-        ),
-    )
-
-
-def _print_comparison(split: Split, fitted: dict[str, FittedDetector]) -> None:
+def _print_comparison(split: Split, runs: dict[str, _Run]) -> None:
     """Every system on test, beside persistence, with the gap paired by date."""
     test, validation = split.test, split.validation
     baseline = persistence(test)
@@ -266,38 +283,26 @@ def _print_comparison(split: Split, fitted: dict[str, FittedDetector]) -> None:
         f"  {'':<13}{'val AP':>7}{'test AP':>8}  {'95% interval':<16}"
         f"{'AP - persistence':>17}  {'95% interval':<18}{'F1':>5}{'FA/day':>8}"
     )
-    systems: list[tuple[str, pd.Series, pd.Series, float]] = [
-        ("persistence", persistence(validation), baseline, 0.5)
-    ]
-    systems += [
-        (label, detector.score(validation), detector.score(test), detector.threshold)
-        for label, detector in fitted.items()
-    ]
+    held = score_detector(validation, persistence(validation), threshold=0.5)
+    scores = score_detector(test, baseline, threshold=0.5)
+    print(
+        f"  {'persistence':<13}{held.average_precision:>7.3f}{scores.average_precision:>8.3f}"
+        f"  {_ap_interval(test, baseline).bounds():<16}{'--':>17}  {'':<18}"
+        f"{scores.f1:>5.0%}{scores.false_alarms_per_day:>8.1f}"
+    )
     partial: list[str] = []
-    for label, validation_score, test_score, threshold in systems:
-        scores = score_detector(test, test_score, threshold)
-        held = score_detector(validation, validation_score, threshold)
-        interval = _ap_interval(test, test_score)
-        if label == "persistence":
-            gap_text = f"{'--':>17}  {'':<18}"
-        else:
-            gap = paired_gap(test, test_score, baseline)
-            gap_text = f"{gap.point:>+17.3f}  {_bounds(gap, '+.3f'):<18}"
-            if 0 < gap.defined < 1:
-                partial.append(f"{label} ({gap.defined:.0%})")
+    for label, run in runs.items():
+        scores = score_detector(test, run.test_score, run.detector.threshold)
+        gap = paired_gap(test, run.test_score, baseline)
+        if 0 < gap.defined < 1:
+            partial.append(f"{label} ({gap.defined:.0%})")
         print(
-            f"  {label:<13}{held.average_precision:>7.3f}{scores.average_precision:>8.3f}"
-            f"  {_bounds(interval, '.3f'):<16}{gap_text}"
+            f"  {label:<13}{run.detector.validation_ap:>7.3f}{scores.average_precision:>8.3f}"
+            f"  {run.test_interval.bounds():<16}{gap.point:>+17.3f}  {gap.bounds('+.3f'):<18}"
             f"{scores.f1:>5.0%}{scores.false_alarms_per_day:>8.1f}"
         )
     if partial:
         print("  gap defined in fewer than every resample: " + ", ".join(partial))
-
-
-def _bounds(interval: Interval, spec: str) -> str:
-    if math.isnan(interval.low):
-        return "no interval"
-    return f"[{interval.low:{spec}}, {interval.high:{spec}}]"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -332,7 +337,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.compare and (args.save is not None or args.out is not None):
+        parser.error("--compare writes nothing (docs/18); run --save or --out without it")
     try:
         result: int = args.handler(args)
         return result

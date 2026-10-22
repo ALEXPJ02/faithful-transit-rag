@@ -344,6 +344,16 @@ def test_compare_only_appends_to_what_the_scored_run_printed(
     assert "Every system on test" in added
 
 
+@pytest.mark.parametrize("flag", ["--save", "--out"])
+def test_compare_refuses_to_write(tmp_path: Path, flag: str) -> None:
+    """docs/18: the comparison writes nothing, so it cannot overwrite the agent's detector."""
+    target = tmp_path / "written"
+    with pytest.raises(SystemExit) as refused:
+        detect_main(["--db", str(tmp_path / "any.db"), "--compare", flag, str(target)])
+    assert refused.value.code == 2
+    assert not target.exists()
+
+
 class TestPairedGap:
     def _part(self) -> pd.DataFrame:
         rng = np.random.default_rng(0)

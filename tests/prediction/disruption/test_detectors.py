@@ -69,6 +69,19 @@ def test_only_rows_with_a_known_target_are_fitted_or_scored() -> None:
     assert len(known(table)) == 15
 
 
+def test_the_boosting_grids_mirror_xgboost_s() -> None:
+    """docs/18 §2: no boosting library is searched harder, or held tighter, than XGBoost."""
+    for xgb, lgbm, cat in zip(XGB_GRID, LGBM_GRID, CATBOOST_GRID, strict=True):
+        assert lgbm["max_depth"] == cat["depth"] == xgb["max_depth"]
+        assert lgbm["learning_rate"] == cat["learning_rate"] == xgb["learning_rate"]
+        # Every leaf a depth-wise tree of that depth can hold: 2^depth, not 2^depth - 1.
+        assert lgbm["num_leaves"] == 2 ** xgb["max_depth"]
+        # The same least hessian per leaf. Under log loss a row adds at most 0.25, so
+        # the hessian floor already demands 4x as many rows as the row floor allows.
+        assert lgbm["min_child_weight"] == xgb["min_child_weight"]
+        assert lgbm["min_child_samples"] <= 4 * lgbm["min_child_weight"]
+
+
 def test_the_scored_run_s_detectors_are_still_the_default() -> None:
     """docs/17 is reproduced by transit-detect without --compare; this is what it fits."""
     assert SCORED_DETECTORS == ("xgboost", "random forest")

@@ -58,11 +58,12 @@ from pathlib import Path
 import pandas as pd
 
 from transit_rag.config import PROJECT_ROOT
-from transit_rag.evaluation.stats import Interval, bootstrap_by_date
+from transit_rag.evaluation.stats import Interval, paired_by_date
 from transit_rag.prediction.features.quality import (
     CLOSE_OBSERVATION_STOPS_AHEAD,
     MAX_PLAUSIBLE_DELAY_S,
     MIN_SCHEDULE_COVERAGE,
+    Split,
     time_based_split,
 )
 from transit_rag.prediction.model import baseline, conformal, metrics
@@ -76,7 +77,14 @@ from transit_rag.prediction.model.dataset import (
     filter_schedule_covered,
     load_training_table,
 )
-from transit_rag.prediction.model.train import FittedModel, train, train_catboost, train_lightgbm
+from transit_rag.prediction.model.train import (
+    CATBOOST_GRID,
+    LGBM_GRID,
+    FittedModel,
+    train,
+    train_catboost,
+    train_lightgbm,
+)
 
 log = logging.getLogger("transit_rag.train")
 
@@ -199,6 +207,15 @@ def _fit_and_score(table: pd.DataFrame) -> tuple[FittedModel, dict[str, object]]
         },
     }
     summary["_levels"] = levels
+    # What --compare scores the added models on, kept rather than rebuilt so they
+    # can only ever meet the rows XGBoost was scored on.
+    summary["_sets"] = {
+        "train": train_set,
+        "validation": validation_set,
+        "compared": test_set,
+        "every_test_row": every_test_row,
+    }
+    summary["_split"] = split
     return fitted, summary
 
 
@@ -299,37 +316,37 @@ def _print_interval(summary: dict[str, object]) -> None:
         )
 
 
-def _print_comparison(table: pd.DataFrame, fitted: FittedModel, summary: dict[str, object]) -> None:
+def _print_comparison(fitted: FittedModel, summary: dict[str, object]) -> None:
     """LightGBM and CatBoost beside XGBoost and persistence, on the same rows (``docs/18``).
 
-    The split, the category levels and the compared test rows are the scored
-    run's. Each model's 90% interval is calibrated on its own validation
-    residuals by the same bins, which shows whether the margin holds for a model
-    other than the one it was built for.
+    The split, the datasets and the compared test rows are the ones
+    :func:`_fit_and_score` built for the scored report. Each model's 90% interval is
+    calibrated on its own validation residuals by the same bins, which shows
+    whether the margin holds for a model other than the one it was built for.
     """
-    levels = summary["_levels"]
-    frames = summary["_frames"]
-    assert isinstance(levels, dict) and isinstance(frames, dict)
-    split = time_based_split(table)
-    train_set = build_dataset(split.train, levels)
-    validation_set = build_dataset(split.validation, levels)
+    frames, sets, split = summary["_frames"], summary["_sets"], summary["_split"]
+    assert isinstance(frames, dict) and isinstance(sets, dict)
+    assert isinstance(split, Split)
+    validation_set, compared = sets["validation"], sets["compared"]
+    every_test_row = sets["every_test_row"]
     comparable = frames["comparable"]
-    compared = build_dataset(comparable, levels)
-    every_test_row = build_dataset(split.test, levels)
+    baseline_scores = frames["baseline_scores"]
     validation_keys = conformal.bin_keys(split.validation)
     test_keys = conformal.bin_keys(split.test)
     lateness = conformal.bin_columns(split.test)["lateness"]
-    baseline_scores = frames["baseline_scores"]
 
     models: list[tuple[str, FittedModel]] = [("XGBoost", fitted)]
-    for name, fit in (("LightGBM", train_lightgbm), ("CatBoost", train_catboost)):
-        log.info("fitting %d %s candidates", 4, name)
-        models.append((name, fit(train_set, validation_set)))
+    for name, fit, grid in (
+        ("LightGBM", train_lightgbm, LGBM_GRID),
+        ("CatBoost", train_catboost, CATBOOST_GRID),
+    ):
+        log.info("fitting %d %s candidates", len(grid), name)
+        models.append((name, fit(sets["train"], validation_set)))
 
     print()
     print(
         f"Compared on the same {len(comparable):,} test rows (docs/18) -- each model "
-        "chosen on validation MAE from a grid of 4:"
+        f"chosen on validation MAE from a grid of {len(LGBM_GRID)}:"
     )
     print(
         f"  {'':<20}{'val MAE':>8}{'MAE':>8}{'RMSE':>8}{'MAPE*':>7}{'MASE':>7}"
@@ -340,16 +357,21 @@ def _print_comparison(table: pd.DataFrame, fitted: FittedModel, summary: dict[st
         f"{baseline_scores.rmse_s:>7.1f}s{_mape(baseline_scores):>7}"
     )
     for name, model in models:
+        # Measured from predictions for every model, XGBoost included, so the
+        # column is one measure (train._select).
+        validation_mae = metrics.score(
+            validation_set.target, model.predict(validation_set.features)
+        ).mae_s
         prediction = model.predict(compared.features)
         scores = metrics.score(compared.target, prediction)
         gap = _paired_mae_gap(
             comparable, compared.target, prediction, frames["baseline_prediction"]
         )
         print(
-            f"  {name:<20}{model.validation_mae_s:>7.1f}s{scores.mae_s:>7.1f}s"
+            f"  {name:<20}{validation_mae:>7.1f}s{scores.mae_s:>7.1f}s"
             f"{scores.rmse_s:>7.1f}s{_mape(scores):>7}"
             f"{metrics.mase(scores, baseline_scores):>7.3f}{gap.point:>+18.1f}s"
-            f"  [{gap.low:+.1f}, {gap.high:+.1f}]"
+            f"  {gap.bounds('+.1f')}"
         )
     print(
         "  *MAPE over rows with a non-zero delay. The gap resamples the same "
@@ -361,12 +383,16 @@ def _print_comparison(table: pd.DataFrame, fitted: FittedModel, summary: dict[st
     for name, model in models:
         settings = ", ".join(
             f"{key} {model.params[key]}"
-            for key in ("max_depth", "depth", "num_leaves", "learning_rate", "min_child_weight")
+            for key in (
+                "max_depth",
+                "depth",
+                "num_leaves",
+                "learning_rate",
+                "min_child_weight",
+                "min_child_samples",
+            )
             if key in model.params
         )
-        min_samples = model.params.get("min_child_samples")
-        if min_samples is not None:
-            settings += f", min_child_samples {min_samples}"
         print(f"    {name:<10}{settings} -- {model.best_iteration + 1} trees")
 
     print()
@@ -398,23 +424,22 @@ def _mape(scores: metrics.Scores) -> str:
     return "n/a" if scores.mape_nonzero is None else f"{scores.mape_nonzero:.0f}%"
 
 
+def _mae_of(rows: pd.DataFrame, column: str) -> float:
+    return float(rows[column].abs().mean())
+
+
 def _paired_mae_gap(
     rows: pd.DataFrame, truth: pd.Series, model: pd.Series, baseline: pd.Series
 ) -> Interval:
-    """Model MAE minus persistence's, and its 95% interval from resampling whole dates.
-
-    Paired: both are scored on the same drawn dates, so a hard day raises both.
-    """
-    frame = pd.DataFrame(
+    """Model MAE minus persistence's, and its 95% interval from resampling whole dates."""
+    errors = pd.DataFrame(
         {
             "service_date": rows["service_date"].to_numpy(),
-            "model": (model.to_numpy(dtype=float) - truth.to_numpy(dtype=float)),
-            "baseline": (baseline.to_numpy(dtype=float) - truth.to_numpy(dtype=float)),
+            "model": model.to_numpy(dtype=float) - truth.to_numpy(dtype=float),
+            "baseline": baseline.to_numpy(dtype=float) - truth.to_numpy(dtype=float),
         }
     )
-    return bootstrap_by_date(
-        frame, lambda drawn: float(drawn["model"].abs().mean() - drawn["baseline"].abs().mean())
-    )
+    return paired_by_date(errors, _mae_of, "model", "baseline")
 
 
 def _run_curve(table: pd.DataFrame) -> None:
@@ -586,7 +611,7 @@ def main() -> None:
     _print_report(fitted, summary)
 
     if args.compare:
-        _print_comparison(table, fitted, summary)
+        _print_comparison(fitted, summary)
         return
     if args.report_only:
         return

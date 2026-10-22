@@ -118,6 +118,15 @@ class TestTrain:
 class TestTheAddedRegressors:
     """docs/18: LightGBM and CatBoost, chosen by the same rule as XGBoost."""
 
+    def test_their_grids_mirror_xgboost_s(self) -> None:
+        """Under absolute error every row's hessian is 1 in both libraries, so the
+        least hessian per leaf is also a row count, and both floors match XGBoost's."""
+        for xgb, lgbm, cat in zip(PARAM_GRID, LGBM_GRID, CATBOOST_GRID, strict=True):
+            assert lgbm["max_depth"] == cat["depth"] == xgb["max_depth"]
+            assert lgbm["learning_rate"] == cat["learning_rate"] == xgb["learning_rate"]
+            assert lgbm["num_leaves"] == 2 ** xgb["max_depth"]
+            assert lgbm["min_child_weight"] == lgbm["min_child_samples"] == xgb["min_child_weight"]
+
     @pytest.mark.parametrize(
         ("fit", "grid", "library"),
         [(train_lightgbm, LGBM_GRID, "lightgbm"), (train_catboost, CATBOOST_GRID, "catboost")],

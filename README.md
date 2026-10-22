@@ -212,8 +212,15 @@ Every figure below is from the scored run on the frozen evaluation file at the
   [`docs/15`](./docs/15-faithfulness-judge.md)). The judge, Claude Opus 4.6 with rubric
   version 4, passed a third held-out round against the author at κ 0.61. It leans
   lenient, so its faithfulness rates are upper bounds.
-- **Next** — the write-up. A live feed behind the agent's tools is future work.
-  The MCP server is built (`transit-mcp`, [`docs/16`](./docs/16-mcp-server.md)).
+- **More models, after the scored run** — at the supervisor's request, `--compare`
+  adds LightGBM, CatBoost and logistic regression to detection, and LightGBM and
+  CatBoost to delay prediction, on the same frozen file
+  ([`docs/18`](./docs/18-model-comparison.md)). Their grids mirror XGBoost's and were
+  fixed before any of them was scored. It is a comparison disclosed beside the result,
+  never part of it, and the agent keeps the scored models. The run is next.
+- **Next** — the comparison run, then the write-up. A live feed behind the agent's tools
+  is future work. The MCP server is built (`transit-mcp`,
+  [`docs/16`](./docs/16-mcp-server.md)).
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.

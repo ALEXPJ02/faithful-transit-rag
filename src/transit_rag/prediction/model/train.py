@@ -63,15 +63,40 @@ LGBM_BASE: dict[str, Any] = {
     "force_row_wise": True,
     "verbose": -1,
 }
-#: ``num_leaves`` is 2^depth - 1, so a leaf-wise tree can hold no more than the
-#: depth-wise XGBoost tree it is compared with. Under an absolute-error loss
-#: every row weighs the same, so XGBoost's ``min_child_weight`` is a row count
-#: and maps onto ``min_child_samples``.
+#: :data:`PARAM_GRID`, translated as the detection grid is (``disruption/models.py``):
+#: ``num_leaves`` is 2^depth, every leaf a depth-wise tree of that depth can hold,
+#: and ``min_child_weight`` is the least hessian a leaf may hold in both libraries.
+#: Under an absolute-error loss both give every row a hessian of 1, so here it is
+#: also a row count, and ``min_child_samples`` set to the same number matches it.
 LGBM_GRID: tuple[dict[str, Any], ...] = (
-    {"max_depth": 4, "num_leaves": 15, "learning_rate": 0.10, "min_child_samples": 5},
-    {"max_depth": 6, "num_leaves": 63, "learning_rate": 0.10, "min_child_samples": 5},
-    {"max_depth": 6, "num_leaves": 63, "learning_rate": 0.05, "min_child_samples": 20},
-    {"max_depth": 8, "num_leaves": 255, "learning_rate": 0.05, "min_child_samples": 20},
+    {
+        "max_depth": 4,
+        "num_leaves": 16,
+        "learning_rate": 0.10,
+        "min_child_weight": 5,
+        "min_child_samples": 5,
+    },
+    {
+        "max_depth": 6,
+        "num_leaves": 64,
+        "learning_rate": 0.10,
+        "min_child_weight": 5,
+        "min_child_samples": 5,
+    },
+    {
+        "max_depth": 6,
+        "num_leaves": 64,
+        "learning_rate": 0.05,
+        "min_child_weight": 20,
+        "min_child_samples": 20,
+    },
+    {
+        "max_depth": 8,
+        "num_leaves": 256,
+        "learning_rate": 0.05,
+        "min_child_weight": 20,
+        "min_child_samples": 20,
+    },
 )
 
 CATBOOST_BASE: dict[str, Any] = {
@@ -191,7 +216,12 @@ def _select(
     fit: Callable[[dict[str, Any]], tuple[Any, int]],
     validation_set: Dataset,
 ) -> FittedModel:
-    """Fit each candidate and keep the best validation MAE, measured the same for every library.
+    """Fit each candidate and keep the best validation MAE.
+
+    The MAE is taken from each candidate's predictions, so it is measured the same
+    way for every library. :func:`train` reads XGBoost's own float32 eval metric
+    instead, and stays as it is because the scored run used it. The comparison
+    table re-measures XGBoost this way, so its column is one measure throughout.
 
     ``fit`` returns the model and its best iteration counted from 0, as XGBoost's is.
     """

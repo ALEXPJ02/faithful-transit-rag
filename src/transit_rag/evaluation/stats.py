@@ -49,6 +49,12 @@ class Interval:
             f" over {self.dates} dates{caveat}"
         )
 
+    def bounds(self, spec: str = ".3f") -> str:
+        """``[low, high]`` formatted by ``spec``, or "no interval" when it could not be drawn."""
+        if math.isnan(self.low):
+            return "no interval"
+        return f"[{self.low:{spec}}, {self.high:{spec}}]"
+
 
 def bootstrap_by_date(
     frame: pd.DataFrame,
@@ -81,3 +87,29 @@ def bootstrap_by_date(
         return Interval(point, math.nan, math.nan, len(dates), 0.0)
     low, high = np.percentile(values, [2.5, 97.5])
     return Interval(point, float(low), float(high), len(dates), len(values) / resamples)
+
+
+def paired_by_date(
+    frame: pd.DataFrame,
+    metric: Callable[[pd.DataFrame, str], float],
+    first: str,
+    second: str,
+    *,
+    date_column: str = "service_date",
+    resamples: int = DEFAULT_RESAMPLES,
+    seed: int = 0,
+) -> Interval:
+    """``metric`` of column ``first`` minus that of ``second``, resampling the same dates for both.
+
+    Two systems scored on the same rows share their hard days. Each one's own
+    interval carries that day-to-day swing, so two intervals can overlap almost
+    entirely while one system is ahead on every draw. Resampling the difference
+    keeps each draw's dates common to both, so the swing cancels.
+    """
+    return bootstrap_by_date(
+        frame,
+        lambda rows: metric(rows, first) - metric(rows, second),
+        date_column=date_column,
+        resamples=resamples,
+        seed=seed,
+    )

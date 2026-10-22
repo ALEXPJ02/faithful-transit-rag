@@ -62,12 +62,36 @@ FOREST_GRID: tuple[dict[str, Any], ...] = (
 )
 FOREST_BASE: dict[str, Any] = {"n_estimators": 500, "random_state": 42, "n_jobs": -1}
 
-#: ``num_leaves`` is 2^depth - 1, so a leaf-wise tree can hold no more than the
-#: depth-wise XGBoost tree it is compared with.
+#: XGBoost's candidates, translated:
+#:
+#: - ``num_leaves`` is 2^depth, every leaf a depth-wise tree of that depth can hold,
+#:   so leaf-wise growth gets the same room and no more.
+#: - ``min_child_weight`` means the same in both libraries: the least hessian a
+#:   leaf may hold. Under log loss a row adds p(1 - p), at most 0.25, so it is not
+#:   a row count. ``min_child_samples``, LightGBM's own row floor, is set to the
+#:   same number, which those hessian floors already exceed, so it never binds.
 LGBM_GRID: tuple[dict[str, Any], ...] = (
-    {"max_depth": 3, "num_leaves": 7, "learning_rate": 0.05, "min_child_samples": 5},
-    {"max_depth": 4, "num_leaves": 15, "learning_rate": 0.05, "min_child_samples": 10},
-    {"max_depth": 6, "num_leaves": 63, "learning_rate": 0.05, "min_child_samples": 20},
+    {
+        "max_depth": 3,
+        "num_leaves": 8,
+        "learning_rate": 0.05,
+        "min_child_weight": 5,
+        "min_child_samples": 5,
+    },
+    {
+        "max_depth": 4,
+        "num_leaves": 16,
+        "learning_rate": 0.05,
+        "min_child_weight": 10,
+        "min_child_samples": 10,
+    },
+    {
+        "max_depth": 6,
+        "num_leaves": 64,
+        "learning_rate": 0.05,
+        "min_child_weight": 20,
+        "min_child_samples": 20,
+    },
 )
 LGBM_BASE: dict[str, Any] = {
     "objective": "binary",

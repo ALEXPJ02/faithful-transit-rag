@@ -14,7 +14,7 @@ import pytest
 
 from transit_rag.evaluation.lead_time import LOOKBACK, lead_times, summarise
 from transit_rag.evaluation.reasons_cli import macro_f1_interval
-from transit_rag.evaluation.stats import bootstrap_by_date
+from transit_rag.evaluation.stats import bootstrap_by_date, paired_by_date
 from transit_rag.ingestion.alerts import AlertRecord, Incident
 from transit_rag.prediction.disruption.labels import WINDOW
 
@@ -57,6 +57,39 @@ class TestBootstrapByDate:
         interval = bootstrap_by_date(frame, lambda rows: float(rows["x"].sum()))
         assert interval.point == 3 and math.isnan(interval.low)
         assert "no interval" in interval.describe()
+        assert interval.bounds() == "no interval"
+
+
+class TestPairedByDate:
+    """docs/18: a gap between two systems, with the dates resampled once for both."""
+
+    def _frame(self) -> pd.DataFrame:
+        """Days that differ a lot from each other, where b is a steady 1 above a."""
+        days = [f"d{i}" for i in range(6)]
+        level = {day: 10.0 * i for i, day in enumerate(days)}
+        dates = [day for day in days for _ in range(5)]
+        a = [level[day] for day in dates]
+        return pd.DataFrame({"service_date": dates, "a": a, "b": [value + 1 for value in a]})
+
+    @staticmethod
+    def _mean(rows: pd.DataFrame, column: str) -> float:
+        return float(rows[column].mean())
+
+    def test_a_steady_gap_is_the_same_on_every_draw(self) -> None:
+        gap = paired_by_date(self._frame(), self._mean, "b", "a", resamples=300)
+        assert (gap.point, gap.low, gap.high) == pytest.approx((1.0, 1.0, 1.0))
+
+    def test_the_pairing_is_what_narrows_it(self) -> None:
+        """Unpaired, each system's own interval swings with the days, and the two overlap."""
+        frame = self._frame()
+        a = bootstrap_by_date(frame, lambda rows: self._mean(rows, "a"), resamples=300)
+        b = bootstrap_by_date(frame, lambda rows: self._mean(rows, "b"), resamples=300)
+        assert b.low < a.high  # the intervals overlap, though b is ahead on every row
+        assert paired_by_date(frame, self._mean, "b", "a", resamples=300).low > 0
+
+    def test_bounds_are_formatted_by_the_spec(self) -> None:
+        gap = paired_by_date(self._frame(), self._mean, "a", "b", resamples=50)
+        assert gap.bounds("+.1f") == "[-1.0, -1.0]"
 
 
 # 10:00 Sydney time
