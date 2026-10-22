@@ -4478,12 +4478,12 @@ serve = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'rag'", specifier = ">=0.40" },
-    { name = "catboost", marker = "extra == 'prediction'", specifier = ">=1.2" },
+    { name = "catboost", marker = "extra == 'prediction'", specifier = ">=1.2.10" },
     { name = "chromadb", marker = "extra == 'rag'", specifier = ">=0.5" },
     { name = "fastapi", marker = "extra == 'serve'", specifier = ">=0.115" },
     { name = "gtfs-realtime-bindings", marker = "extra == 'realtime'", specifier = ">=1.0" },
     { name = "joblib", marker = "extra == 'prediction'", specifier = ">=1.4" },
-    { name = "lightgbm", marker = "extra == 'prediction'", specifier = ">=4.5" },
+    { name = "lightgbm", marker = "extra == 'prediction'", specifier = ">=4.7" },
     { name = "mcp", marker = "extra == 'serve'", specifier = ">=1.2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "numpy", marker = "extra == 'prediction'", specifier = ">=1.26" },
