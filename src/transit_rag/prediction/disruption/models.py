@@ -14,6 +14,13 @@ else, and both are chosen the way the delay model is (``model/train.py``):
 Positives are about 6% of windows. Neither model is reweighted to "fix" that.
 Average precision does not need it, and reweighting changes what a score of 0.7
 means without making the ranking any better.
+
+**LightGBM, CatBoost and logistic regression were added after the scored run**, at
+the supervisor's request (``docs/18``). They are a comparison disclosed beside the
+result, not part of it, so :data:`SCORED_DETECTORS` stays what was scored. Each is
+chosen by the same rule on a grid of the same size: the boosted grids mirror
+XGBoost's depths and learning rate, so no boosting library gets more search than
+another.
 """
 
 from __future__ import annotations
@@ -55,6 +62,53 @@ FOREST_GRID: tuple[dict[str, Any], ...] = (
 )
 FOREST_BASE: dict[str, Any] = {"n_estimators": 500, "random_state": 42, "n_jobs": -1}
 
+#: ``num_leaves`` is 2^depth - 1, so a leaf-wise tree can hold no more than the
+#: depth-wise XGBoost tree it is compared with.
+LGBM_GRID: tuple[dict[str, Any], ...] = (
+    {"max_depth": 3, "num_leaves": 7, "learning_rate": 0.05, "min_child_samples": 5},
+    {"max_depth": 4, "num_leaves": 15, "learning_rate": 0.05, "min_child_samples": 10},
+    {"max_depth": 6, "num_leaves": 63, "learning_rate": 0.05, "min_child_samples": 20},
+)
+LGBM_BASE: dict[str, Any] = {
+    "objective": "binary",
+    # The only metric, so early stopping agrees with selection. Passed as an extra
+    # metric instead, binary log loss would still run and could stop the fit.
+    "metric": "average_precision",
+    "n_estimators": 1000,
+    "random_state": 42,
+    "n_jobs": -1,
+    # Both are needed for a refit to reproduce bit for bit (docs/08 §3.5).
+    "deterministic": True,
+    "force_row_wise": True,
+    "importance_type": "gain",
+    "verbose": -1,
+}
+
+CATBOOST_GRID: tuple[dict[str, Any], ...] = (
+    {"depth": 3, "learning_rate": 0.05},
+    {"depth": 4, "learning_rate": 0.05},
+    {"depth": 6, "learning_rate": 0.05},
+)
+CATBOOST_BASE: dict[str, Any] = {
+    "loss_function": "Logloss",
+    "eval_metric": "PRAUC",  # the selection metric, so early stopping agrees with it
+    "iterations": 1000,
+    "early_stopping_rounds": 50,
+    "random_seed": 42,
+    # Otherwise every fit writes a catboost_info/ folder into the working directory.
+    "allow_writing_files": False,
+    "verbose": False,
+}
+
+#: Inverse regularisation strength. Strong to weak, as the tree grids run shallow
+#: to deep.
+LOGISTIC_GRID: tuple[dict[str, Any], ...] = ({"C": 0.01}, {"C": 0.1}, {"C": 1.0})
+
+#: What RQ2's scored run compared, and what ``transit-detect`` fits by default.
+SCORED_DETECTORS: tuple[str, ...] = ("xgboost", "random forest")
+#: The post-hoc comparison of ``docs/18``, fitted only under ``--compare``.
+ADDED_DETECTORS: tuple[str, ...] = ("lightgbm", "catboost", "logistic regression")
+
 
 def feature_matrix(table: pd.DataFrame, columns: Sequence[str] = FEATURE_COLUMNS) -> pd.DataFrame:
     """The permitted columns as numbers. The line becomes 0/1 in a fixed order.
@@ -91,7 +145,14 @@ class FittedDetector:
         return pd.Series(probabilities, index=table.index, dtype=float)
 
     def importance(self) -> pd.Series:
-        """Each feature's share of importance, largest first."""
+        """Each feature's share of importance, largest first. Tree models only.
+
+        Each library defines importance its own way (XGBoost and LightGBM by gain,
+        the forest by impurity, CatBoost by how far predictions move), so shares are
+        comparable within a model, never across models.
+        """
+        if not hasattr(self.model, "feature_importances_"):
+            raise TypeError(f"{self.name} has no tree importances to report")
         values = np.asarray(self.model.feature_importances_, dtype=float)
         total = values.sum() or 1.0
         return pd.Series(values / total, index=list(self.columns)).sort_values(ascending=False)
@@ -127,7 +188,67 @@ def _fit_forest(
     return model
 
 
-_FITTERS = {"xgboost": (_fit_xgboost, XGB_GRID), "random forest": (_fit_forest, FOREST_GRID)}
+def _fit_lightgbm(
+    train: pd.DataFrame, validation: pd.DataFrame, columns: Sequence[str], params: dict[str, Any]
+) -> Any:
+    import lightgbm
+
+    model = lightgbm.LGBMClassifier(**{**LGBM_BASE, **params})
+    model.fit(
+        feature_matrix(train, columns),
+        train["target"].astype(bool),
+        eval_X=feature_matrix(validation, columns),
+        eval_y=validation["target"].astype(bool),
+        callbacks=[lightgbm.early_stopping(50, verbose=False)],
+    )
+    return model
+
+
+def _fit_catboost(
+    train: pd.DataFrame, validation: pd.DataFrame, columns: Sequence[str], params: dict[str, Any]
+) -> Any:
+    from catboost import CatBoostClassifier
+
+    model = CatBoostClassifier(**{**CATBOOST_BASE, **params})
+    model.fit(
+        feature_matrix(train, columns),
+        train["target"].astype(bool),
+        eval_set=(feature_matrix(validation, columns), validation["target"].astype(bool)),
+    )
+    return model
+
+
+def _fit_logistic(
+    train: pd.DataFrame, validation: pd.DataFrame, columns: Sequence[str], params: dict[str, Any]
+) -> Any:
+    """A linear reference: whether the tree ensembles earn their complexity.
+
+    A linear model cannot split on a missing value, so missing values are filled
+    with the training median and each gets an indicator column. The indicator
+    carries what the trees read from NaN: a thin window is information, not a gap.
+    Scaling puts the penalty on every feature equally.
+    """
+    from sklearn.impute import SimpleImputer
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    model = make_pipeline(
+        SimpleImputer(strategy="median", add_indicator=True),
+        StandardScaler(),
+        LogisticRegression(max_iter=2000, **params),
+    )
+    model.fit(feature_matrix(train, columns), train["target"].astype(bool))
+    return model
+
+
+_FITTERS = {
+    "xgboost": (_fit_xgboost, XGB_GRID),
+    "random forest": (_fit_forest, FOREST_GRID),
+    "lightgbm": (_fit_lightgbm, LGBM_GRID),
+    "catboost": (_fit_catboost, CATBOOST_GRID),
+    "logistic regression": (_fit_logistic, LOGISTIC_GRID),
+}
 
 
 def fit_detector(

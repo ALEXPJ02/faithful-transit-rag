@@ -166,6 +166,7 @@ Rationale in [`docs/01-architecture.md`](./docs/01-architecture.md) §3.
 - [`docs/15-faithfulness-judge.md`](./docs/15-faithfulness-judge.md) — the faithfulness judge: per-statement verdicts, its frozen rubric, and κ against the author
 - [`docs/16-mcp-server.md`](./docs/16-mcp-server.md) — the agent's tools served to any MCP client, as of a moment
 - [`docs/17-results.md`](./docs/17-results.md) — the scored run at the 2026-10-18 cut-off: every result, with its counts and intervals
+- [`docs/18-model-comparison.md`](./docs/18-model-comparison.md) — LightGBM, CatBoost and logistic regression, compared after the scored run on the same file
 
 ## Status
 

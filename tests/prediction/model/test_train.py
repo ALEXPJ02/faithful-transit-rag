@@ -9,6 +9,8 @@ Small on purpose: a few hundred synthetic rows, not the real 93,000.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -20,7 +22,15 @@ from transit_rag.prediction.model.dataset import (
     build_dataset,
     category_dtypes,
 )
-from transit_rag.prediction.model.train import PARAM_GRID, train
+from transit_rag.prediction.model.train import (
+    CATBOOST_GRID,
+    LGBM_GRID,
+    PARAM_GRID,
+    FittedModel,
+    train,
+    train_catboost,
+    train_lightgbm,
+)
 
 pytest.importorskip("xgboost", reason="install the 'prediction' extra")
 
@@ -103,6 +113,39 @@ class TestTrain:
 
         assert set(importance["feature"]) <= set(FEATURE_COLUMNS)
         assert importance["share"].sum() == pytest.approx(1.0)
+
+
+class TestTheAddedRegressors:
+    """docs/18: LightGBM and CatBoost, chosen by the same rule as XGBoost."""
+
+    @pytest.mark.parametrize(
+        ("fit", "grid", "library"),
+        [(train_lightgbm, LGBM_GRID, "lightgbm"), (train_catboost, CATBOOST_GRID, "catboost")],
+    )
+    def test_chosen_on_validation_from_a_grid_the_size_of_xgboost_s(
+        self, fit: Any, grid: tuple[dict[str, Any], ...], library: str
+    ) -> None:
+        pytest.importorskip(library, reason="install the 'prediction' extra")
+        fit_set, validation_set = split_sets(synthetic_table())
+
+        fitted: FittedModel = fit(fit_set, validation_set)
+
+        assert len(fitted.search) == len(grid) == len(PARAM_GRID)
+        assert fitted.validation_mae_s == min(row["validation_mae_s"] for row in fitted.search)
+        assert fitted.best_iteration >= 0
+        # The rows it was chosen on use the shared stop levels, so prediction
+        # must accept them; and it must beat predicting the training median.
+        predicted = fitted.predict(validation_set.features)
+        constant = np.full(len(validation_set), fit_set.target.median())
+        assert metrics.score(validation_set.target, predicted).mae_s < (
+            metrics.score(validation_set.target, constant).mae_s
+        )
+
+    def test_only_xgboost_reports_gain_importance(self) -> None:
+        pytest.importorskip("lightgbm", reason="install the 'prediction' extra")
+        fit_set, validation_set = split_sets(synthetic_table())
+        with pytest.raises(TypeError, match="XGBoost booster"):
+            train_lightgbm(fit_set, validation_set).feature_importance()
 
 
 class TestTheLeakGuardActuallyMatters:

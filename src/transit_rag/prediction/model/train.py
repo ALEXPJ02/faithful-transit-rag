@@ -11,17 +11,24 @@ touched during fitting or selection -- it is scored once, at the end, by the
 caller. The grid is deliberately small; with a collection window of weeks the
 honest constraint is data, not search budget, and a large sweep over a thin
 validation set mostly selects noise.
+
+**LightGBM and CatBoost were added after the scored run**, at the supervisor's
+request (``docs/18``). They are chosen the same way, on a grid of the same size
+that mirrors :data:`PARAM_GRID`'s depths and learning rates, and they never
+replace the XGBoost model the agent reads.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
 
-from transit_rag.prediction.model.dataset import Dataset
+from transit_rag.prediction.model import metrics
+from transit_rag.prediction.model.dataset import CATEGORICAL_COLUMNS, Dataset
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +51,45 @@ PARAM_GRID: tuple[dict[str, Any], ...] = (
     {"max_depth": 6, "learning_rate": 0.10, "min_child_weight": 5},
     {"max_depth": 6, "learning_rate": 0.05, "min_child_weight": 20},
     {"max_depth": 8, "learning_rate": 0.05, "min_child_weight": 20},
+)
+
+LGBM_BASE: dict[str, Any] = {
+    "objective": "l1",  # MAE, as reg:absoluteerror is for XGBoost
+    "n_estimators": 2000,
+    "random_state": 42,
+    "n_jobs": -1,
+    # Both are needed for a refit to reproduce bit for bit (docs/08 §3.5).
+    "deterministic": True,
+    "force_row_wise": True,
+    "verbose": -1,
+}
+#: ``num_leaves`` is 2^depth - 1, so a leaf-wise tree can hold no more than the
+#: depth-wise XGBoost tree it is compared with. Under an absolute-error loss
+#: every row weighs the same, so XGBoost's ``min_child_weight`` is a row count
+#: and maps onto ``min_child_samples``.
+LGBM_GRID: tuple[dict[str, Any], ...] = (
+    {"max_depth": 4, "num_leaves": 15, "learning_rate": 0.10, "min_child_samples": 5},
+    {"max_depth": 6, "num_leaves": 63, "learning_rate": 0.10, "min_child_samples": 5},
+    {"max_depth": 6, "num_leaves": 63, "learning_rate": 0.05, "min_child_samples": 20},
+    {"max_depth": 8, "num_leaves": 255, "learning_rate": 0.05, "min_child_samples": 20},
+)
+
+CATBOOST_BASE: dict[str, Any] = {
+    "loss_function": "MAE",
+    "iterations": 2000,
+    "early_stopping_rounds": 50,
+    "random_seed": 42,
+    # Otherwise every fit writes a catboost_info/ folder into the working directory.
+    "allow_writing_files": False,
+    "verbose": False,
+}
+#: CatBoost grows symmetric trees, where a minimum leaf size does not apply, so
+#: its grid varies depth and learning rate alone.
+CATBOOST_GRID: tuple[dict[str, Any], ...] = (
+    {"depth": 4, "learning_rate": 0.10},
+    {"depth": 6, "learning_rate": 0.10},
+    {"depth": 6, "learning_rate": 0.05},
+    {"depth": 8, "learning_rate": 0.05},
 )
 
 
@@ -69,6 +115,8 @@ class FittedModel:
         persistence, and that weakens the case for including a prediction layer
         at all.
         """
+        if not hasattr(self.booster, "get_booster"):
+            raise TypeError("gain importance is read from an XGBoost booster")
         booster = self.booster.get_booster()
         gains = booster.get_score(importance_type="gain")
         frame = pd.DataFrame(
@@ -135,3 +183,77 @@ def train(train_set: Dataset, validation_set: Dataset) -> FittedModel:
 
     best.search = search
     return best
+
+
+def _select(
+    grid: tuple[dict[str, Any], ...],
+    base: dict[str, Any],
+    fit: Callable[[dict[str, Any]], tuple[Any, int]],
+    validation_set: Dataset,
+) -> FittedModel:
+    """Fit each candidate and keep the best validation MAE, measured the same for every library.
+
+    ``fit`` returns the model and its best iteration counted from 0, as XGBoost's is.
+    """
+    best: FittedModel | None = None
+    search: list[dict[str, Any]] = []
+    for candidate in grid:
+        params = {**base, **candidate}
+        model, best_iteration = fit(params)
+        predicted = model.predict(validation_set.features)
+        validation_mae = metrics.score(validation_set.target, predicted).mae_s
+        search.append(
+            {**candidate, "best_iteration": best_iteration, "validation_mae_s": validation_mae}
+        )
+        log.info(
+            "  %s -> validation MAE %.1fs (%d trees)", candidate, validation_mae, best_iteration + 1
+        )
+        if best is None or validation_mae < best.validation_mae_s:
+            best = FittedModel(model, params, best_iteration, validation_mae)
+    if best is None:  # pragma: no cover - the grids are never empty
+        raise RuntimeError("the grid is empty; nothing to train")
+    best.search = search
+    return best
+
+
+def train_lightgbm(train_set: Dataset, validation_set: Dataset) -> FittedModel:
+    """LightGBM by the same rule as :func:`train`. Never pass test.
+
+    It reads the pandas category dtype natively, so it sees the same shared
+    levels as XGBoost.
+    """
+    import lightgbm
+
+    def fit(params: dict[str, Any]) -> tuple[Any, int]:
+        model = lightgbm.LGBMRegressor(**params)
+        model.fit(
+            train_set.features,
+            train_set.target,
+            eval_X=validation_set.features,
+            eval_y=validation_set.target,
+            callbacks=[lightgbm.early_stopping(50, verbose=False)],
+        )
+        # LightGBM counts iterations from 1.
+        return model, int(model.best_iteration_) - 1
+
+    return _select(LGBM_GRID, LGBM_BASE, fit, validation_set)
+
+
+def train_catboost(train_set: Dataset, validation_set: Dataset) -> FittedModel:
+    """CatBoost by the same rule as :func:`train`. Never pass test.
+
+    The categorical columns are named, so CatBoost encodes them by its own
+    ordered target statistics rather than reading their codes as numbers.
+    """
+    from catboost import CatBoostRegressor
+
+    def fit(params: dict[str, Any]) -> tuple[Any, int]:
+        model = CatBoostRegressor(**params, cat_features=list(CATEGORICAL_COLUMNS))
+        model.fit(
+            train_set.features,
+            train_set.target,
+            eval_set=(validation_set.features, validation_set.target),
+        )
+        return model, int(model.get_best_iteration())
+
+    return _select(CATBOOST_GRID, CATBOOST_BASE, fit, validation_set)

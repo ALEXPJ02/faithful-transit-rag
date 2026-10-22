@@ -20,6 +20,7 @@ import pytest
 from transit_rag.ingestion.alerts import AlertRecord
 from transit_rag.prediction.collection.store import SqliteObservationStore
 from transit_rag.prediction.disruption.detect_cli import main as detect_main
+from transit_rag.prediction.disruption.detect_cli import paired_gap
 from transit_rag.prediction.disruption.detection import (
     best_f1_threshold,
     persistence,
@@ -320,3 +321,46 @@ def test_the_detect_command_scores_the_baseline_and_writes_only_where_asked(
     written = pd.read_csv(out)
     assert set(FEATURE_COLUMNS) | {"target", "disrupted_now"} <= set(written.columns)
     assert written["target"].dropna().astype(bool).sum() >= 7  # each day's 10:15 window
+
+
+def test_compare_only_appends_to_what_the_scored_run_printed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """docs/18 sits beside docs/17: --compare may add rows, never change one."""
+    db = _week_snapshot(tmp_path)
+    overrides = tmp_path / "none.csv"
+    overrides.write_text("alert_id,is_incident,reason\n", encoding="utf-8")
+
+    assert detect_main(["--db", str(db), "--overrides", str(overrides)]) == 0
+    scored = capsys.readouterr().out
+    assert detect_main(["--db", str(db), "--overrides", str(overrides), "--compare"]) == 0
+    compared = capsys.readouterr().out
+
+    assert compared.startswith(scored)
+    added = compared[len(scored) :]
+    assert "Added for comparison (docs/18)" in added
+    for label in ("lightgbm", "catboost", "logistic", "lgbm -alert", "cat -alert", "logit -alert"):
+        assert f"  {label} (threshold" in added
+    assert "Every system on test" in added
+
+
+class TestPairedGap:
+    def _part(self) -> pd.DataFrame:
+        rng = np.random.default_rng(0)
+        dates = np.repeat([f"2026-10-{day}" for day in range(14, 19)], 40)
+        target = rng.uniform(0, 1, dates.size) < 0.2
+        return pd.DataFrame({"service_date": dates, "target": pd.array(target, dtype="boolean")})
+
+    def test_a_system_against_itself_has_no_gap_on_any_draw(self) -> None:
+        part = self._part()
+        score = pd.Series(np.random.default_rng(1).uniform(0, 1, len(part)), index=part.index)
+        gap = paired_gap(part, score, score)
+        assert (gap.point, gap.low, gap.high) == (0.0, 0.0, 0.0)
+
+    def test_a_perfect_ranking_beats_a_noisy_one_on_every_draw(self) -> None:
+        part = self._part()
+        perfect = part["target"].astype(float)
+        noisy = pd.Series(np.random.default_rng(2).uniform(0, 1, len(part)), index=part.index)
+        gap = paired_gap(part, perfect, noisy)
+        assert gap.point > 0 and gap.low > 0
+        assert gap.dates == 5

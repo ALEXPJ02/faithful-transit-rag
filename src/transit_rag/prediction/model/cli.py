@@ -7,6 +7,7 @@
     transit-train --all-rows           # sensitivity check: skip the reliability filter
     transit-train --keep-implausible   # audit what the plausibility bound excludes
     transit-train --keep-schedule-blind  # audit the dates with no timetable join
+    transit-train --compare            # also LightGBM and CatBoost on the same split; writes nothing
 
 **Rows the feed could not have meant.** GTFS-Realtime sometimes republishes the
 previous day's run under today's ``start_date``, which reconciles to a delay of
@@ -38,6 +39,11 @@ same margin.
 
 **The test split is scored once**, after hyperparameter selection has finished on
 validation. Nothing in this module fits or selects against it.
+
+**``--compare`` is the post-hoc comparison of ``docs/18``.** It prints the scored
+report unchanged, then fits LightGBM and CatBoost on the same split, by the same
+rule, and scores them on the same rows. It writes nothing, so the model the agent
+reads stays the scored XGBoost.
 """
 
 from __future__ import annotations
@@ -52,6 +58,7 @@ from pathlib import Path
 import pandas as pd
 
 from transit_rag.config import PROJECT_ROOT
+from transit_rag.evaluation.stats import Interval, bootstrap_by_date
 from transit_rag.prediction.features.quality import (
     CLOSE_OBSERVATION_STOPS_AHEAD,
     MAX_PLAUSIBLE_DELAY_S,
@@ -69,7 +76,7 @@ from transit_rag.prediction.model.dataset import (
     filter_schedule_covered,
     load_training_table,
 )
-from transit_rag.prediction.model.train import FittedModel, train
+from transit_rag.prediction.model.train import FittedModel, train, train_catboost, train_lightgbm
 
 log = logging.getLogger("transit_rag.train")
 
@@ -292,6 +299,124 @@ def _print_interval(summary: dict[str, object]) -> None:
         )
 
 
+def _print_comparison(table: pd.DataFrame, fitted: FittedModel, summary: dict[str, object]) -> None:
+    """LightGBM and CatBoost beside XGBoost and persistence, on the same rows (``docs/18``).
+
+    The split, the category levels and the compared test rows are the scored
+    run's. Each model's 90% interval is calibrated on its own validation
+    residuals by the same bins, which shows whether the margin holds for a model
+    other than the one it was built for.
+    """
+    levels = summary["_levels"]
+    frames = summary["_frames"]
+    assert isinstance(levels, dict) and isinstance(frames, dict)
+    split = time_based_split(table)
+    train_set = build_dataset(split.train, levels)
+    validation_set = build_dataset(split.validation, levels)
+    comparable = frames["comparable"]
+    compared = build_dataset(comparable, levels)
+    every_test_row = build_dataset(split.test, levels)
+    validation_keys = conformal.bin_keys(split.validation)
+    test_keys = conformal.bin_keys(split.test)
+    lateness = conformal.bin_columns(split.test)["lateness"]
+    baseline_scores = frames["baseline_scores"]
+
+    models: list[tuple[str, FittedModel]] = [("XGBoost", fitted)]
+    for name, fit in (("LightGBM", train_lightgbm), ("CatBoost", train_catboost)):
+        log.info("fitting %d %s candidates", 4, name)
+        models.append((name, fit(train_set, validation_set)))
+
+    print()
+    print(
+        f"Compared on the same {len(comparable):,} test rows (docs/18) -- each model "
+        "chosen on validation MAE from a grid of 4:"
+    )
+    print(
+        f"  {'':<20}{'val MAE':>8}{'MAE':>8}{'RMSE':>8}{'MAPE*':>7}{'MASE':>7}"
+        f"{'MAE - persistence':>19}  95% interval"
+    )
+    print(
+        f"  {'naive persistence':<20}{'':>8}{baseline_scores.mae_s:>7.1f}s"
+        f"{baseline_scores.rmse_s:>7.1f}s{_mape(baseline_scores):>7}"
+    )
+    for name, model in models:
+        prediction = model.predict(compared.features)
+        scores = metrics.score(compared.target, prediction)
+        gap = _paired_mae_gap(
+            comparable, compared.target, prediction, frames["baseline_prediction"]
+        )
+        print(
+            f"  {name:<20}{model.validation_mae_s:>7.1f}s{scores.mae_s:>7.1f}s"
+            f"{scores.rmse_s:>7.1f}s{_mape(scores):>7}"
+            f"{metrics.mase(scores, baseline_scores):>7.3f}{gap.point:>+18.1f}s"
+            f"  [{gap.low:+.1f}, {gap.high:+.1f}]"
+        )
+    print(
+        "  *MAPE over rows with a non-zero delay. The gap resamples the same "
+        f"{comparable['service_date'].nunique()} dates for both."
+    )
+
+    print()
+    print("  Chosen on validation:")
+    for name, model in models:
+        settings = ", ".join(
+            f"{key} {model.params[key]}"
+            for key in ("max_depth", "depth", "num_leaves", "learning_rate", "min_child_weight")
+            if key in model.params
+        )
+        min_samples = model.params.get("min_child_samples")
+        if min_samples is not None:
+            settings += f", min_child_samples {min_samples}"
+        print(f"    {name:<10}{settings} -- {model.best_iteration + 1} trees")
+
+    print()
+    print(
+        "  90% interval on every test row, split conformal by line x lateness, "
+        "each calibrated on its own validation residuals:"
+    )
+    bands = [band for band, _, _ in conformal.LATENESS_BANDS]
+    print(f"    {'':<10}" + "".join(f"{band:>19}" for band in bands) + f"{'all':>8}")
+    for name, model in models:
+        intervals = conformal.ConformalIntervals.fit(
+            validation_set.target, model.predict(validation_set.features), validation_keys
+        )
+        coverage = conformal.coverage_table(
+            every_test_row.target,
+            model.predict(every_test_row.features),
+            intervals.half_width(test_keys),
+            lateness,
+        )
+        by_band = {row.segment: f"{row.coverage:.1%}" for row in coverage.itertuples(index=False)}
+        print(
+            f"    {name:<10}"
+            + "".join(f"{by_band.get(band, '--'):>19}" for band in bands)
+            + f"{by_band['all']:>8}"
+        )
+
+
+def _mape(scores: metrics.Scores) -> str:
+    return "n/a" if scores.mape_nonzero is None else f"{scores.mape_nonzero:.0f}%"
+
+
+def _paired_mae_gap(
+    rows: pd.DataFrame, truth: pd.Series, model: pd.Series, baseline: pd.Series
+) -> Interval:
+    """Model MAE minus persistence's, and its 95% interval from resampling whole dates.
+
+    Paired: both are scored on the same drawn dates, so a hard day raises both.
+    """
+    frame = pd.DataFrame(
+        {
+            "service_date": rows["service_date"].to_numpy(),
+            "model": (model.to_numpy(dtype=float) - truth.to_numpy(dtype=float)),
+            "baseline": (baseline.to_numpy(dtype=float) - truth.to_numpy(dtype=float)),
+        }
+    )
+    return bootstrap_by_date(
+        frame, lambda drawn: float(drawn["model"].abs().mean() - drawn["baseline"].abs().mean())
+    )
+
+
 def _run_curve(table: pd.DataFrame) -> None:
     """MAE against number of training days, from prefixes of one dataset.
 
@@ -362,8 +487,14 @@ def main() -> None:
             f"scheduled_arrival_s and stop_sequence entirely"
         ),
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--curve", action="store_true", help="Sweep training-set size and report MAE against days"
+    )
+    mode.add_argument(
+        "--compare",
+        action="store_true",
+        help="Also fit LightGBM and CatBoost on the same split and compare (docs/18). Writes nothing",
     )
     parser.add_argument("--report-only", action="store_true", help="Print, write nothing")
     parser.add_argument("--model-out", type=Path, default=DEFAULT_MODEL)
@@ -454,6 +585,9 @@ def main() -> None:
     fitted, summary = _fit_and_score(table)
     _print_report(fitted, summary)
 
+    if args.compare:
+        _print_comparison(table, fitted, summary)
+        return
     if args.report_only:
         return
 
