@@ -39,9 +39,10 @@ keeps everything the scored run fixed, and fixes the rest before it runs:
   print and changes none of it (§3).
 
 What it can then claim is how these models rank on these test dates (five for
-detection, six for delay) under one protocol fixed in advance. It cannot promote a model. The agent keeps the scored
-XGBoost detector and delay model, because choosing the best of several on test would
-be choosing on test.
+detection, six for delay) under one protocol fixed in advance. It cannot promote a
+model on its test score. The agent keeps the scored XGBoost detector and delay model:
+its answers were scored with them (`17` §6), and a change would need its own disclosed
+run (§7).
 
 ## 2. The models, and why each
 
@@ -239,16 +240,20 @@ The scored rows are `17` §3's, reproduced. What is new for them is the paired g
   every detector's F1 is 67–72%, against persistence's 83%, as in `17` §3.
 - **The operator's alert still adds nothing measurable.** Without it, CatBoost and
   logistic regression score higher on test, and LightGBM lower, all within noise.
-- **Lead time does not separate them.**
-  - **Flagging:** every detector, scored or added, flags 6 of the 8 test incidents,
-    where persistence flags all 8.
-  - **Median leads** are 0 minutes. The exceptions are CatBoost and XGBoost without the
-    alert feature, at +3 minutes with 4 of their 6 before the alert.
-  - **Resolution:** a lead time is good to about 30 minutes (`12` §5), so none of
-    these differ.
-- **The log's "defined in fewer than every resample (100%)".** One resample of 2,000
-  drew 17 October, which has no positive target, five times. The share is 99.95%,
-  printed as 100%. The same is true of every AP interval in `17` §3.
+- **Lead time does not separate the detectors from one another.**
+  - **Flagging:** every detector, scored or added, flags 6 of the 8 test incidents.
+    Persistence flags all 8, at a median of 4 minutes after the alert, because it reads
+    each window's own label, rule (a)'s hindsight included (`12` §4).
+  - **Median leads** for the detectors are 0 minutes. The exceptions are CatBoost and
+    XGBoost without the alert feature, at +3 minutes with 4 of their 6 before the alert.
+  - **Resolution:** a lead time is good to about 30 minutes (`12` §5), so no detector's
+    differs from another's.
+- **The log's "defined in fewer than every resample (100%)".** The log prints the share
+  rounded.
+  - **The exact count:** replaying the bootstrap's seeded date draws against each test
+    date's positives shows that 1 resample of 2,000 drew 17 October, which has no
+    positive target, five times.
+  - **The share** is therefore 99.95%. The same is true of every AP interval in `17` §3.
 
 ## 6. Delay prediction (RQ1 Objective 2)
 
@@ -263,7 +268,8 @@ persistence baseline.
 | CatBoost | 22.2 s | 20.2 s | 67.0 s | 63% | 0.884 | −2.6 s [−3.7, −1.1] |
 
 \*MAPE covers only the 51% of rows with a non-zero delay. All three chose depth 8 and
-learning rate 0.05.
+learning rate 0.05. The paired gaps come from unrounded MAEs, so a gap can differ by
+0.1 s from the difference of the rounded columns. XGBoost's −0.9 s is one such case.
 
 - **LightGBM beats persistence clearly.** Its MAE is 19% lower, and the paired interval
   excludes zero by 3.3 seconds. **CatBoost does too**, by 12%. The scored XGBoost's 3.7%
@@ -287,8 +293,9 @@ learning rate 0.05.
     cap ended its fit too.
 
   More trees might improve both, so their figures are if anything conservative.
-- **The 90% interval holds for every model.** Calibrated on each model's own validation
-  residuals:
+- **The 90% interval behaves the same for every model.** Overall it covers 88.9–89.2%,
+  slightly short of 90%, as `17` §4 found for XGBoost. Calibrated on each model's own
+  validation residuals:
 
   | How late the train already is | XGBoost | LightGBM | CatBoost |
   | --- | --- | --- | --- |
@@ -310,7 +317,8 @@ right library.**
   the paired interval here shows that gain is not distinguishable from zero.
 - **What changes:** LightGBM, which a choice on validation would have made, beats
   persistence by 19% on MAE and on RMSE too, with a paired interval clear of zero.
-- **What holds:** the conformal margin holds at about 89% whichever model it wraps.
+- **What holds:** the conformal margin covers about 89% whichever model it wraps,
+  slightly short of its 90%, as in `17` §4.
 
 **RQ2, which model detects disruptions better: unchanged, on stronger evidence.**
 - Five learners from three families (linear, bagged and boosted) now stand beside
@@ -343,8 +351,13 @@ is future work, and it would need its own disclosed run.
   positives, and 17 October none, which is why every detection interval is wide. Delay
   rests on six dates.
 - **The comparisons are uncorrected.** There are ten detection gaps and three delay
-  gaps, each at 95%. No detection interval excludes zero, so a correction cannot change
-  that conclusion.
+  gaps, each at 95%.
+  - **Detection:** no interval excludes zero, so a correction cannot change that
+    conclusion.
+  - **Delay:** the positive claims are the ones a correction could weaken. LightGBM's
+    interval ends 3.3 s from zero, and CatBoost's only 1.1 s from it. A correction over
+    the three delay gaps would widen each to a 98.3% interval, which was not computed.
+    So CatBoost's claim is the weaker of the two.
 - **Equal candidate counts are not equal tuning.** Each library keeps its own defaults
   where there is no shared parameter (§2), and the tree cap binds for two of the three
   boosters on delay.

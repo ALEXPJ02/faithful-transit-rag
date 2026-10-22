@@ -47,7 +47,8 @@ which made 18 urgent repairs published as `MAINTENANCE` into incidents by overri
 (`docs/09` §7). The second run is the result, and `docs/17` §9 sets the first beside it.
 - **Detection**, 5 test dates: AP 0.80 (forest) and 0.75 (XGBoost) against persistence's
   0.72, intervals overlapping. Persistence is the better alarm at validation's thresholds.
-- **Delay:** MASE 0.963, and the 90% interval covers 88.9%.
+- **Delay:** MASE 0.963, a gain a paired interval cannot tell from zero (`docs/18` §6),
+  and the 90% interval covers 88.9%.
 - **Reasons:** k = 3. The test split held 8 incidents, all technical, so cause macro-F1
   across groups could not be computed.
 - **Faithfulness**, by the judge, which gives upper bounds: agent 94%, reasons with
@@ -336,6 +337,9 @@ README, numbered `docs/NN-topic.md`, `.editorconfig` / `.gitignore` /
   - **The grids are frozen.** They were merged before any added model touched test.
     Never tune them after seeing test, and never promote a model to the agent on its
     test score: that would be choosing on test.
+  - **Why the agent keeps XGBoost.** Validation would choose LightGBM for delay, but
+    the agent's answers were scored with XGBoost. Moving its delay tool to LightGBM
+    needs its own disclosed run.
 - **Opal fare policy is out of scope**, set 2026-09-22. RAG stays; the corpus
   becomes past T1/T4 service alerts. The Opal PDFs, `ingestion/corpus.py` and the
   built `opal_policy` collection are **retained, not deleted** — they are working,
