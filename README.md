@@ -179,7 +179,9 @@ Every figure below is from the scored run on the frozen evaluation file at the
   115 service alerts name T1 or T4. Cancelled and altered trips are collected from
   2026-09-29 (`trip_statuses`). The frozen file's sha256 is `44e90956…32ac`.
 - **Prediction (RQ1 O2)** — the delay model beats naive persistence narrowly on the 6
-  test dates: **MAE 22.0 s vs 22.8 s, MASE 0.963**, and it is worse on RMSE. Its
+  test dates: **MAE 22.0 s vs 22.8 s, MASE 0.963**, and it is worse on RMSE. A paired
+  interval added afterwards cannot tell that gain from zero
+  ([`docs/18`](./docs/18-model-comparison.md) §6). Its
   **margin**, a 90% conformal interval by line × how late the train already is
   ([`docs/08`](./docs/08-evaluation-plan.md) §4), covers **88.9%** of test rows, where
   ± MAE covers 30% of trains already more than 5 minutes late. The **disruption label**
@@ -216,11 +218,17 @@ Every figure below is from the scored run on the frozen evaluation file at the
   adds LightGBM, CatBoost and logistic regression to detection, and LightGBM and
   CatBoost to delay prediction, on the same frozen file
   ([`docs/18`](./docs/18-model-comparison.md)). Their grids mirror XGBoost's and were
-  fixed before any of them was scored. It is a comparison disclosed beside the result,
-  never part of it, and the agent keeps the scored models. The run is next.
-- **Next** — the comparison run, then the write-up. A live feed behind the agent's tools
-  is future work. The MCP server is built (`transit-mcp`,
-  [`docs/16`](./docs/16-mcp-server.md)).
+  frozen before any of them saw test. Run once on 2026-10-23:
+  - **Delay:** LightGBM beats persistence clearly, **MASE 0.813**, with a paired 95%
+    interval of [−5.2, −3.3] s. It beats persistence on RMSE as well, where XGBoost
+    loses, and validation would also have chosen it.
+  - **Detection:** no model beats persistence significantly, even paired by date.
+    Logistic regression (AP 0.78) ranks as well as the boosted trees (0.75–0.76).
+
+  It is disclosed beside the result, never part of it, and the agent keeps the scored
+  models.
+- **Next** — the write-up. A live feed behind the agent's tools is future work. The MCP
+  server is built (`transit-mcp`, [`docs/16`](./docs/16-mcp-server.md)).
 
 See [`docs/04-implementation-plan.md`](./docs/04-implementation-plan.md) for the
 phase plan and risks.

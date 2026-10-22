@@ -79,6 +79,12 @@ Consequences, in order:
    delay prediction *using open data alone* — this project's exact constraint.
    Boudabbous et al. (2026) get strong LSTM results, but on a city-scale feature
    pipeline with far more data than a semester of collection can produce.
+   **LightGBM and CatBoost were compared after the scored run**
+   ([`18-model-comparison.md`](./18-model-comparison.md)). On delay, LightGBM has the
+   lower MAE on validation and on test (MASE 0.813 against XGBoost's 0.963), and
+   unlike XGBoost it beats persistence by a margin clear of zero. Validation alone would
+   have chosen it. The agent keeps the scored XGBoost, because its answers were scored
+   with it, and a change would need its own disclosed run.
 4. **Report error margins, never point estimates.** Published accuracy is bounded
    (~10% error on dense routes, ~20% on sparse ones) and the field has no agreed
    evaluation protocol (Elliker et al., 2026). The system states its uncertainty,

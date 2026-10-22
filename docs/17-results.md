@@ -6,6 +6,12 @@ and its thresholds (`08` §5), the retrain window, and the reasons prompt (`13` 
 judge and its rubric were fixed by validation (`15` §4). The figures elsewhere in these
 docs are development figures. These are the results.
 
+**More models were compared afterwards, on the same file**
+([`18`](./18-model-comparison.md)). The supervisor asked for the comparison after this
+run. Its grids were frozen before any added model saw test, it reproduces every figure
+on this page that it touches, and it replaces none of them. It does qualify one: the
+delay model's gain over persistence, which a paired interval cannot tell from zero (§4).
+
 **The scored run was made twice, and the second run is the result.** The first used the
 alert rule as it stood on 2026-10-11. Reading its outputs showed that the rule's
 held-out check had stopped on that date, although `09` §7 commits to continuing it to
@@ -138,11 +144,16 @@ validation MAE.
 
 \*MAPE covers only the 51% of rows with a non-zero delay.
 
-**The model beats persistence by 3.7% on MAE, MASE 0.963, and loses on RMSE.** It is
-trained on absolute error, which rewards many small gains over avoiding a few large
-misses. In development, on the 17 schedule-covered dates to 2026-09-24, MASE was 0.828.
-On the scored test dates the margin is much narrower. Peak MAE is 27.7 s and off-peak
-18.5 s. The previous stop's delay carries 82% of the gain.
+**The model beats persistence by 3.7% on MAE, MASE 0.963, and loses on RMSE.**
+- **The gain cannot be told from zero.** On these dates, the paired date-resampled
+  interval added afterwards runs from −3.0 to +2.7 s (`18` §6).
+- **The loss explains part of the RMSE result.** The model is trained on absolute error,
+  which rewards many small gains over avoiding a few large misses. That is not the whole
+  story: LightGBM, trained on the same loss, beats persistence on RMSE too (`18` §6).
+- **The margin narrowed from development.** On the 17 schedule-covered dates to
+  2026-09-24, MASE was 0.828. On the scored test dates the margin is much narrower.
+- **Where the error sits.** Peak MAE is 27.7 s and off-peak 18.5 s, and the previous
+  stop's delay carries 82% of the gain.
 
 **The 90% interval holds close to 90% on dates it never saw:**
 
@@ -293,8 +304,10 @@ T4, and each was scored against a baseline written first.
   era of 11–15 September, which was superseded before the archive began. Those five
   dates have no schedule.
 - **Objective 2, prediction with its margin: feasible, with small gains.**
-  - The delay model beats persistence by 3.7% on MAE. Its 90% interval covers 88.9% on
-    dates it never saw, where ± MAE covers 30% of trains already late.
+  - The delay model beats persistence by 3.7% on MAE. A paired interval added afterwards
+    cannot tell that gain from zero, though it can for LightGBM's 19% (`18` §7). Its 90%
+    interval covers 88.9% on dates it never saw, where ± MAE covers 30% of trains
+    already late.
   - The detectors rank disrupted windows slightly better than persistence, at AP
     0.75–0.80 against 0.72. Five test dates cannot separate them, and persistence is
     the better alarm at the chosen thresholds.
@@ -318,6 +331,7 @@ ground truth, by a criterion fixed before the test dates. §9 shows what it chan
 **What these results do not support:**
 - that retrieval improves cause identification or faithfulness;
 - that any detector beats persistence significantly;
+- that the delay model's gain over persistence is distinguishable from zero (`18` §6);
 - anything about weather or other/unknown causes on the test dates, which held none.
 
 ## 9. The first run, before the correction
