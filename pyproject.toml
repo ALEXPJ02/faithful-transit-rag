@@ -33,7 +33,7 @@ rag = [
     "anthropic>=0.40",
     "voyageai>=0.3",
     "chromadb>=0.5",
-    "pypdf>=5.0",
+    "pypdf>=6.21.1",  # 6.21.1 fixes the last advisory against earlier releases
     "pydantic>=2.7",
 ]
 # Phase 1b prediction layer (see docs/02-tech-stack.md). LightGBM and CatBoost are
